@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Product;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class ProductController extends Controller
 {
@@ -39,9 +40,44 @@ class ProductController extends Controller
     public function destroy(Request $request, Product $product)
     {
         $this->authorizeCompany($request, $product);
+
+        if ($product->image_path) {
+            Storage::disk('public')->delete($product->image_path);
+        }
+
         $product->delete();
 
         return response()->noContent();
+    }
+
+    public function uploadImage(Request $request, Product $product)
+    {
+        $this->authorizeCompany($request, $product);
+
+        $request->validate([
+            'image' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
+        ]);
+
+        if ($product->image_path) {
+            Storage::disk('public')->delete($product->image_path);
+        }
+
+        $path = $request->file('image')->store('products', 'public');
+        $product->update(['image_path' => $path]);
+
+        return response()->json($product->fresh());
+    }
+
+    public function destroyImage(Request $request, Product $product)
+    {
+        $this->authorizeCompany($request, $product);
+
+        if ($product->image_path) {
+            Storage::disk('public')->delete($product->image_path);
+            $product->update(['image_path' => null]);
+        }
+
+        return response()->json($product->fresh());
     }
 
     private function validated(Request $request): array

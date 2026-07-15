@@ -13,6 +13,18 @@ class Quote extends Model
     public const STATUS_APPROVED = 'approved';
     public const STATUS_REJECTED = 'rejected';
 
+    public const PRODUCTION_PENDING = 'pending';
+    public const PRODUCTION_IN_PRODUCTION = 'in_production';
+    public const PRODUCTION_FINISHED = 'finished';
+    public const PRODUCTION_DELIVERED = 'delivered';
+
+    public const PRODUCTION_STATUSES = [
+        self::PRODUCTION_PENDING,
+        self::PRODUCTION_IN_PRODUCTION,
+        self::PRODUCTION_FINISHED,
+        self::PRODUCTION_DELIVERED,
+    ];
+
     protected $fillable = [
         'company_id', 'customer_id', 'printer_id', 'material_id',
         'name', 'quantity', 'print_time_minutes', 'material_weight_g',
@@ -20,7 +32,7 @@ class Quote extends Model
         'failure_rate_percent', 'markup_percent', 'discount_amount',
         'material_cost', 'energy_cost', 'depreciation_cost', 'labor_cost',
         'failure_cost', 'subtotal_cost', 'final_price', 'unit_price',
-        'profit_amount', 'status',
+        'profit_amount', 'status', 'production_status', 'production_order',
     ];
 
     protected $casts = [

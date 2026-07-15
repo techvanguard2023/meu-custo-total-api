@@ -25,11 +25,15 @@ Route::prefix('v1')->group(function () {
         Route::apiResource('materials', MaterialController::class);
         Route::apiResource('printers', PrinterController::class);
         Route::apiResource('customers', CustomerController::class);
+        Route::post('/products/{product}/image', [ProductController::class, 'uploadImage']);
+        Route::delete('/products/{product}/image', [ProductController::class, 'destroyImage']);
         Route::apiResource('products', ProductController::class);
 
         Route::post('/quotes/preview', [QuoteController::class, 'preview']);
         Route::patch('/quotes/{quote}/approve', [QuoteController::class, 'approve']);
         Route::patch('/quotes/{quote}/reject', [QuoteController::class, 'reject']);
+        Route::patch('/quotes/{quote}/production-status', [QuoteController::class, 'updateProductionStatus']);
+        Route::patch('/quotes/production-order', [QuoteController::class, 'reorderProduction']);
         Route::apiResource('quotes', QuoteController::class)->only(['index', 'show', 'store', 'update', 'destroy']);
 
         Route::get('/settings', [SettingsController::class, 'show']);

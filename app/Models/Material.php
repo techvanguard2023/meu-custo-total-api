@@ -10,7 +10,7 @@ class Material extends Model
 {
     protected $fillable = [
         'company_id', 'name', 'brand', 'type', 'color',
-        'spool_weight_g', 'spool_cost', 'cost_per_g', 'density', 'active',
+        'spool_weight_g', 'spool_cost', 'cost_per_g', 'density', 'purchase_url', 'active',
     ];
 
     protected $casts = [

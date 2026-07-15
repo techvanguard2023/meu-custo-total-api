@@ -10,6 +10,7 @@ use App\Models\Quote;
 use App\Services\QuoteCalculatorService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class QuoteController extends Controller
 {
@@ -132,7 +133,11 @@ class QuoteController extends Controller
                 }
             }
 
-            $quote->update(['status' => Quote::STATUS_APPROVED]);
+            $quote->update([
+                'status' => Quote::STATUS_APPROVED,
+                'production_status' => Quote::PRODUCTION_PENDING,
+                'production_order' => $this->nextProductionOrder($quote, Quote::PRODUCTION_PENDING),
+            ]);
         });
 
         return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product']));
@@ -141,6 +146,76 @@ class QuoteController extends Controller
     public function reject(Request $request, Quote $quote)
     {
         return $this->transitionStatus($request, $quote, Quote::STATUS_REJECTED);
+    }
+
+    public function updateProductionStatus(Request $request, Quote $quote)
+    {
+        $this->authorizeCompany($request, $quote);
+
+        abort_unless(
+            $quote->status === Quote::STATUS_APPROVED,
+            422,
+            'Apenas vendas (orçamentos aprovados) possuem estágio de produção.'
+        );
+
+        $data = $request->validate([
+            'production_status' => ['required', Rule::in(Quote::PRODUCTION_STATUSES)],
+        ]);
+
+        $attributes = ['production_status' => $data['production_status']];
+
+        // Ao trocar de estágio, o pedido entra no fim da coluna de destino
+        if ($quote->production_status !== $data['production_status']) {
+            $attributes['production_order'] = $this->nextProductionOrder($quote, $data['production_status']);
+        }
+
+        $quote->update($attributes);
+
+        return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product']));
+    }
+
+    /**
+     * Reordena (e move de estágio, se preciso) as vendas de uma coluna do kanban.
+     * Recebe a lista completa de IDs na nova ordem da coluna.
+     */
+    public function reorderProduction(Request $request)
+    {
+        $data = $request->validate([
+            'production_status' => ['required', Rule::in(Quote::PRODUCTION_STATUSES)],
+            'ordered_ids' => ['required', 'array'],
+            'ordered_ids.*' => ['integer'],
+        ]);
+
+        $companyId = $request->user()->company_id;
+
+        $quotes = Quote::where('company_id', $companyId)
+            ->where('status', Quote::STATUS_APPROVED)
+            ->whereIn('id', $data['ordered_ids'])
+            ->get()
+            ->keyBy('id');
+
+        DB::transaction(function () use ($data, $quotes) {
+            foreach (array_values($data['ordered_ids']) as $index => $id) {
+                $quote = $quotes->get($id);
+                abort_unless($quote, 404, 'Venda não encontrada.');
+
+                $quote->update([
+                    'production_status' => $data['production_status'],
+                    'production_order' => $index,
+                ]);
+            }
+        });
+
+        return response()->json(['message' => 'Ordem atualizada com sucesso.']);
+    }
+
+    private function nextProductionOrder(Quote $quote, string $stage): int
+    {
+        return (int) Quote::where('company_id', $quote->company_id)
+            ->where('status', Quote::STATUS_APPROVED)
+            ->where('production_status', $stage)
+            ->where('id', '!=', $quote->id)
+            ->max('production_order') + 1;
     }
 
     private function transitionStatus(Request $request, Quote $quote, string $status)
