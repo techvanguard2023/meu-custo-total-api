@@ -34,6 +34,11 @@ class Company extends Model
         return $this->hasMany(Quote::class);
     }
 
+    public function products(): HasMany
+    {
+        return $this->hasMany(Product::class);
+    }
+
     public function setting(): \Illuminate\Database\Eloquent\Relations\HasOne
     {
         return $this->hasOne(Setting::class);

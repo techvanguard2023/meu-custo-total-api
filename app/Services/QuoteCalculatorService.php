@@ -13,8 +13,8 @@ class QuoteCalculatorService
      *
      * @param  array{
      *     quantity: int,
-     *     print_time_minutes: int,
-     *     material_weight_g: float,
+     *     print_time_minutes?: int|null,
+     *     material_weight_g?: float|null,
      *     setup_minutes?: int,
      *     postprocess_minutes?: int,
      *     extra_costs?: float,
@@ -22,12 +22,13 @@ class QuoteCalculatorService
      *     markup_percent?: float|null,
      *     discount_amount?: float,
      * }  $data
+     * @param  array<int, array{product: \App\Models\Product, quantity: int}>  $productLines
      */
-    public function calculate(array $data, ?Material $material, ?Printer $printer, ?Setting $setting): array
+    public function calculate(array $data, ?Material $material, ?Printer $printer, ?Setting $setting, array $productLines = []): array
     {
         $quantity = max(1, (int) ($data['quantity'] ?? 1));
-        $printTimeHours = ((int) $data['print_time_minutes']) / 60;
-        $weightG = (float) $data['material_weight_g'];
+        $printTimeHours = ((int) ($data['print_time_minutes'] ?? 0)) / 60;
+        $weightG = (float) ($data['material_weight_g'] ?? 0);
         $setupMinutes = (int) ($data['setup_minutes'] ?? 0);
         $postprocessMinutes = (int) ($data['postprocess_minutes'] ?? 0);
         $extraCosts = (float) ($data['extra_costs'] ?? 0);
@@ -61,14 +62,45 @@ class QuoteCalculatorService
 
         $totalCost = $subtotalCost + $failureCost;
 
-        $finalPrice = max(0, $totalCost - $discount) * (1 + ((float) $markup / 100));
+        // Produtos prontos: sem taxa de falha (já foram produzidos).
+        // Preço unitário = sale_price quando definido; senão custo + markup do orçamento.
+        $productLinesOut = [];
+        $productsCost = 0.0;
+        $productsTotal = 0.0;
+        foreach ($productLines as $line) {
+            $product = $line['product'];
+            $lineQty = max(1, (int) $line['quantity']);
+            $unitCost = (float) $product->cost;
+            $unitPrice = $product->sale_price !== null
+                ? (float) $product->sale_price
+                : round($unitCost * (1 + ((float) $markup / 100)), 2);
+            $lineCost = $unitCost * $lineQty;
+            $lineTotal = $unitPrice * $lineQty;
+            $productsCost += $lineCost;
+            $productsTotal += $lineTotal;
+            $productLinesOut[] = [
+                'product_id' => $product->id,
+                'name' => $product->name,
+                'quantity' => $lineQty,
+                'unit_cost' => round($unitCost, 2),
+                'unit_price' => round($unitPrice, 2),
+                'line_cost' => round($lineCost, 2),
+                'line_total' => round($lineTotal, 2),
+                'stock_quantity' => (int) $product->stock_quantity,
+            ];
+        }
+
+        // Desconto aplicado após o markup, sobre o total combinado.
+        $finalPrice = max(0, ($totalCost * (1 + ((float) $markup / 100))) + $productsTotal - $discount);
 
         if ($setting && $finalPrice < (float) $setting->minimum_order_price) {
             $finalPrice = (float) $setting->minimum_order_price;
         }
 
+        $grandTotalCost = $totalCost + $productsCost;
+
         $unitPrice = $finalPrice / $quantity;
-        $profitAmount = $finalPrice - $totalCost;
+        $profitAmount = $finalPrice - $grandTotalCost;
 
         return [
             'material_cost' => round($materialCost, 2),
@@ -79,7 +111,11 @@ class QuoteCalculatorService
             'subtotal_cost' => round($subtotalCost, 2),
             'failure_rate_percent' => round((float) $failureRate, 2),
             'failure_cost' => round($failureCost, 2),
-            'total_cost' => round($totalCost, 2),
+            'print_total_cost' => round($totalCost, 2),
+            'products' => $productLinesOut,
+            'products_cost' => round($productsCost, 2),
+            'products_total' => round($productsTotal, 2),
+            'total_cost' => round($grandTotalCost, 2),
             'discount_amount' => round($discount, 2),
             'markup_percent' => round((float) $markup, 2),
             'final_price' => round($finalPrice, 2),
