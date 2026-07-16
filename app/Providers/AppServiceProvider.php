@@ -3,10 +3,12 @@
 namespace App\Providers;
 
 use App\Listeners\SyncPlanFromStripe;
+use App\Models\Company;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
+use Laravel\Cashier\Cashier;
 use Laravel\Cashier\Events\WebhookHandled;
 
 class AppServiceProvider extends ServiceProvider
@@ -24,6 +26,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // A entidade cobrada na Stripe é a Company (fixado em código para
+        // não depender da env CASHIER_MODEL, que painéis corrompem fácil)
+        Cashier::useCustomerModel(Company::class);
+
         Event::listen(WebhookHandled::class, SyncPlanFromStripe::class);
 
         // O link de redefinição aponta para a tela do frontend
