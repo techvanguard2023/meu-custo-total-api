@@ -4,6 +4,8 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CustomerController;
 use App\Http\Controllers\Api\MaterialController;
 use App\Http\Controllers\Api\PlanController;
+use App\Http\Controllers\Api\ProfileController;
+use App\Http\Controllers\Api\SubscriptionController;
 use App\Http\Controllers\Api\PrinterController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\QuoteController;
@@ -43,5 +45,12 @@ Route::prefix('v1')->group(function () {
         Route::get('/plan', [PlanController::class, 'show']);
         Route::post('/plan/checkout', [PlanController::class, 'checkout']);
         Route::post('/plan/portal', [PlanController::class, 'portal']);
+
+        Route::get('/subscription', [SubscriptionController::class, 'show']);
+        Route::post('/subscription/cancel', [SubscriptionController::class, 'cancel']);
+        Route::post('/subscription/resume', [SubscriptionController::class, 'resume']);
+
+        Route::put('/profile', [ProfileController::class, 'update']);
+        Route::put('/profile/password', [ProfileController::class, 'updatePassword']);
     });
 });
