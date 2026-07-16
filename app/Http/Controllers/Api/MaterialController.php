@@ -56,6 +56,7 @@ class MaterialController extends Controller
             'cost_per_g' => ['required', 'numeric', 'min:0'],
             'density' => ['nullable', 'numeric', 'min:0'],
             'purchase_url' => ['nullable', 'url', 'max:2048'],
+            'image_url' => ['nullable', 'url', 'max:2048'],
             'active' => ['sometimes', 'boolean'],
         ]);
     }
