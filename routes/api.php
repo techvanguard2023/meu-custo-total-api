@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CustomerController;
 use App\Http\Controllers\Api\MaterialController;
+use App\Http\Controllers\Api\PasswordResetController;
 use App\Http\Controllers\Api\PlanController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\SubscriptionController;
@@ -20,6 +21,8 @@ Route::prefix('v1')->group(function () {
 
     Route::post('/register', [AuthController::class, 'register']);
     Route::post('/login', [AuthController::class, 'login']);
+    Route::post('/forgot-password', [PasswordResetController::class, 'forgot']);
+    Route::post('/reset-password', [PasswordResetController::class, 'reset']);
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
