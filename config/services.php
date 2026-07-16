@@ -35,4 +35,10 @@ return [
         ],
     ],
 
+    'stripe' => [
+        'price_pro' => env('STRIPE_PRICE_PRO'),
+    ],
+
+    'frontend_url' => env('FRONTEND_URL', 'http://localhost:3000'),
+
 ];

@@ -2,12 +2,15 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use Illuminate\Http\Request;
 
 class CustomerController extends Controller
 {
+    use EnforcesPlanLimits;
+
     public function index(Request $request)
     {
         return $request->user()->company->customers()->latest()->get();
@@ -15,6 +18,8 @@ class CustomerController extends Controller
 
     public function store(Request $request)
     {
+        $this->enforceFreeLimit($request, 'customers', $request->user()->company->customers()->count(), 'clientes');
+
         $data = $this->validated($request);
         $customer = $request->user()->company->customers()->create($data);
 

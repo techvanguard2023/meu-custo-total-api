@@ -2,12 +2,15 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Http\Controllers\Controller;
 use App\Models\Printer;
 use Illuminate\Http\Request;
 
 class PrinterController extends Controller
 {
+    use EnforcesPlanLimits;
+
     public function index(Request $request)
     {
         return $request->user()->company->printers()->latest()->get();
@@ -15,6 +18,8 @@ class PrinterController extends Controller
 
     public function store(Request $request)
     {
+        $this->enforceFreeLimit($request, 'printers', $request->user()->company->printers()->count(), 'impressora');
+
         $data = $this->validated($request);
         $printer = $request->user()->company->printers()->create($data);
 

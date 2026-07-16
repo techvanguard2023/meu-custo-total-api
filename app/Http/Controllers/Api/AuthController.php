@@ -20,6 +20,7 @@ class AuthController extends Controller
             'company_name' => ['required', 'string', 'max:255'],
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'unique:users,email'],
+            'phone' => ['required', 'string', 'max:20'],
             'password' => ['required', 'string', 'min:8'],
         ]);
 
@@ -34,6 +35,7 @@ class AuthController extends Controller
             'company_id' => $company->id,
             'name' => $data['name'],
             'email' => $data['email'],
+            'phone' => $data['phone'],
             'password' => Hash::make($data['password']),
         ]);
 

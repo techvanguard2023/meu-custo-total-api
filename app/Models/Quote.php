@@ -29,10 +29,10 @@ class Quote extends Model
         'company_id', 'customer_id', 'printer_id', 'material_id',
         'name', 'quantity', 'print_time_minutes', 'material_weight_g',
         'setup_minutes', 'postprocess_minutes', 'extra_costs',
-        'failure_rate_percent', 'markup_percent', 'discount_amount',
+        'failure_rate_percent', 'markup_percent', 'discount_amount', 'delivery_days',
         'material_cost', 'energy_cost', 'depreciation_cost', 'labor_cost',
         'failure_cost', 'subtotal_cost', 'final_price', 'unit_price',
-        'profit_amount', 'status', 'production_status', 'production_order',
+        'profit_amount', 'status', 'production_status', 'production_order', 'approved_at',
     ];
 
     protected $casts = [
@@ -50,6 +50,7 @@ class Quote extends Model
         'final_price' => 'decimal:2',
         'unit_price' => 'decimal:2',
         'profit_amount' => 'decimal:2',
+        'approved_at' => 'datetime',
     ];
 
     public function company(): BelongsTo

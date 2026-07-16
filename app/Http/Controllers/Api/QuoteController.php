@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Http\Controllers\Controller;
 use App\Models\Material;
 use App\Models\Printer;
@@ -14,6 +15,8 @@ use Illuminate\Validation\Rule;
 
 class QuoteController extends Controller
 {
+    use EnforcesPlanLimits;
+
     public function __construct(private QuoteCalculatorService $calculator) {}
 
     public function index(Request $request)
@@ -45,6 +48,15 @@ class QuoteController extends Controller
 
     public function store(Request $request)
     {
+        $this->enforceFreeLimit(
+            $request,
+            'quotes_per_month',
+            $request->user()->company->quotes()
+                ->where('created_at', '>=', now()->startOfMonth())
+                ->count(),
+            'orçamentos por mês'
+        );
+
         $data = $this->validated($request);
         [$material, $printer] = $this->resolveEntities($request, $data);
         $productLines = $this->resolveProducts($request, $data);
@@ -137,6 +149,7 @@ class QuoteController extends Controller
                 'status' => Quote::STATUS_APPROVED,
                 'production_status' => Quote::PRODUCTION_PENDING,
                 'production_order' => $this->nextProductionOrder($quote, Quote::PRODUCTION_PENDING),
+                'approved_at' => now(),
             ]);
         });
 
@@ -151,6 +164,7 @@ class QuoteController extends Controller
     public function updateProductionStatus(Request $request, Quote $quote)
     {
         $this->authorizeCompany($request, $quote);
+        $this->requirePro($request, 'Linha de Produção');
 
         abort_unless(
             $quote->status === Quote::STATUS_APPROVED,
@@ -180,6 +194,8 @@ class QuoteController extends Controller
      */
     public function reorderProduction(Request $request)
     {
+        $this->requirePro($request, 'Linha de Produção');
+
         $data = $request->validate([
             'production_status' => ['required', Rule::in(Quote::PRODUCTION_STATUSES)],
             'ordered_ids' => ['required', 'array'],
@@ -320,6 +336,7 @@ class QuoteController extends Controller
             'failure_rate_percent' => ['nullable', 'numeric', 'min:0'],
             'markup_percent' => ['nullable', 'numeric', 'min:0'],
             'discount_amount' => ['sometimes', 'numeric', 'min:0'],
+            'delivery_days' => ['nullable', 'integer', 'min:1', 'max:365'],
             'products' => ['sometimes', 'array'],
             'products.*.product_id' => ['required', 'integer'],
             'products.*.quantity' => ['required', 'integer', 'min:1'],

@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CustomerController;
 use App\Http\Controllers\Api\MaterialController;
+use App\Http\Controllers\Api\PlanController;
 use App\Http\Controllers\Api\PrinterController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\QuoteController;
@@ -38,5 +39,9 @@ Route::prefix('v1')->group(function () {
 
         Route::get('/settings', [SettingsController::class, 'show']);
         Route::put('/settings', [SettingsController::class, 'update']);
+
+        Route::get('/plan', [PlanController::class, 'show']);
+        Route::post('/plan/checkout', [PlanController::class, 'checkout']);
+        Route::post('/plan/portal', [PlanController::class, 'portal']);
     });
 });

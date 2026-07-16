@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Http\Controllers\Controller;
 use App\Models\Product;
 use Illuminate\Http\Request;
@@ -9,6 +10,8 @@ use Illuminate\Support\Facades\Storage;
 
 class ProductController extends Controller
 {
+    use EnforcesPlanLimits;
+
     public function index(Request $request)
     {
         return $request->user()->company->products()->latest()->get();
@@ -16,6 +19,8 @@ class ProductController extends Controller
 
     public function store(Request $request)
     {
+        $this->enforceFreeLimit($request, 'products', $request->user()->company->products()->count(), 'produtos');
+
         $data = $this->validated($request);
         $product = $request->user()->company->products()->create($data);
 
@@ -53,6 +58,7 @@ class ProductController extends Controller
     public function uploadImage(Request $request, Product $product)
     {
         $this->authorizeCompany($request, $product);
+        $this->requirePro($request, 'Foto do produto');
 
         $request->validate([
             'image' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],

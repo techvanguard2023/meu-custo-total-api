@@ -4,10 +4,21 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Laravel\Cashier\Billable;
 
 class Company extends Model
 {
-    protected $fillable = ['name', 'slug', 'email', 'phone', 'currency', 'timezone'];
+    use Billable;
+
+    public const PLAN_FREE = 'free';
+    public const PLAN_PRO = 'pro';
+
+    protected $fillable = ['name', 'slug', 'plan', 'email', 'phone', 'currency', 'timezone'];
+
+    public function isPro(): bool
+    {
+        return $this->plan === self::PLAN_PRO;
+    }
 
     public function users(): HasMany
     {
