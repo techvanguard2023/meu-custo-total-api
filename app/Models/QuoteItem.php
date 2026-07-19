@@ -8,12 +8,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class QuoteItem extends Model
 {
     protected $fillable = [
-        'quote_id', 'product_id', 'description', 'type',
-        'quantity', 'unit_price', 'unit_cost', 'amount',
+        'quote_id', 'product_id', 'material_id', 'description', 'type',
+        'quantity', 'unit_weight', 'unit_price', 'unit_cost', 'amount',
     ];
 
     protected $casts = [
         'quantity' => 'integer',
+        'unit_weight' => 'decimal:3',
         'unit_price' => 'decimal:2',
         'unit_cost' => 'decimal:2',
         'amount' => 'decimal:2',
@@ -27,5 +28,10 @@ class QuoteItem extends Model
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
+    }
+
+    public function material(): BelongsTo
+    {
+        return $this->belongsTo(Material::class);
     }
 }

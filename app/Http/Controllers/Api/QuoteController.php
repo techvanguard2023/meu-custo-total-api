@@ -37,12 +37,13 @@ class QuoteController extends Controller
     public function preview(Request $request)
     {
         $data = $this->validated($request);
-        [$material, $printer] = $this->resolveEntities($request, $data);
+        $materialLines = $this->resolveMaterials($request, $data);
+        $printer = $this->resolvePrinter($request, $data);
         $productLines = $this->resolveProducts($request, $data);
         $setting = $request->user()->company->setting;
 
         return response()->json(
-            $this->calculator->calculate($data, $material, $printer, $setting, $productLines)
+            $this->calculator->calculate($data, $materialLines, $printer, $setting, $productLines)
         );
     }
 
@@ -58,17 +59,19 @@ class QuoteController extends Controller
         );
 
         $data = $this->validated($request);
-        [$material, $printer] = $this->resolveEntities($request, $data);
+        $materialLines = $this->resolveMaterials($request, $data);
+        $printer = $this->resolvePrinter($request, $data);
         $productLines = $this->resolveProducts($request, $data);
         $setting = $request->user()->company->setting;
 
-        $breakdown = $this->calculator->calculate($data, $material, $printer, $setting, $productLines);
+        $breakdown = $this->calculator->calculate($data, $materialLines, $printer, $setting, $productLines);
 
         $quote = DB::transaction(function () use ($request, $data, $breakdown) {
             $quote = $request->user()->company->quotes()->create(
                 $this->quoteAttributes($data, $breakdown, Quote::STATUS_SENT)
             );
             $this->syncProductItems($quote, $breakdown);
+            $this->syncMaterialItems($quote, $breakdown);
 
             return $quote;
         });
@@ -87,15 +90,17 @@ class QuoteController extends Controller
         );
 
         $data = $this->validated($request);
-        [$material, $printer] = $this->resolveEntities($request, $data);
+        $materialLines = $this->resolveMaterials($request, $data);
+        $printer = $this->resolvePrinter($request, $data);
         $productLines = $this->resolveProducts($request, $data);
         $setting = $request->user()->company->setting;
 
-        $breakdown = $this->calculator->calculate($data, $material, $printer, $setting, $productLines);
+        $breakdown = $this->calculator->calculate($data, $materialLines, $printer, $setting, $productLines);
 
         DB::transaction(function () use ($quote, $data, $breakdown) {
             $quote->update($this->quoteAttributes($data, $breakdown, $quote->status));
             $this->syncProductItems($quote, $breakdown);
+            $this->syncMaterialItems($quote, $breakdown);
         });
 
         return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product']));
@@ -142,6 +147,44 @@ class QuoteController extends Controller
 
                 foreach ($productItems as $item) {
                     $products[$item->product_id]->decrement('stock_quantity', $item->quantity);
+                }
+            }
+
+            $materialItems = $quote->items()
+                ->where('type', 'material')
+                ->whereNotNull('material_id')
+                ->get();
+
+            if ($materialItems->isNotEmpty()) {
+                $materials = Material::whereIn('id', $materialItems->pluck('material_id'))
+                    ->lockForUpdate()
+                    ->get()
+                    ->keyBy('id');
+
+                foreach ($materialItems as $item) {
+                    $material = $materials->get($item->material_id);
+                    abort_unless($material, 422, "O material \"{$item->description}\" não está mais cadastrado.");
+
+                    if ($material->stock_quantity === null) {
+                        continue; // estoque não rastreado para este material
+                    }
+
+                    $consumed = (float) $item->unit_weight * (int) $item->quantity;
+                    abort_unless(
+                        (float) $material->stock_quantity >= $consumed,
+                        422,
+                        "Estoque insuficiente para \"{$material->name}\": disponível {$material->stock_quantity}, necessário {$consumed}."
+                    );
+                }
+
+                foreach ($materialItems as $item) {
+                    $material = $materials->get($item->material_id);
+                    if ($material->stock_quantity === null) {
+                        continue;
+                    }
+
+                    $consumed = (float) $item->unit_weight * (int) $item->quantity;
+                    $material->decrement('stock_quantity', $consumed);
                 }
             }
 
@@ -247,9 +290,12 @@ class QuoteController extends Controller
 
     private function quoteAttributes(array $data, array $breakdown, string $status): array
     {
+        $primaryMaterial = $breakdown['materials'][0] ?? null;
+
         return array_merge($data, [
             'print_time_minutes' => (int) ($data['print_time_minutes'] ?? 0),
-            'material_weight_g' => (float) ($data['material_weight_g'] ?? 0),
+            'material_id' => $primaryMaterial['material_id'] ?? null,
+            'material_weight_g' => (float) ($primaryMaterial['weight'] ?? 0),
             'material_cost' => $breakdown['material_cost'],
             'energy_cost' => $breakdown['energy_cost'],
             'depreciation_cost' => $breakdown['depreciation_cost'],
@@ -282,19 +328,55 @@ class QuoteController extends Controller
         }
     }
 
-    private function resolveEntities(Request $request, array $data): array
+    private function syncMaterialItems(Quote $quote, array $breakdown): void
+    {
+        $quote->items()->where('type', 'material')->delete();
+
+        foreach ($breakdown['materials'] ?? [] as $line) {
+            $quote->items()->create([
+                'material_id' => $line['material_id'],
+                'description' => $line['name'],
+                'type' => 'material',
+                'quantity' => $quote->quantity,
+                'unit_weight' => $line['weight'],
+                'unit_cost' => $line['unit_cost'],
+                'unit_price' => 0,
+                'amount' => $line['line_total'],
+            ]);
+        }
+    }
+
+    private function resolvePrinter(Request $request, array $data): ?Printer
     {
         $companyId = $request->user()->company_id;
 
-        $material = isset($data['material_id'])
-            ? Material::where('company_id', $companyId)->findOrFail($data['material_id'])
-            : null;
-
-        $printer = isset($data['printer_id'])
+        return isset($data['printer_id'])
             ? Printer::where('company_id', $companyId)->findOrFail($data['printer_id'])
             : null;
+    }
 
-        return [$material, $printer];
+    /**
+     * @return array<int, array{material: Material, weight: float}>
+     */
+    private function resolveMaterials(Request $request, array $data): array
+    {
+        $lines = $data['materials'] ?? [];
+        if ($lines === []) {
+            return [];
+        }
+
+        $companyId = $request->user()->company_id;
+        $materials = Material::where('company_id', $companyId)
+            ->whereIn('id', collect($lines)->pluck('material_id'))
+            ->get()
+            ->keyBy('id');
+
+        return collect($lines)->map(function (array $line) use ($materials) {
+            $material = $materials->get($line['material_id']);
+            abort_unless($material, 404, 'Material não encontrado.');
+
+            return ['material' => $material, 'weight' => (float) $line['weight']];
+        })->all();
     }
 
     /**
@@ -326,10 +408,8 @@ class QuoteController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'customer_id' => ['nullable', 'exists:customers,id'],
             'printer_id' => ['nullable', 'exists:printers,id'],
-            'material_id' => ['nullable', 'exists:materials,id'],
             'quantity' => ['sometimes', 'integer', 'min:1'],
             'print_time_minutes' => ['required_without:products', 'nullable', 'integer', 'min:1'],
-            'material_weight_g' => ['required_without:products', 'nullable', 'numeric', 'min:0'],
             'setup_minutes' => ['sometimes', 'integer', 'min:0'],
             'postprocess_minutes' => ['sometimes', 'integer', 'min:0'],
             'extra_costs' => ['sometimes', 'numeric', 'min:0'],
@@ -337,6 +417,9 @@ class QuoteController extends Controller
             'markup_percent' => ['nullable', 'numeric', 'min:0'],
             'discount_amount' => ['sometimes', 'numeric', 'min:0'],
             'delivery_days' => ['nullable', 'integer', 'min:1', 'max:365'],
+            'materials' => ['sometimes', 'array'],
+            'materials.*.material_id' => ['required', 'integer'],
+            'materials.*.weight' => ['required', 'numeric', 'min:0'],
             'products' => ['sometimes', 'array'],
             'products.*.product_id' => ['required', 'integer'],
             'products.*.quantity' => ['required', 'integer', 'min:1'],

@@ -14,7 +14,6 @@ class QuoteCalculatorService
      * @param  array{
      *     quantity: int,
      *     print_time_minutes?: int|null,
-     *     material_weight_g?: float|null,
      *     setup_minutes?: int,
      *     postprocess_minutes?: int,
      *     extra_costs?: float,
@@ -22,13 +21,13 @@ class QuoteCalculatorService
      *     markup_percent?: float|null,
      *     discount_amount?: float,
      * }  $data
+     * @param  array<int, array{material: Material, weight: float}>  $materialLines
      * @param  array<int, array{product: \App\Models\Product, quantity: int}>  $productLines
      */
-    public function calculate(array $data, ?Material $material, ?Printer $printer, ?Setting $setting, array $productLines = []): array
+    public function calculate(array $data, array $materialLines, ?Printer $printer, ?Setting $setting, array $productLines = []): array
     {
         $quantity = max(1, (int) ($data['quantity'] ?? 1));
         $printTimeHours = ((int) ($data['print_time_minutes'] ?? 0)) / 60;
-        $weightG = (float) ($data['material_weight_g'] ?? 0);
         $setupMinutes = (int) ($data['setup_minutes'] ?? 0);
         $postprocessMinutes = (int) ($data['postprocess_minutes'] ?? 0);
         $extraCosts = (float) ($data['extra_costs'] ?? 0);
@@ -39,7 +38,23 @@ class QuoteCalculatorService
         $electricityRate = $setting?->electricity_rate_kwh ?? 0;
         $laborRate = $setting?->labor_hour_rate ?? 0;
 
-        $materialCost = $material ? $weightG * (float) $material->cost_per_g * $quantity : 0;
+        // Cada material consumido (principal + insumos extras) soma ao custo,
+        // multiplicado pela quantidade do pedido (mesma fórmula para todos).
+        $materialLinesOut = [];
+        $materialCost = 0.0;
+        foreach ($materialLines as $line) {
+            $material = $line['material'];
+            $weight = (float) $line['weight'];
+            $lineCost = $weight * (float) $material->cost_per_g * $quantity;
+            $materialCost += $lineCost;
+            $materialLinesOut[] = [
+                'material_id' => $material->id,
+                'name' => $material->name,
+                'weight' => $weight,
+                'unit_cost' => (float) $material->cost_per_g,
+                'line_total' => round($lineCost, 2),
+            ];
+        }
 
         $energyCost = $printer
             ? ((float) $printer->power_watts / 1000) * $printTimeHours * (float) $electricityRate * $quantity
@@ -104,6 +119,7 @@ class QuoteCalculatorService
 
         return [
             'material_cost' => round($materialCost, 2),
+            'materials' => $materialLinesOut,
             'energy_cost' => round($energyCost, 2),
             'depreciation_cost' => round($depreciationCost, 2),
             'labor_cost' => round($laborCost, 2),
