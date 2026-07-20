@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Material extends Model
 {
     protected $fillable = [
-        'company_id', 'name', 'brand', 'type', 'color',
+        'company_id', 'name', 'brand', 'type', 'color', 'pantone_code', 'hex_color',
         'spool_weight_g', 'spool_cost', 'cost_per_g', 'density', 'stock_quantity',
         'purchase_url', 'image_url', 'active',
     ];

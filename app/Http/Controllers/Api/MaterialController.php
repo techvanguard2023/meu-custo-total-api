@@ -51,6 +51,8 @@ class MaterialController extends Controller
             'brand' => ['nullable', 'string', 'max:255'],
             'type' => ['nullable', 'string', 'max:255'],
             'color' => ['nullable', 'string', 'max:255'],
+            'pantone_code' => ['nullable', 'string', 'max:20'],
+            'hex_color' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
             'spool_weight_g' => ['required', 'integer', 'min:1'],
             'spool_cost' => ['required', 'numeric', 'min:0'],
             'cost_per_g' => ['required', 'numeric', 'min:0'],
