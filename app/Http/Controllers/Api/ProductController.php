@@ -92,6 +92,7 @@ class ProductController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'sku' => ['nullable', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
+            'model_3d_url' => ['nullable', 'url', 'max:2048'],
             'cost' => ['required', 'numeric', 'min:0'],
             'sale_price' => ['nullable', 'numeric', 'min:0'],
             'stock_quantity' => ['sometimes', 'integer', 'min:0'],

@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Storage;
 class Product extends Model
 {
     protected $fillable = [
-        'company_id', 'name', 'sku', 'description', 'image_path',
+        'company_id', 'name', 'sku', 'description', 'image_path', 'model_3d_url',
         'cost', 'sale_price', 'stock_quantity', 'active',
     ];
 
