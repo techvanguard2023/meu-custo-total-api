@@ -25,6 +25,18 @@ class Quote extends Model
         self::PRODUCTION_DELIVERED,
     ];
 
+    public const PAYMENT_CASH = 'dinheiro';
+    public const PAYMENT_PIX = 'pix';
+    public const PAYMENT_CREDIT = 'credito';
+    public const PAYMENT_DEBIT = 'debito';
+
+    public const PAYMENT_METHODS = [
+        self::PAYMENT_CASH,
+        self::PAYMENT_PIX,
+        self::PAYMENT_CREDIT,
+        self::PAYMENT_DEBIT,
+    ];
+
     protected $fillable = [
         'company_id', 'customer_id', 'printer_id', 'material_id',
         'name', 'quantity', 'print_time_minutes', 'material_weight_g',
@@ -33,6 +45,7 @@ class Quote extends Model
         'material_cost', 'energy_cost', 'depreciation_cost', 'labor_cost',
         'failure_cost', 'subtotal_cost', 'final_price', 'unit_price',
         'profit_amount', 'status', 'production_status', 'production_order', 'approved_at',
+        'payment_method',
     ];
 
     protected $casts = [

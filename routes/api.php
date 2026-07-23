@@ -43,6 +43,7 @@ Route::prefix('v1')->group(function () {
         Route::apiResource('products', ProductController::class);
 
         Route::post('/quotes/preview', [QuoteController::class, 'preview']);
+        Route::post('/quotes/quick-sale', [QuoteController::class, 'quickSale']);
         Route::patch('/quotes/{quote}/approve', [QuoteController::class, 'approve']);
         Route::patch('/quotes/{quote}/reject', [QuoteController::class, 'reject']);
         Route::patch('/quotes/{quote}/production-status', [QuoteController::class, 'updateProductionStatus']);

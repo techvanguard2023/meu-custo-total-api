@@ -123,80 +123,140 @@ class QuoteController extends Controller
 
         abort_unless($quote->status === Quote::STATUS_SENT, 422, 'Apenas orçamentos enviados podem ser aprovados ou rejeitados.');
 
-        DB::transaction(function () use ($quote) {
-            $productItems = $quote->items()
-                ->where('type', 'product')
-                ->whereNotNull('product_id')
-                ->get();
+        $data = $request->validate([
+            'payment_method' => ['sometimes', 'nullable', Rule::in(Quote::PAYMENT_METHODS)],
+        ]);
 
-            if ($productItems->isNotEmpty()) {
-                $products = Product::whereIn('id', $productItems->pluck('product_id'))
-                    ->lockForUpdate()
-                    ->get()
-                    ->keyBy('id');
-
-                foreach ($productItems as $item) {
-                    $product = $products->get($item->product_id);
-                    abort_unless($product, 422, "O produto \"{$item->description}\" não está mais cadastrado.");
-                    abort_unless(
-                        $product->stock_quantity >= $item->quantity,
-                        422,
-                        "Estoque insuficiente para \"{$product->name}\": disponível {$product->stock_quantity}, necessário {$item->quantity}."
-                    );
-                }
-
-                foreach ($productItems as $item) {
-                    $products[$item->product_id]->decrement('stock_quantity', $item->quantity);
-                }
-            }
-
-            $materialItems = $quote->items()
-                ->where('type', 'material')
-                ->whereNotNull('material_id')
-                ->get();
-
-            if ($materialItems->isNotEmpty()) {
-                $materials = Material::whereIn('id', $materialItems->pluck('material_id'))
-                    ->lockForUpdate()
-                    ->get()
-                    ->keyBy('id');
-
-                foreach ($materialItems as $item) {
-                    $material = $materials->get($item->material_id);
-                    abort_unless($material, 422, "O material \"{$item->description}\" não está mais cadastrado.");
-
-                    if ($material->stock_quantity === null) {
-                        continue; // estoque não rastreado para este material
-                    }
-
-                    $consumed = (float) $item->unit_weight * (int) $item->quantity;
-                    abort_unless(
-                        (float) $material->stock_quantity >= $consumed,
-                        422,
-                        "Estoque insuficiente para \"{$material->name}\": disponível {$material->stock_quantity}, necessário {$consumed}."
-                    );
-                }
-
-                foreach ($materialItems as $item) {
-                    $material = $materials->get($item->material_id);
-                    if ($material->stock_quantity === null) {
-                        continue;
-                    }
-
-                    $consumed = (float) $item->unit_weight * (int) $item->quantity;
-                    $material->decrement('stock_quantity', $consumed);
-                }
-            }
-
-            $quote->update([
-                'status' => Quote::STATUS_APPROVED,
-                'production_status' => Quote::PRODUCTION_PENDING,
-                'production_order' => $this->nextProductionOrder($quote, Quote::PRODUCTION_PENDING),
-                'approved_at' => now(),
-            ]);
+        DB::transaction(function () use ($quote, $data) {
+            $this->applyApproval($quote, $data['payment_method'] ?? null);
         });
 
         return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product']));
+    }
+
+    /**
+     * Venda balcão: cria e já aprova num só passo, só com produtos prontos
+     * (sem impressora/material/tempo de impressão). Tudo numa única
+     * transação — se o estoque não bater, nada fica registrado.
+     */
+    public function quickSale(Request $request)
+    {
+        $this->requirePro($request, 'Caixa (venda rápida)');
+
+        $this->enforceFreeLimit(
+            $request,
+            'quotes_per_month',
+            $request->user()->company->quotes()
+                ->where('created_at', '>=', now()->startOfMonth())
+                ->count(),
+            'orçamentos por mês'
+        );
+
+        $data = $request->validate([
+            'name' => ['nullable', 'string', 'max:255'],
+            'customer_id' => ['nullable', 'exists:customers,id'],
+            'payment_method' => ['required', Rule::in(Quote::PAYMENT_METHODS)],
+            'discount_amount' => ['sometimes', 'numeric', 'min:0'],
+            'products' => ['required', 'array', 'min:1'],
+            'products.*.product_id' => ['required', 'integer'],
+            'products.*.quantity' => ['required', 'integer', 'min:1'],
+        ]);
+
+        $productLines = $this->resolveProducts($request, $data);
+        $setting = $request->user()->company->setting;
+
+        $breakdown = $this->calculator->calculate($data, [], null, $setting, $productLines);
+
+        $quote = DB::transaction(function () use ($request, $data, $breakdown) {
+            $quote = $request->user()->company->quotes()->create(array_merge(
+                $this->quoteAttributes($data, $breakdown, Quote::STATUS_SENT),
+                ['name' => $data['name'] ?? 'Venda balcão']
+            ));
+            $this->syncProductItems($quote, $breakdown);
+
+            // Venda balcão: cliente já levou o produto na hora, não passa pelo fluxo de produção.
+            $this->applyApproval($quote, $data['payment_method'], Quote::PRODUCTION_DELIVERED);
+
+            return $quote;
+        });
+
+        return response()->json($quote->fresh()->load(['customer', 'items.product']), 201);
+    }
+
+    /** Baixa de estoque (produtos e materiais) + transição pra aprovado. Deve rodar dentro de uma transação. */
+    private function applyApproval(Quote $quote, ?string $paymentMethod, string $productionStatus = Quote::PRODUCTION_PENDING): void
+    {
+        $productItems = $quote->items()
+            ->where('type', 'product')
+            ->whereNotNull('product_id')
+            ->get();
+
+        if ($productItems->isNotEmpty()) {
+            $products = Product::whereIn('id', $productItems->pluck('product_id'))
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('id');
+
+            foreach ($productItems as $item) {
+                $product = $products->get($item->product_id);
+                abort_unless($product, 422, "O produto \"{$item->description}\" não está mais cadastrado.");
+                abort_unless(
+                    $product->stock_quantity >= $item->quantity,
+                    422,
+                    "Estoque insuficiente para \"{$product->name}\": disponível {$product->stock_quantity}, necessário {$item->quantity}."
+                );
+            }
+
+            foreach ($productItems as $item) {
+                $products[$item->product_id]->decrement('stock_quantity', $item->quantity);
+            }
+        }
+
+        $materialItems = $quote->items()
+            ->where('type', 'material')
+            ->whereNotNull('material_id')
+            ->get();
+
+        if ($materialItems->isNotEmpty()) {
+            $materials = Material::whereIn('id', $materialItems->pluck('material_id'))
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('id');
+
+            foreach ($materialItems as $item) {
+                $material = $materials->get($item->material_id);
+                abort_unless($material, 422, "O material \"{$item->description}\" não está mais cadastrado.");
+
+                if ($material->stock_quantity === null) {
+                    continue; // estoque não rastreado para este material
+                }
+
+                $consumed = (float) $item->unit_weight * (int) $item->quantity;
+                abort_unless(
+                    (float) $material->stock_quantity >= $consumed,
+                    422,
+                    "Estoque insuficiente para \"{$material->name}\": disponível {$material->stock_quantity}, necessário {$consumed}."
+                );
+            }
+
+            foreach ($materialItems as $item) {
+                $material = $materials->get($item->material_id);
+                if ($material->stock_quantity === null) {
+                    continue;
+                }
+
+                $consumed = (float) $item->unit_weight * (int) $item->quantity;
+                $material->decrement('stock_quantity', $consumed);
+            }
+        }
+
+        $quote->update([
+            'status' => Quote::STATUS_APPROVED,
+            'production_status' => $productionStatus,
+            'production_order' => $this->nextProductionOrder($quote, $productionStatus),
+            'approved_at' => now(),
+            'payment_method' => $paymentMethod,
+        ]);
     }
 
     public function reject(Request $request, Quote $quote)
