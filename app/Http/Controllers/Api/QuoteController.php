@@ -264,6 +264,70 @@ class QuoteController extends Controller
         return $this->transitionStatus($request, $quote, Quote::STATUS_REJECTED);
     }
 
+    /**
+     * Cancela uma venda já aprovada: devolve ao estoque tudo que foi debitado
+     * na aprovação (produtos e materiais) e marca a venda como cancelada,
+     * sem apagar o registro (fica fora dos relatórios, mas continua no histórico).
+     */
+    public function cancel(Request $request, Quote $quote)
+    {
+        $this->authorizeCompany($request, $quote);
+
+        abort_unless($quote->status === Quote::STATUS_APPROVED, 422, 'Apenas vendas aprovadas podem ser canceladas.');
+
+        $data = $request->validate([
+            'reason' => ['sometimes', 'nullable', 'string', 'max:500'],
+        ]);
+
+        DB::transaction(function () use ($quote, $data) {
+            $productItems = $quote->items()
+                ->where('type', 'product')
+                ->whereNotNull('product_id')
+                ->get();
+
+            if ($productItems->isNotEmpty()) {
+                $products = Product::whereIn('id', $productItems->pluck('product_id'))
+                    ->lockForUpdate()
+                    ->get()
+                    ->keyBy('id');
+
+                foreach ($productItems as $item) {
+                    $products->get($item->product_id)?->increment('stock_quantity', $item->quantity);
+                }
+            }
+
+            $materialItems = $quote->items()
+                ->where('type', 'material')
+                ->whereNotNull('material_id')
+                ->get();
+
+            if ($materialItems->isNotEmpty()) {
+                $materials = Material::whereIn('id', $materialItems->pluck('material_id'))
+                    ->lockForUpdate()
+                    ->get()
+                    ->keyBy('id');
+
+                foreach ($materialItems as $item) {
+                    $material = $materials->get($item->material_id);
+                    if (! $material || $material->stock_quantity === null) {
+                        continue; // material excluído ou estoque não rastreado — nada a devolver
+                    }
+
+                    $consumed = (float) $item->unit_weight * (int) $item->quantity;
+                    $material->increment('stock_quantity', $consumed);
+                }
+            }
+
+            $quote->update([
+                'status' => Quote::STATUS_CANCELLED,
+                'cancelled_at' => now(),
+                'cancel_reason' => $data['reason'] ?? null,
+            ]);
+        });
+
+        return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product']));
+    }
+
     public function updateProductionStatus(Request $request, Quote $quote)
     {
         $this->authorizeCompany($request, $quote);

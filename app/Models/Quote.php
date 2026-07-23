@@ -12,6 +12,7 @@ class Quote extends Model
     public const STATUS_SENT = 'sent';
     public const STATUS_APPROVED = 'approved';
     public const STATUS_REJECTED = 'rejected';
+    public const STATUS_CANCELLED = 'cancelled';
 
     public const PRODUCTION_PENDING = 'pending';
     public const PRODUCTION_IN_PRODUCTION = 'in_production';
@@ -45,7 +46,7 @@ class Quote extends Model
         'material_cost', 'energy_cost', 'depreciation_cost', 'labor_cost',
         'failure_cost', 'subtotal_cost', 'final_price', 'unit_price',
         'profit_amount', 'status', 'production_status', 'production_order', 'approved_at',
-        'payment_method',
+        'payment_method', 'cancelled_at', 'cancel_reason',
     ];
 
     protected $casts = [
@@ -64,6 +65,7 @@ class Quote extends Model
         'unit_price' => 'decimal:2',
         'profit_amount' => 'decimal:2',
         'approved_at' => 'datetime',
+        'cancelled_at' => 'datetime',
     ];
 
     public function company(): BelongsTo
