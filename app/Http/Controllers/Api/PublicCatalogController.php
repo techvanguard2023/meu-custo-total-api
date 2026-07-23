@@ -45,6 +45,7 @@ class PublicCatalogController extends Controller
 
         return response()->json([
             'company_name' => $company->name,
+            'logo_url' => $company->logo_url,
             'products' => $products,
         ]);
     }

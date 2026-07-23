@@ -2,8 +2,10 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Storage;
 use Laravel\Cashier\Billable;
 
 class Company extends Model
@@ -15,12 +17,21 @@ class Company extends Model
 
     protected $fillable = [
         'name', 'slug', 'plan', 'email', 'phone', 'currency', 'timezone',
-        'catalog_token', 'catalog_enabled',
+        'catalog_token', 'catalog_enabled', 'logo_path',
     ];
 
     protected $casts = [
         'catalog_enabled' => 'boolean',
     ];
+
+    protected $appends = ['logo_url'];
+
+    protected function logoUrl(): Attribute
+    {
+        return Attribute::get(
+            fn () => $this->logo_path ? Storage::disk('public')->url($this->logo_path) : null
+        );
+    }
 
     public function isPro(): bool
     {
