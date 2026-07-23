@@ -1,11 +1,13 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\CatalogController;
 use App\Http\Controllers\Api\CustomerController;
 use App\Http\Controllers\Api\MaterialController;
 use App\Http\Controllers\Api\PasswordResetController;
 use App\Http\Controllers\Api\PlanController;
 use App\Http\Controllers\Api\ProfileController;
+use App\Http\Controllers\Api\PublicCatalogController;
 use App\Http\Controllers\Api\SubscriptionController;
 use App\Http\Controllers\Api\PrinterController;
 use App\Http\Controllers\Api\ProductController;
@@ -24,6 +26,10 @@ Route::prefix('v1')->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
     Route::post('/forgot-password', [PasswordResetController::class, 'forgot']);
     Route::post('/reset-password', [PasswordResetController::class, 'reset']);
+
+    // Catálogo público — sem autenticação, acessado por clientes finais via link compartilhado.
+    Route::get('/public/catalog/{token}', [PublicCatalogController::class, 'show'])
+        ->middleware('throttle:60,1');
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
@@ -45,6 +51,10 @@ Route::prefix('v1')->group(function () {
 
         Route::get('/settings', [SettingsController::class, 'show']);
         Route::put('/settings', [SettingsController::class, 'update']);
+
+        Route::get('/catalog', [CatalogController::class, 'show']);
+        Route::patch('/catalog', [CatalogController::class, 'update']);
+        Route::post('/catalog/regenerate', [CatalogController::class, 'regenerate']);
 
         Route::get('/reports', [ReportController::class, 'show']);
 

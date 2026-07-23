@@ -17,11 +17,16 @@ class AuthController extends Controller
     public function register(Request $request)
     {
         $data = $request->validate([
-            'company_name' => ['required', 'string', 'max:255'],
-            'name' => ['required', 'string', 'max:255'],
+            'company_name' => ['required', 'string', 'min:3', 'max:255', 'regex:/\p{L}/u'],
+            'name' => ['required', 'string', 'min:3', 'max:255', 'regex:/\p{L}/u'],
             'email' => ['required', 'email', 'unique:users,email'],
             'phone' => ['required', 'string', 'max:20'],
             'password' => ['required', 'string', 'min:8'],
+        ], [
+            'company_name.min' => 'O nome da empresa deve ter pelo menos 3 caracteres.',
+            'company_name.regex' => 'Informe um nome de empresa válido.',
+            'name.min' => 'O nome deve ter pelo menos 3 caracteres.',
+            'name.regex' => 'Informe um nome válido.',
         ]);
 
         $company = Company::create([

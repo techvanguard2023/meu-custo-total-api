@@ -13,11 +13,24 @@ class Company extends Model
     public const PLAN_FREE = 'free';
     public const PLAN_PRO = 'pro';
 
-    protected $fillable = ['name', 'slug', 'plan', 'email', 'phone', 'currency', 'timezone'];
+    protected $fillable = [
+        'name', 'slug', 'plan', 'email', 'phone', 'currency', 'timezone',
+        'catalog_token', 'catalog_enabled',
+    ];
+
+    protected $casts = [
+        'catalog_enabled' => 'boolean',
+    ];
 
     public function isPro(): bool
     {
         return $this->plan === self::PLAN_PRO;
+    }
+
+    /** Catálogo público só fica de fato acessível se estiver ligado E a empresa ainda for Pro. */
+    public function hasCatalogActive(): bool
+    {
+        return $this->catalog_enabled && $this->catalog_token && $this->isPro();
     }
 
     public function users(): HasMany
