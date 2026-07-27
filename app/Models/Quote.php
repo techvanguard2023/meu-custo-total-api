@@ -47,10 +47,12 @@ class Quote extends Model
         'failure_cost', 'subtotal_cost', 'final_price', 'unit_price',
         'profit_amount', 'status', 'production_status', 'production_order', 'approved_at',
         'payment_method', 'cancelled_at', 'cancel_reason',
+        'model_urls', 'notes',
     ];
 
     protected $casts = [
         'material_weight_g' => 'decimal:2',
+        'model_urls' => 'array',
         'extra_costs' => 'decimal:2',
         'failure_rate_percent' => 'decimal:2',
         'markup_percent' => 'decimal:2',
