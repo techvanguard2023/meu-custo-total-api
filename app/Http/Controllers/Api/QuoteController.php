@@ -264,6 +264,49 @@ class QuoteController extends Controller
         return $this->transitionStatus($request, $quote, Quote::STATUS_REJECTED);
     }
 
+    /** Pausa a contagem de prazo — imprevisto que impede seguir a produção agora. */
+    public function pause(Request $request, Quote $quote)
+    {
+        $this->authorizeCompany($request, $quote);
+        $this->requirePro($request, 'Linha de Produção');
+
+        abort_unless($quote->status === Quote::STATUS_APPROVED, 422, 'Apenas vendas aprovadas têm prazo de produção.');
+        abort_if($quote->paused_at, 422, 'Esta venda já está pausada.');
+
+        $data = $request->validate([
+            'reason' => ['sometimes', 'nullable', 'string', 'max:500'],
+        ]);
+
+        $quote->update([
+            'paused_at' => now(),
+            'pause_reason' => $data['reason'] ?? null,
+        ]);
+
+        return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product']));
+    }
+
+    /** Retoma a produção — estende o prazo automaticamente pelos dias que ficou pausada. */
+    public function resume(Request $request, Quote $quote)
+    {
+        $this->authorizeCompany($request, $quote);
+        $this->requirePro($request, 'Linha de Produção');
+
+        abort_unless($quote->paused_at, 422, 'Esta venda não está pausada.');
+
+        // diffInHours devolve fração exata (ex: 0.001h pra poucos segundos) — arredonda
+        // pro dia mais próximo em vez de ceil(), pra não somar 1 dia inteiro por uma
+        // pausa de alguns minutos.
+        $pausedDays = (int) round($quote->paused_at->diffInHours(now()) / 24);
+
+        $quote->update([
+            'delivery_days' => (int) $quote->delivery_days + max(0, $pausedDays),
+            'paused_at' => null,
+            'pause_reason' => null,
+        ]);
+
+        return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product']));
+    }
+
     /**
      * Cancela uma venda já aprovada: devolve ao estoque tudo que foi debitado
      * na aprovação (produtos e materiais) e marca a venda como cancelada,

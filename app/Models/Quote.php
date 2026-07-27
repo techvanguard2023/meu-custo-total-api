@@ -47,7 +47,7 @@ class Quote extends Model
         'failure_cost', 'subtotal_cost', 'final_price', 'unit_price',
         'profit_amount', 'status', 'production_status', 'production_order', 'approved_at',
         'payment_method', 'cancelled_at', 'cancel_reason',
-        'model_urls', 'notes',
+        'model_urls', 'notes', 'paused_at', 'pause_reason',
     ];
 
     protected $casts = [
@@ -68,6 +68,7 @@ class Quote extends Model
         'profit_amount' => 'decimal:2',
         'approved_at' => 'datetime',
         'cancelled_at' => 'datetime',
+        'paused_at' => 'datetime',
     ];
 
     public function company(): BelongsTo
