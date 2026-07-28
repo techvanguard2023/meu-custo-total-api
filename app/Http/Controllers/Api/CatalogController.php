@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Http\Controllers\Controller;
+use App\Models\CatalogBanner;
 use App\Models\Company;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -17,6 +18,8 @@ use Illuminate\Support\Str;
 class CatalogController extends Controller
 {
     use EnforcesPlanLimits;
+
+    private const MAX_BANNERS = 3;
 
     public function show(Request $request)
     {
@@ -91,6 +94,74 @@ class CatalogController extends Controller
         return response()->json($this->payload($company->fresh()));
     }
 
+    /** Banner de anúncio no topo do catálogo público — carrossel de até 3. */
+    public function uploadBanner(Request $request)
+    {
+        $this->requirePro($request, 'Catálogo público');
+
+        $data = $request->validate([
+            'image' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
+            'link_url' => ['nullable', 'url', 'max:2048'],
+        ]);
+
+        $company = $request->user()->company;
+        $existingCount = $company->banners()->count();
+        abort_if($existingCount >= self::MAX_BANNERS, 422, 'Máximo de '.self::MAX_BANNERS.' banners.');
+
+        $path = $request->file('image')->store('banners', 'public');
+        $company->banners()->create([
+            'image_path' => $path,
+            'link_url' => $data['link_url'] ?? null,
+            'position' => $existingCount,
+        ]);
+
+        return response()->json($this->payload($company->fresh()));
+    }
+
+    public function updateBanner(Request $request, CatalogBanner $banner)
+    {
+        $this->requirePro($request, 'Catálogo público');
+        abort_unless($banner->company_id === $request->user()->company_id, 403);
+
+        $data = $request->validate([
+            'link_url' => ['nullable', 'url', 'max:2048'],
+        ]);
+
+        $banner->update(['link_url' => $data['link_url'] ?? null]);
+
+        return response()->json($this->payload($request->user()->company->fresh()));
+    }
+
+    public function destroyBanner(Request $request, CatalogBanner $banner)
+    {
+        abort_unless($banner->company_id === $request->user()->company_id, 403);
+
+        Storage::disk('public')->delete($banner->image_path);
+        $banner->delete();
+
+        return response()->json($this->payload($request->user()->company->fresh()));
+    }
+
+    /** Reordena os banners — recebe a lista de IDs na nova ordem. */
+    public function reorderBanners(Request $request)
+    {
+        $company = $request->user()->company;
+
+        $data = $request->validate([
+            'banner_ids' => ['required', 'array'],
+            'banner_ids.*' => ['integer'],
+        ]);
+
+        $ids = $company->banners()->pluck('id')->all();
+        abort_unless(count(array_diff($ids, $data['banner_ids'])) === 0 && count($data['banner_ids']) === count($ids), 422, 'Lista de banners inválida.');
+
+        foreach ($data['banner_ids'] as $position => $bannerId) {
+            CatalogBanner::where('id', $bannerId)->where('company_id', $company->id)->update(['position' => $position]);
+        }
+
+        return response()->json($this->payload($company->fresh()));
+    }
+
     private function payload(Company $company): array
     {
         return [
@@ -98,6 +169,11 @@ class CatalogController extends Controller
             'token' => $company->catalog_token,
             'logo_url' => $company->logo_url,
             'whatsapp' => $company->catalog_whatsapp,
+            'banners' => $company->banners->map(fn ($banner) => [
+                'id' => $banner->id,
+                'image_url' => $banner->image_url,
+                'link_url' => $banner->link_url,
+            ]),
         ];
     }
 

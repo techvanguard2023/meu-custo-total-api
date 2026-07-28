@@ -159,6 +159,7 @@ class ProductController extends Controller
             'sale_price' => ['nullable', 'numeric', 'min:0'],
             'stock_quantity' => ['sometimes', 'integer', 'min:0'],
             'made_to_order' => ['sometimes', 'boolean'],
+            'featured' => ['sometimes', 'boolean'],
             'active' => ['sometimes', 'boolean'],
         ], [
             'sku.unique' => 'Este código já está em uso por outro produto.',

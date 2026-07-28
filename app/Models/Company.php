@@ -78,4 +78,9 @@ class Company extends Model
     {
         return $this->hasOne(Setting::class);
     }
+
+    public function banners(): HasMany
+    {
+        return $this->hasMany(CatalogBanner::class)->orderBy('position');
+    }
 }

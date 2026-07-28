@@ -38,6 +38,7 @@ class PublicCatalogController extends Controller
                     'sku' => $product->sku,
                     'name' => $product->name,
                     'description' => $product->description,
+                    'category_id' => $product->category_id,
                     'category_label' => $product->category?->name,
                     'image_url' => $product->image_url,
                     'images' => $product->images->map(fn ($image) => $image->image_url)->values(),
@@ -45,6 +46,7 @@ class PublicCatalogController extends Controller
                     'stock_quantity' => (int) $product->stock_quantity,
                     'stock_status' => $this->stockStatus((int) $product->stock_quantity),
                     'made_to_order' => (bool) $product->made_to_order,
+                    'featured' => (bool) $product->featured,
                 ];
             });
 
@@ -52,6 +54,10 @@ class PublicCatalogController extends Controller
             'company_name' => $company->name,
             'logo_url' => $company->logo_url,
             'whatsapp' => $company->catalog_whatsapp,
+            'banners' => $company->banners->map(fn ($banner) => [
+                'image_url' => $banner->image_url,
+                'link_url' => $banner->link_url,
+            ])->values(),
             'products' => $products,
         ]);
     }

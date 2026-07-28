@@ -65,6 +65,10 @@ Route::prefix('v1')->group(function () {
         Route::post('/catalog/regenerate', [CatalogController::class, 'regenerate']);
         Route::post('/catalog/logo', [CatalogController::class, 'uploadLogo']);
         Route::delete('/catalog/logo', [CatalogController::class, 'destroyLogo']);
+        Route::post('/catalog/banners', [CatalogController::class, 'uploadBanner']);
+        Route::patch('/catalog/banners/reorder', [CatalogController::class, 'reorderBanners']);
+        Route::patch('/catalog/banners/{banner}', [CatalogController::class, 'updateBanner']);
+        Route::delete('/catalog/banners/{banner}', [CatalogController::class, 'destroyBanner']);
 
         Route::get('/reports', [ReportController::class, 'show']);
 
