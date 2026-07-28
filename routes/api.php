@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\PublicCatalogController;
 use App\Http\Controllers\Api\SubscriptionController;
 use App\Http\Controllers\Api\PrinterController;
+use App\Http\Controllers\Api\ProductCategoryController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\QuoteController;
 use App\Http\Controllers\Api\ReportController;
@@ -38,8 +39,10 @@ Route::prefix('v1')->group(function () {
         Route::apiResource('materials', MaterialController::class);
         Route::apiResource('printers', PrinterController::class);
         Route::apiResource('customers', CustomerController::class);
-        Route::post('/products/{product}/image', [ProductController::class, 'uploadImage']);
-        Route::delete('/products/{product}/image', [ProductController::class, 'destroyImage']);
+        Route::get('/product-categories', [ProductCategoryController::class, 'index']);
+        Route::post('/products/{product}/images', [ProductController::class, 'uploadImages']);
+        Route::delete('/products/{product}/images/{image}', [ProductController::class, 'destroyImage']);
+        Route::patch('/products/{product}/images/reorder', [ProductController::class, 'reorderImages']);
         Route::apiResource('products', ProductController::class);
 
         Route::post('/quotes/preview', [QuoteController::class, 'preview']);

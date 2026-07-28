@@ -35,17 +35,23 @@ class PublicCatalogController extends Controller
 
                 return [
                     'id' => $product->id,
+                    'sku' => $product->sku,
                     'name' => $product->name,
                     'description' => $product->description,
+                    'category_label' => $product->category?->name,
                     'image_url' => $product->image_url,
+                    'images' => $product->images->map(fn ($image) => $image->image_url)->values(),
                     'price' => $price,
+                    'stock_quantity' => (int) $product->stock_quantity,
                     'stock_status' => $this->stockStatus((int) $product->stock_quantity),
+                    'made_to_order' => (bool) $product->made_to_order,
                 ];
             });
 
         return response()->json([
             'company_name' => $company->name,
             'logo_url' => $company->logo_url,
+            'whatsapp' => $company->catalog_whatsapp,
             'products' => $products,
         ]);
     }

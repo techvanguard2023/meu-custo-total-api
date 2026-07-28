@@ -29,6 +29,7 @@ class CatalogController extends Controller
 
         $data = $request->validate([
             'enabled' => ['required', 'boolean'],
+            'whatsapp' => ['nullable', 'string', 'max:20'],
         ]);
 
         $company = $request->user()->company;
@@ -38,6 +39,9 @@ class CatalogController extends Controller
         }
 
         $company->catalog_enabled = $data['enabled'];
+        if (array_key_exists('whatsapp', $data)) {
+            $company->catalog_whatsapp = $data['whatsapp'];
+        }
         $company->save();
 
         return response()->json($this->payload($company));
@@ -93,6 +97,7 @@ class CatalogController extends Controller
             'enabled' => $company->catalog_enabled,
             'token' => $company->catalog_token,
             'logo_url' => $company->logo_url,
+            'whatsapp' => $company->catalog_whatsapp,
         ];
     }
 
