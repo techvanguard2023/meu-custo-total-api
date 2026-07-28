@@ -40,6 +40,7 @@ Route::prefix('v1')->group(function () {
         Route::apiResource('printers', PrinterController::class);
         Route::apiResource('customers', CustomerController::class);
         Route::get('/product-categories', [ProductCategoryController::class, 'index']);
+        Route::get('/products/generate-sku', [ProductController::class, 'generateSku']);
         Route::post('/products/{product}/images', [ProductController::class, 'uploadImages']);
         Route::delete('/products/{product}/images/{image}', [ProductController::class, 'destroyImage']);
         Route::patch('/products/{product}/images/reorder', [ProductController::class, 'reorderImages']);

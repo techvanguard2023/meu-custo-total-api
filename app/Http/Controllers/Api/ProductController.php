@@ -14,16 +14,43 @@ class ProductController extends Controller
 {
     use EnforcesPlanLimits;
 
+    /** Caracteres sem ambiguidade visual (sem 0/O, 1/I/L) pra código de produto legível. */
+    private const SKU_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+    private const SKU_LENGTH = 6;
+
     public function index(Request $request)
     {
         return $request->user()->company->products()->latest()->get();
+    }
+
+    /** Sugere um código de produto único (dentro da empresa) pra preencher o campo SKU. */
+    public function generateSku(Request $request)
+    {
+        return response()->json(['sku' => $this->generateUniqueSku($request->user()->company_id)]);
+    }
+
+    private function generateUniqueSku(int $companyId): string
+    {
+        for ($attempt = 0; $attempt < 20; $attempt++) {
+            $code = '';
+            for ($i = 0; $i < self::SKU_LENGTH; $i++) {
+                $code .= self::SKU_ALPHABET[random_int(0, strlen(self::SKU_ALPHABET) - 1)];
+            }
+
+            $exists = Product::where('company_id', $companyId)->where('sku', $code)->exists();
+            if (! $exists) {
+                return $code;
+            }
+        }
+
+        throw new \RuntimeException('Não foi possível gerar um código único de produto.');
     }
 
     public function store(Request $request)
     {
         $this->enforceFreeLimit($request, 'products', $request->user()->company->products()->count(), 'produtos');
 
-        $data = $this->validated($request);
+        $data = $this->validated($request, $request->user()->company_id);
         $product = $request->user()->company->products()->create($data);
 
         return response()->json($product->fresh(), 201);
@@ -39,7 +66,7 @@ class ProductController extends Controller
     public function update(Request $request, Product $product)
     {
         $this->authorizeCompany($request, $product);
-        $product->update($this->validated($request));
+        $product->update($this->validated($request, $product->company_id, $product->id));
 
         return $product->fresh();
     }
@@ -115,11 +142,16 @@ class ProductController extends Controller
         return response()->json($product->fresh());
     }
 
-    private function validated(Request $request): array
+    private function validated(Request $request, int $companyId, ?int $ignoreProductId = null): array
     {
         return $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            'sku' => ['nullable', 'string', 'max:255'],
+            'sku' => [
+                'nullable', 'string', 'max:255',
+                Rule::unique('products', 'sku')
+                    ->where(fn ($query) => $query->where('company_id', $companyId))
+                    ->ignore($ignoreProductId),
+            ],
             'description' => ['nullable', 'string'],
             'category_id' => ['nullable', 'integer', Rule::exists('product_categories', 'id')],
             'model_3d_url' => ['nullable', 'url', 'max:2048'],
@@ -128,6 +160,8 @@ class ProductController extends Controller
             'stock_quantity' => ['sometimes', 'integer', 'min:0'],
             'made_to_order' => ['sometimes', 'boolean'],
             'active' => ['sometimes', 'boolean'],
+        ], [
+            'sku.unique' => 'Este código já está em uso por outro produto.',
         ]);
     }
 
