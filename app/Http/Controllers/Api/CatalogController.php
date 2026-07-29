@@ -33,6 +33,12 @@ class CatalogController extends Controller
         $data = $request->validate([
             'enabled' => ['required', 'boolean'],
             'whatsapp' => ['nullable', 'string', 'max:20'],
+            'disclaimer' => ['nullable', 'string', 'max:1000'],
+            'instagram_url' => ['nullable', 'url', 'max:2048'],
+            'facebook_url' => ['nullable', 'url', 'max:2048'],
+            'youtube_url' => ['nullable', 'url', 'max:2048'],
+            'tiktok_url' => ['nullable', 'url', 'max:2048'],
+            'linkedin_url' => ['nullable', 'url', 'max:2048'],
         ]);
 
         $company = $request->user()->company;
@@ -44,6 +50,14 @@ class CatalogController extends Controller
         $company->catalog_enabled = $data['enabled'];
         if (array_key_exists('whatsapp', $data)) {
             $company->catalog_whatsapp = $data['whatsapp'];
+        }
+        if (array_key_exists('disclaimer', $data)) {
+            $company->catalog_disclaimer = $data['disclaimer'];
+        }
+        foreach (['instagram', 'facebook', 'youtube', 'tiktok', 'linkedin'] as $network) {
+            if (array_key_exists("{$network}_url", $data)) {
+                $company->{"catalog_{$network}_url"} = $data["{$network}_url"];
+            }
         }
         $company->save();
 
@@ -102,6 +116,10 @@ class CatalogController extends Controller
         $data = $request->validate([
             'image' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
             'link_url' => ['nullable', 'url', 'max:2048'],
+        ], [
+            'image.max' => 'A imagem deve ter no máximo 4MB.',
+            'image.image' => 'Envie um arquivo de imagem válido (JPG, PNG ou WebP).',
+            'image.mimes' => 'Formato não suportado — envie JPG, PNG ou WebP.',
         ]);
 
         $company = $request->user()->company;
@@ -169,6 +187,14 @@ class CatalogController extends Controller
             'token' => $company->catalog_token,
             'logo_url' => $company->logo_url,
             'whatsapp' => $company->catalog_whatsapp,
+            'disclaimer' => $company->catalog_disclaimer,
+            'social' => [
+                'instagram_url' => $company->catalog_instagram_url,
+                'facebook_url' => $company->catalog_facebook_url,
+                'youtube_url' => $company->catalog_youtube_url,
+                'tiktok_url' => $company->catalog_tiktok_url,
+                'linkedin_url' => $company->catalog_linkedin_url,
+            ],
             'banners' => $company->banners->map(fn ($banner) => [
                 'id' => $banner->id,
                 'image_url' => $banner->image_url,

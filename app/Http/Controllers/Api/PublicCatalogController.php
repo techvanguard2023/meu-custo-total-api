@@ -54,6 +54,14 @@ class PublicCatalogController extends Controller
             'company_name' => $company->name,
             'logo_url' => $company->logo_url,
             'whatsapp' => $company->catalog_whatsapp,
+            'disclaimer' => $company->catalog_disclaimer,
+            'social' => array_filter([
+                'instagram_url' => $company->catalog_instagram_url,
+                'facebook_url' => $company->catalog_facebook_url,
+                'youtube_url' => $company->catalog_youtube_url,
+                'tiktok_url' => $company->catalog_tiktok_url,
+                'linkedin_url' => $company->catalog_linkedin_url,
+            ]),
             'banners' => $company->banners->map(fn ($banner) => [
                 'image_url' => $banner->image_url,
                 'link_url' => $banner->link_url,

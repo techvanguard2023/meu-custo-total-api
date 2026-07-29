@@ -17,7 +17,9 @@ class Company extends Model
 
     protected $fillable = [
         'name', 'slug', 'plan', 'email', 'phone', 'currency', 'timezone',
-        'catalog_token', 'catalog_enabled', 'catalog_whatsapp', 'logo_path',
+        'catalog_token', 'catalog_enabled', 'catalog_whatsapp', 'catalog_disclaimer', 'logo_path',
+        'catalog_instagram_url', 'catalog_facebook_url', 'catalog_youtube_url',
+        'catalog_tiktok_url', 'catalog_linkedin_url',
     ];
 
     protected $casts = [
