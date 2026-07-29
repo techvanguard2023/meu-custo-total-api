@@ -15,9 +15,11 @@ class PublicCatalogController extends Controller
 {
     public function show(Request $request, string $token)
     {
-        $company = Company::where('catalog_token', $token)->first();
+        // Aceita tanto o slug da empresa (link novo, legível — ex: minha-empresa-a1b2c3)
+        // quanto o token aleatório antigo (mantido pra não quebrar links já compartilhados).
+        $company = Company::where('slug', $token)->orWhere('catalog_token', $token)->first();
 
-        // 404 tanto pra token inexistente quanto pra catálogo desligado/empresa
+        // 404 tanto pra identificador inexistente quanto pra catálogo desligado/empresa
         // não-Pro — não dá pra distinguir os casos de fora.
         abort_unless($company && $company->hasCatalogActive(), 404, 'Catálogo não encontrado.');
 
