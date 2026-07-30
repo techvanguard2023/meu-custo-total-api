@@ -160,6 +160,7 @@ class ProductController extends Controller
             'stock_quantity' => ['sometimes', 'integer', 'min:0'],
             'made_to_order' => ['sometimes', 'boolean'],
             'featured' => ['sometimes', 'boolean'],
+            'discount_percent' => ['nullable', 'numeric', 'min:0.01', 'max:95'],
             'active' => ['sometimes', 'boolean'],
         ], [
             'sku.unique' => 'Este código já está em uso por outro produto.',

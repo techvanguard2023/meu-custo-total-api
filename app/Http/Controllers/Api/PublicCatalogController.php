@@ -31,9 +31,14 @@ class PublicCatalogController extends Controller
             ->get()
             ->map(function ($product) use ($markup) {
                 $cost = (float) $product->cost;
-                $price = $product->sale_price !== null
+                $regularPrice = $product->sale_price !== null
                     ? (float) $product->sale_price
                     : round($cost * (1 + $markup / 100), 2);
+
+                $discountPercent = $product->discount_percent !== null ? (float) $product->discount_percent : null;
+                $promoPrice = $discountPercent
+                    ? round($regularPrice * (1 - $discountPercent / 100), 2)
+                    : null;
 
                 return [
                     'id' => $product->id,
@@ -44,7 +49,12 @@ class PublicCatalogController extends Controller
                     'category_label' => $product->category?->name,
                     'image_url' => $product->image_url,
                     'images' => $product->images->map(fn ($image) => $image->image_url)->values(),
-                    'price' => $price,
+                    // Quando há promoção ativa, "price" já é o valor com desconto (é o que o
+                    // cliente de fato paga — usado no carrinho, WhatsApp etc). O preço cheio
+                    // riscado vem em "original_price", só quando aplicável.
+                    'price' => $promoPrice ?? $regularPrice,
+                    'original_price' => $promoPrice ? $regularPrice : null,
+                    'discount_percent' => $promoPrice ? $discountPercent : null,
                     'stock_quantity' => (int) $product->stock_quantity,
                     'stock_status' => $this->stockStatus((int) $product->stock_quantity),
                     'made_to_order' => (bool) $product->made_to_order,

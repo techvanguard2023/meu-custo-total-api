@@ -12,7 +12,7 @@ class Product extends Model
 {
     protected $fillable = [
         'company_id', 'name', 'sku', 'description', 'category_id', 'image_path', 'model_3d_url',
-        'cost', 'sale_price', 'stock_quantity', 'made_to_order', 'featured', 'active',
+        'cost', 'sale_price', 'stock_quantity', 'made_to_order', 'featured', 'discount_percent', 'active',
     ];
 
     protected $casts = [
@@ -21,6 +21,7 @@ class Product extends Model
         'featured' => 'boolean',
         'cost' => 'decimal:2',
         'sale_price' => 'decimal:2',
+        'discount_percent' => 'decimal:2',
         'stock_quantity' => 'integer',
     ];
 
