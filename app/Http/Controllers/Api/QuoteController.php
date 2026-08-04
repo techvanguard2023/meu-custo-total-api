@@ -459,8 +459,16 @@ class QuoteController extends Controller
     {
         $primaryMaterial = $breakdown['materials'][0] ?? null;
 
+        // Campos numéricos precisam ser sempre escritos, mesmo quando o cliente omite:
+        // update() é substituição completa (name é required), então campo ausente = zerado.
+        // Sem isso, zerar um valor no formulário mantinha o valor antigo na coluna, deixando
+        // o orçamento inconsistente com o breakdown recalculado.
         return array_merge($data, [
             'print_time_minutes' => (int) ($data['print_time_minutes'] ?? 0),
+            'setup_minutes' => (int) ($data['setup_minutes'] ?? 0),
+            'postprocess_minutes' => (int) ($data['postprocess_minutes'] ?? 0),
+            'extra_costs' => $breakdown['extra_costs'],
+            'discount_amount' => $breakdown['discount_amount'],
             'material_id' => $primaryMaterial['material_id'] ?? null,
             'material_weight_g' => (float) ($primaryMaterial['weight'] ?? 0),
             'material_cost' => $breakdown['material_cost'],
