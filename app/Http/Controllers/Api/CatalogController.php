@@ -244,6 +244,32 @@ class CatalogController extends Controller
         $last30 = $sumRange($timelineStart, $today);
         $previous30 = $sumRange($comparisonStart, $timelineStart->subDay());
 
+        // De onde vêm os acessos (30 dias). Visitas sem localização — IP de rede
+        // local ou serviço indisponível na hora — ficam de fora em vez de virar
+        // uma linha "Desconhecido" que não ajuda em nada.
+        $topLocations = CatalogVisit::query()
+            ->where('company_id', $companyId)
+            ->where('visit_date', '>=', $timelineStart->toDateString())
+            ->whereNotNull('city')
+            ->groupBy('city', 'region', 'country_code')
+            ->orderByDesc(DB::raw('COUNT(DISTINCT visitor_hash)'))
+            ->limit(8)
+            ->get([
+                'city',
+                'region',
+                'country_code',
+                DB::raw('COUNT(DISTINCT visitor_hash) as unique_visitors'),
+                DB::raw('COUNT(*) as page_views'),
+            ])
+            ->map(fn ($row) => [
+                'city' => $row->city,
+                'region' => $row->region,
+                'country_code' => $row->country_code,
+                'label' => $row->region ? "{$row->city}/{$row->region}" : $row->city,
+                'unique_visitors' => (int) $row->unique_visitors,
+                'page_views' => (int) $row->page_views,
+            ]);
+
         return response()->json([
             'today' => $sumRange($today, $today),
             'last_7_days' => array_merge($last7, [
@@ -253,6 +279,7 @@ class CatalogController extends Controller
                 'unique_change_percent' => $this->changePercent($previous30['unique_visitors'], $last30['unique_visitors']),
             ]),
             'timeline' => $timeline,
+            'top_locations' => $topLocations,
         ]);
     }
 

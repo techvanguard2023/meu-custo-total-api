@@ -13,7 +13,11 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        //
+        // A aplicação só é acessível através do proxy reverso da hospedagem, que
+        // repassa o IP real do visitante no cabeçalho X-Forwarded-For. Sem confiar
+        // nele, todo acesso chegaria com o IP interno do proxy — o que faria as
+        // métricas do catálogo contarem todos os visitantes como uma pessoa só.
+        $middleware->trustProxies(at: '*');
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

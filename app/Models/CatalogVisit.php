@@ -2,9 +2,12 @@
 
 namespace App\Models;
 
+use App\Services\VisitorLocator;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Http\Request;
+
+use function Illuminate\Support\defer;
 
 /**
  * Visita ao catálogo público. Não guarda IP nem nenhum dado pessoal: só uma
@@ -16,7 +19,10 @@ class CatalogVisit extends Model
 {
     public $timestamps = false;
 
-    protected $fillable = ['company_id', 'visitor_hash', 'visit_date', 'visited_at'];
+    protected $fillable = [
+        'company_id', 'visitor_hash', 'visit_date', 'visited_at',
+        'country_code', 'region', 'city',
+    ];
 
     protected $casts = [
         'visit_date' => 'date',
@@ -76,21 +82,33 @@ class CatalogVisit extends Model
 
         try {
             $today = now()->toDateString();
+            $ip = $request->ip();
 
             $hash = hash('sha256', implode('|', [
-                $request->ip(),
+                $ip,
                 $request->userAgent(),
                 $company->id,
                 $today,                 // sal diário: impede rastrear a mesma pessoa entre dias
                 config('app.key'),      // impede que alguém de fora recalcule o hash
             ]));
 
-            self::create([
+            $visit = self::create([
                 'company_id' => $company->id,
                 'visitor_hash' => $hash,
                 'visit_date' => $today,
                 'visited_at' => now(),
             ]);
+
+            // A localização é resolvida DEPOIS que a resposta já foi enviada ao
+            // visitante: o catálogo não espera pela consulta de geolocalização.
+            // O IP fica só nesta closure em memória — não é gravado em lugar nenhum.
+            defer(function () use ($visit, $ip) {
+                $location = VisitorLocator::resolve($ip);
+
+                if ($location) {
+                    $visit->update($location);
+                }
+            });
         } catch (\Throwable $e) {
             // Métrica nunca pode quebrar a experiência do cliente final vendo o catálogo.
             report($e);
