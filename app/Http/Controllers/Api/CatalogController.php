@@ -5,8 +5,11 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Http\Controllers\Controller;
 use App\Models\CatalogBanner;
+use App\Models\CatalogVisit;
 use App\Models\Company;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -178,6 +181,93 @@ class CatalogController extends Controller
         }
 
         return response()->json($this->payload($company->fresh()));
+    }
+
+    /** Métricas de acesso ao catálogo público (recurso Pro). */
+    public function analytics(Request $request)
+    {
+        $this->requirePro($request, 'Métricas do catálogo');
+
+        $companyId = $request->user()->company_id;
+        $today = CarbonImmutable::today();
+        $timelineDays = 30;
+        $timelineStart = $today->subDays($timelineDays - 1);
+
+        // Uma única leitura cobre tanto os totais quanto o gráfico: agrega por dia e
+        // soma depois em memória, evitando várias queries repetidas sobre a mesma faixa.
+        // Precisa alcançar os 30 dias anteriores para o comparativo de tendência.
+        $comparisonStart = $today->subDays($timelineDays * 2 - 1);
+
+        $daily = CatalogVisit::query()
+            ->where('company_id', $companyId)
+            ->where('visit_date', '>=', $comparisonStart->toDateString())
+            ->groupBy('visit_date')
+            ->orderBy('visit_date')
+            ->get([
+                'visit_date',
+                DB::raw('COUNT(*) as page_views'),
+                DB::raw('COUNT(DISTINCT visitor_hash) as unique_visitors'),
+            ])
+            ->keyBy(fn ($row) => CarbonImmutable::parse($row->visit_date)->toDateString());
+
+        $sumRange = function (CarbonImmutable $from, CarbonImmutable $to) use ($daily): array {
+            $views = 0;
+            $unique = 0;
+            foreach ($daily as $date => $row) {
+                if ($date >= $from->toDateString() && $date <= $to->toDateString()) {
+                    $views += (int) $row->page_views;
+                    $unique += (int) $row->unique_visitors;
+                }
+            }
+
+            return ['page_views' => $views, 'unique_visitors' => $unique];
+        };
+
+        // Série diária contínua — dias sem acesso entram como zero para o gráfico
+        // não "pular" datas e distorcer a leitura dos picos.
+        $timeline = [];
+        for ($i = 0; $i < $timelineDays; $i++) {
+            $date = $timelineStart->addDays($i);
+            $key = $date->toDateString();
+            $row = $daily->get($key);
+
+            $timeline[] = [
+                'date' => $key,
+                'label' => $date->format('d/m'),
+                'page_views' => (int) ($row->page_views ?? 0),
+                'unique_visitors' => (int) ($row->unique_visitors ?? 0),
+            ];
+        }
+
+        $last7 = $sumRange($today->subDays(6), $today);
+        $previous7 = $sumRange($today->subDays(13), $today->subDays(7));
+        $last30 = $sumRange($timelineStart, $today);
+        $previous30 = $sumRange($comparisonStart, $timelineStart->subDay());
+
+        return response()->json([
+            'today' => $sumRange($today, $today),
+            'last_7_days' => array_merge($last7, [
+                'unique_change_percent' => $this->changePercent($previous7['unique_visitors'], $last7['unique_visitors']),
+            ]),
+            'last_30_days' => array_merge($last30, [
+                'unique_change_percent' => $this->changePercent($previous30['unique_visitors'], $last30['unique_visitors']),
+            ]),
+            'timeline' => $timeline,
+        ]);
+    }
+
+    /**
+     * Variação percentual entre dois períodos. Devolve null quando não há base de
+     * comparação (período anterior zerado), pra tela não mostrar "+100%" enganoso
+     * em quem acabou de ativar o catálogo.
+     */
+    private function changePercent(int $previous, int $current): ?float
+    {
+        if ($previous === 0) {
+            return null;
+        }
+
+        return round((($current - $previous) / $previous) * 100, 1);
     }
 
     private function payload(Company $company): array

@@ -61,6 +61,7 @@ Route::prefix('v1')->group(function () {
         Route::put('/settings', [SettingsController::class, 'update']);
 
         Route::get('/catalog', [CatalogController::class, 'show']);
+        Route::get('/catalog/analytics', [CatalogController::class, 'analytics']);
         Route::patch('/catalog', [CatalogController::class, 'update']);
         Route::post('/catalog/regenerate', [CatalogController::class, 'regenerate']);
         Route::post('/catalog/logo', [CatalogController::class, 'uploadLogo']);

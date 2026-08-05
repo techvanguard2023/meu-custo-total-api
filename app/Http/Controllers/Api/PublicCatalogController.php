@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\CatalogVisit;
 use App\Models\Company;
 use Illuminate\Http\Request;
 
@@ -22,6 +23,8 @@ class PublicCatalogController extends Controller
         // 404 tanto pra identificador inexistente quanto pra catálogo desligado/empresa
         // não-Pro — não dá pra distinguir os casos de fora.
         abort_unless($company && $company->hasCatalogActive(), 404, 'Catálogo não encontrado.');
+
+        CatalogVisit::record($company, $request);
 
         $markup = (float) ($company->setting?->default_markup ?? 0);
 
