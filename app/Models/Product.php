@@ -25,9 +25,30 @@ class Product extends Model
         'stock_quantity' => 'integer',
     ];
 
-    protected $appends = ['image_url'];
+    protected $appends = ['image_url', 'has_variations', 'total_stock'];
 
-    protected $with = ['images', 'category'];
+    protected $with = ['images', 'category', 'variations'];
+
+    /** Produto com variações controla estoque e preço pelas variações, não por si. */
+    protected function hasVariations(): Attribute
+    {
+        return Attribute::get(fn () => $this->variations->isNotEmpty());
+    }
+
+    /**
+     * Estoque disponível para venda: soma das variações ativas quando houver
+     * variações, senão o estoque do próprio produto.
+     */
+    protected function totalStock(): Attribute
+    {
+        return Attribute::get(function () {
+            if ($this->variations->isEmpty()) {
+                return (int) $this->stock_quantity;
+            }
+
+            return (int) $this->variations->where('active', true)->sum('stock_quantity');
+        });
+    }
 
     protected function imageUrl(): Attribute
     {
@@ -59,5 +80,10 @@ class Product extends Model
     public function category(): BelongsTo
     {
         return $this->belongsTo(ProductCategory::class);
+    }
+
+    public function variations(): HasMany
+    {
+        return $this->hasMany(ProductVariation::class)->orderBy('position')->orderBy('id');
     }
 }

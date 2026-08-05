@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Product;
 use App\Models\ProductImage;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 
@@ -51,7 +52,15 @@ class ProductController extends Controller
         $this->enforceFreeLimit($request, 'products', $request->user()->company->products()->count(), 'produtos');
 
         $data = $this->validated($request, $request->user()->company_id);
-        $product = $request->user()->company->products()->create($data);
+        $variations = $data['variations'] ?? null;
+        unset($data['variations']);
+
+        $product = DB::transaction(function () use ($request, $data, $variations) {
+            $product = $request->user()->company->products()->create($data);
+            $this->syncVariations($product, $variations);
+
+            return $product;
+        });
 
         return response()->json($product->fresh(), 201);
     }
@@ -66,9 +75,64 @@ class ProductController extends Controller
     public function update(Request $request, Product $product)
     {
         $this->authorizeCompany($request, $product);
-        $product->update($this->validated($request, $product->company_id, $product->id));
+
+        $data = $this->validated($request, $product->company_id, $product->id);
+        $variations = $data['variations'] ?? null;
+        unset($data['variations']);
+
+        DB::transaction(function () use ($product, $data, $variations) {
+            $product->update($data);
+            $this->syncVariations($product, $variations);
+        });
 
         return $product->fresh();
+    }
+
+    /**
+     * Sincroniza as variações enviadas: atualiza as que já existem (pelo id),
+     * cria as novas e remove as que sumiram do formulário.
+     *
+     * Atualizar em vez de recriar é essencial: quote_items apontam para a
+     * variação, então apagar e recriar quebraria o vínculo do histórico de vendas
+     * e, com nullOnDelete, faria a venda perder de qual variação ela era.
+     *
+     * $variations === null significa "campo não enviado" — mantém como está.
+     */
+    private function syncVariations(Product $product, ?array $variations): void
+    {
+        if ($variations === null) {
+            return;
+        }
+
+        $keptIds = [];
+
+        foreach (array_values($variations) as $position => $row) {
+            $payload = [
+                'color' => $row['color'] ?? null,
+                'size' => $row['size'] ?? null,
+                'weight' => $row['weight'] ?? null,
+                'sku' => $row['sku'] ?? null,
+                'sale_price' => $row['sale_price'] ?? null,
+                'cost' => $row['cost'] ?? null,
+                'stock_quantity' => (int) ($row['stock_quantity'] ?? 0),
+                'active' => $row['active'] ?? true,
+                'position' => $position,
+            ];
+
+            $existing = isset($row['id'])
+                ? $product->variations()->whereKey($row['id'])->first()
+                : null;
+
+            if ($existing) {
+                $existing->update($payload);
+                $keptIds[] = $existing->id;
+            } else {
+                $keptIds[] = $product->variations()->create($payload)->id;
+            }
+        }
+
+        $product->variations()->whereNotIn('id', $keptIds ?: [0])->delete();
+        $product->unsetRelation('variations');
     }
 
     public function destroy(Request $request, Product $product)
@@ -162,8 +226,22 @@ class ProductController extends Controller
             'featured' => ['sometimes', 'boolean'],
             'discount_percent' => ['nullable', 'numeric', 'min:0.01', 'max:95'],
             'active' => ['sometimes', 'boolean'],
+
+            'variations' => ['sometimes', 'array', 'max:50'],
+            'variations.*.id' => ['sometimes', 'nullable', 'integer'],
+            // Ao menos um atributo precisa vir preenchido, senão a variação não
+            // significa nada pra quem está comprando.
+            'variations.*.color' => ['nullable', 'string', 'max:60', 'required_without_all:variations.*.size,variations.*.weight'],
+            'variations.*.size' => ['nullable', 'string', 'max:60'],
+            'variations.*.weight' => ['nullable', 'string', 'max:60'],
+            'variations.*.sku' => ['nullable', 'string', 'max:255'],
+            'variations.*.sale_price' => ['nullable', 'numeric', 'min:0'],
+            'variations.*.cost' => ['nullable', 'numeric', 'min:0'],
+            'variations.*.stock_quantity' => ['sometimes', 'integer', 'min:0'],
+            'variations.*.active' => ['sometimes', 'boolean'],
         ], [
             'sku.unique' => 'Este código já está em uso por outro produto.',
+            'variations.*.color.required_without_all' => 'Informe ao menos cor, tamanho ou peso na variação.',
         ]);
     }
 

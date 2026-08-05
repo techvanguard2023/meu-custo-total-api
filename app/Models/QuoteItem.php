@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class QuoteItem extends Model
 {
     protected $fillable = [
-        'quote_id', 'product_id', 'material_id', 'description', 'type',
+        'quote_id', 'product_id', 'product_variation_id', 'material_id', 'description', 'type',
         'quantity', 'unit_weight', 'unit_price', 'unit_cost', 'amount',
     ];
 
@@ -33,5 +33,10 @@ class QuoteItem extends Model
     public function material(): BelongsTo
     {
         return $this->belongsTo(Material::class);
+    }
+
+    public function variation(): BelongsTo
+    {
+        return $this->belongsTo(ProductVariation::class, 'product_variation_id');
     }
 }

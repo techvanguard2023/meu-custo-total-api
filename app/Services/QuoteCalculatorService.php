@@ -84,24 +84,28 @@ class QuoteCalculatorService
         $productsTotal = 0.0;
         foreach ($productLines as $line) {
             $product = $line['product'];
+            $variation = $line['variation'] ?? null;
             $lineQty = max(1, (int) $line['quantity']);
-            $unitCost = (float) $product->cost;
-            $unitPrice = $product->sale_price !== null
-                ? (float) $product->sale_price
-                : round($unitCost * (1 + ((float) $markup / 100)), 2);
+
+            // Preço e custo saem da variação quando houver; em branco lá, herdam do produto.
+            $unitCost = $variation ? $variation->effectiveCost($product) : (float) $product->cost;
+            $definedPrice = $variation ? $variation->effectivePrice($product) : ($product->sale_price !== null ? (float) $product->sale_price : null);
+            $unitPrice = $definedPrice ?? round($unitCost * (1 + ((float) $markup / 100)), 2);
+
             $lineCost = $unitCost * $lineQty;
             $lineTotal = $unitPrice * $lineQty;
             $productsCost += $lineCost;
             $productsTotal += $lineTotal;
             $productLinesOut[] = [
                 'product_id' => $product->id,
-                'name' => $product->name,
+                'product_variation_id' => $variation?->id,
+                'name' => $variation ? "{$product->name} ({$variation->display_name})" : $product->name,
                 'quantity' => $lineQty,
                 'unit_cost' => round($unitCost, 2),
                 'unit_price' => round($unitPrice, 2),
                 'line_cost' => round($lineCost, 2),
                 'line_total' => round($lineTotal, 2),
-                'stock_quantity' => (int) $product->stock_quantity,
+                'stock_quantity' => (int) ($variation ? $variation->stock_quantity : $product->stock_quantity),
             ];
         }
 

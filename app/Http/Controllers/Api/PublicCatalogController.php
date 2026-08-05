@@ -39,9 +39,46 @@ class PublicCatalogController extends Controller
                     : round($cost * (1 + $markup / 100), 2);
 
                 $discountPercent = $product->discount_percent !== null ? (float) $product->discount_percent : null;
-                $promoPrice = $discountPercent
-                    ? round($regularPrice * (1 - $discountPercent / 100), 2)
+                $applyDiscount = fn (float $price) => $discountPercent
+                    ? round($price * (1 - $discountPercent / 100), 2)
                     : null;
+
+                $promoPrice = $applyDiscount($regularPrice);
+
+                // Só variações ativas aparecem para o cliente. O desconto do produto
+                // vale para todas — inclusive as que têm preço próprio.
+                $variations = $product->variations
+                    ->where('active', true)
+                    ->map(function ($variation) use ($product, $markup, $applyDiscount) {
+                        $variationCost = $variation->effectiveCost($product);
+                        $variationPrice = $variation->effectivePrice($product)
+                            ?? round($variationCost * (1 + $markup / 100), 2);
+                        $variationPromo = $applyDiscount($variationPrice);
+
+                        return [
+                            'id' => $variation->id,
+                            'label' => $variation->display_name,
+                            'color' => $variation->color,
+                            'size' => $variation->size,
+                            'weight' => $variation->weight,
+                            'price' => $variationPromo ?? $variationPrice,
+                            'original_price' => $variationPromo ? $variationPrice : null,
+                            'stock_quantity' => (int) $variation->stock_quantity,
+                            'stock_status' => $this->stockStatus((int) $variation->stock_quantity),
+                        ];
+                    })
+                    ->values();
+
+                // Com variações, o estoque exibido é a soma das ativas e o preço do card
+                // é o da variação mais barata (padrão de e-commerce: "a partir de").
+                $hasVariations = $variations->isNotEmpty();
+                $stock = $hasVariations ? (int) $variations->sum('stock_quantity') : (int) $product->stock_quantity;
+
+                if ($hasVariations) {
+                    $cheapest = $variations->sortBy('price')->first();
+                    $promoPrice = $cheapest['original_price'] ? $cheapest['price'] : null;
+                    $regularPrice = $cheapest['original_price'] ?? $cheapest['price'];
+                }
 
                 return [
                     'id' => $product->id,
@@ -58,10 +95,11 @@ class PublicCatalogController extends Controller
                     'price' => $promoPrice ?? $regularPrice,
                     'original_price' => $promoPrice ? $regularPrice : null,
                     'discount_percent' => $promoPrice ? $discountPercent : null,
-                    'stock_quantity' => (int) $product->stock_quantity,
-                    'stock_status' => $this->stockStatus((int) $product->stock_quantity),
+                    'stock_quantity' => $stock,
+                    'stock_status' => $this->stockStatus($stock),
                     'made_to_order' => (bool) $product->made_to_order,
                     'featured' => (bool) $product->featured,
+                    'variations' => $variations,
                 ];
             });
 

@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Material;
 use App\Models\Printer;
 use App\Models\Product;
+use App\Models\ProductVariation;
 use App\Models\Quote;
 use App\Services\QuoteCalculatorService;
 use Illuminate\Http\Request;
@@ -159,6 +160,7 @@ class QuoteController extends Controller
             'discount_amount' => ['sometimes', 'numeric', 'min:0'],
             'products' => ['required', 'array', 'min:1'],
             'products.*.product_id' => ['required', 'integer'],
+            'products.*.product_variation_id' => ['sometimes', 'nullable', 'integer'],
             'products.*.quantity' => ['required', 'integer', 'min:1'],
         ]);
 
@@ -197,18 +199,36 @@ class QuoteController extends Controller
                 ->get()
                 ->keyBy('id');
 
+            // Quando a venda é de uma variação, o estoque a debitar é o dela — o do
+            // produto não é usado nesse caso.
+            $variations = ProductVariation::whereIn('id', $productItems->pluck('product_variation_id')->filter())
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('id');
+
+            // Valida tudo antes de debitar qualquer coisa: se uma linha falhar, a venda
+            // inteira é recusada sem ter mexido no estoque das outras.
             foreach ($productItems as $item) {
                 $product = $products->get($item->product_id);
                 abort_unless($product, 422, "O produto \"{$item->description}\" não está mais cadastrado.");
+
+                $target = $item->product_variation_id ? $variations->get($item->product_variation_id) : $product;
+                abort_unless($target, 422, "A variação de \"{$product->name}\" não está mais cadastrada.");
+
+                $label = $item->product_variation_id ? "{$product->name} ({$target->display_name})" : $product->name;
                 abort_unless(
-                    $product->stock_quantity >= $item->quantity,
+                    $target->stock_quantity >= $item->quantity,
                     422,
-                    "Estoque insuficiente para \"{$product->name}\": disponível {$product->stock_quantity}, necessário {$item->quantity}."
+                    "Estoque insuficiente para \"{$label}\": disponível {$target->stock_quantity}, necessário {$item->quantity}."
                 );
             }
 
             foreach ($productItems as $item) {
-                $products[$item->product_id]->decrement('stock_quantity', $item->quantity);
+                $target = $item->product_variation_id
+                    ? $variations->get($item->product_variation_id)
+                    : $products->get($item->product_id);
+
+                $target->decrement('stock_quantity', $item->quantity);
             }
         }
 
@@ -334,7 +354,19 @@ class QuoteController extends Controller
                     ->get()
                     ->keyBy('id');
 
+                // Devolve para a mesma origem de onde foi debitado na aprovação:
+                // a variação, quando a venda foi de uma; senão o próprio produto.
+                $variations = ProductVariation::whereIn('id', $productItems->pluck('product_variation_id')->filter())
+                    ->lockForUpdate()
+                    ->get()
+                    ->keyBy('id');
+
                 foreach ($productItems as $item) {
+                    if ($item->product_variation_id) {
+                        $variations->get($item->product_variation_id)?->increment('stock_quantity', $item->quantity);
+                        continue;
+                    }
+
                     $products->get($item->product_id)?->increment('stock_quantity', $item->quantity);
                 }
             }
@@ -493,6 +525,7 @@ class QuoteController extends Controller
         foreach ($breakdown['products'] ?? [] as $line) {
             $quote->items()->create([
                 'product_id' => $line['product_id'],
+                'product_variation_id' => $line['product_variation_id'] ?? null,
                 'description' => $line['name'],
                 'type' => 'product',
                 'quantity' => $line['quantity'],
@@ -573,7 +606,23 @@ class QuoteController extends Controller
             $product = $products->get($line['product_id']);
             abort_unless($product, 404, 'Produto não encontrado.');
 
-            return ['product' => $product, 'quantity' => (int) $line['quantity']];
+            $variation = null;
+            $variationId = $line['product_variation_id'] ?? null;
+
+            if ($variationId) {
+                $variation = $product->variations->firstWhere('id', (int) $variationId);
+                abort_unless($variation, 422, "Variação inválida para o produto \"{$product->name}\".");
+            } elseif ($product->has_variations) {
+                // Sem isso a venda baixaria estoque do produto (que não é usado quando
+                // há variações), deixando o estoque das variações intacto e errado.
+                abort(422, "Escolha uma variação para o produto \"{$product->name}\".");
+            }
+
+            return [
+                'product' => $product,
+                'variation' => $variation,
+                'quantity' => (int) $line['quantity'],
+            ];
         })->all();
     }
 
@@ -600,6 +649,7 @@ class QuoteController extends Controller
             'materials.*.weight' => ['required', 'numeric', 'min:0'],
             'products' => ['sometimes', 'array'],
             'products.*.product_id' => ['required', 'integer'],
+            'products.*.product_variation_id' => ['sometimes', 'nullable', 'integer'],
             'products.*.quantity' => ['required', 'integer', 'min:1'],
         ]);
     }
