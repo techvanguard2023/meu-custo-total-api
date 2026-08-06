@@ -46,6 +46,10 @@ class PlanController extends Controller
 
         $checkout = $company
             ->newSubscription('default', config('services.stripe.price_pro'))
+            // Exibe o campo "Adicionar código promocional" na tela da Stripe. Os cupons e
+            // códigos são criados no painel da Stripe; a validação (expirado, limite de usos,
+            // só para cliente novo) é toda feita lá — nada disso passa pela nossa API.
+            ->allowPromotionCodes()
             ->checkout([
                 'success_url' => $frontend.'/plans?checkout=success',
                 'cancel_url' => $frontend.'/plans?checkout=cancelled',
