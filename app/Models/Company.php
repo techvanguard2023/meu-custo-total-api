@@ -20,6 +20,7 @@ class Company extends Model
         'catalog_token', 'catalog_enabled', 'catalog_whatsapp', 'catalog_disclaimer', 'logo_path',
         'catalog_instagram_url', 'catalog_facebook_url', 'catalog_youtube_url',
         'catalog_tiktok_url', 'catalog_linkedin_url',
+        'catalog_about', 'catalog_address', 'catalog_hours', 'catalog_email',
     ];
 
     protected $casts = [

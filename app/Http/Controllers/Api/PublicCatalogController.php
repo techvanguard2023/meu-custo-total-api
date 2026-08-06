@@ -108,6 +108,14 @@ class PublicCatalogController extends Controller
             'logo_url' => $company->logo_url,
             'whatsapp' => $company->catalog_whatsapp,
             'disclaimer' => $company->catalog_disclaimer,
+            'about' => $company->catalog_about,
+            // Só o que o dono preencheu explicitamente para ser público — o menu
+            // "Contatos" some quando nada aqui foi informado.
+            'contact' => array_filter([
+                'address' => $company->catalog_address,
+                'hours' => $company->catalog_hours,
+                'email' => $company->catalog_email,
+            ]),
             'social' => array_filter([
                 'instagram_url' => $company->catalog_instagram_url,
                 'facebook_url' => $company->catalog_facebook_url,

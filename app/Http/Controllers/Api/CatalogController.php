@@ -37,6 +37,10 @@ class CatalogController extends Controller
             'enabled' => ['required', 'boolean'],
             'whatsapp' => ['nullable', 'string', 'max:20'],
             'disclaimer' => ['nullable', 'string', 'max:1000'],
+            'about' => ['nullable', 'string', 'max:2000'],
+            'address' => ['nullable', 'string', 'max:255'],
+            'hours' => ['nullable', 'string', 'max:255'],
+            'email' => ['nullable', 'email', 'max:255'],
             'instagram_url' => ['nullable', 'url', 'max:2048'],
             'facebook_url' => ['nullable', 'url', 'max:2048'],
             'youtube_url' => ['nullable', 'url', 'max:2048'],
@@ -56,6 +60,11 @@ class CatalogController extends Controller
         }
         if (array_key_exists('disclaimer', $data)) {
             $company->catalog_disclaimer = $data['disclaimer'];
+        }
+        foreach (['about', 'address', 'hours', 'email'] as $field) {
+            if (array_key_exists($field, $data)) {
+                $company->{"catalog_{$field}"} = $data[$field];
+            }
         }
         foreach (['instagram', 'facebook', 'youtube', 'tiktok', 'linkedin'] as $network) {
             if (array_key_exists("{$network}_url", $data)) {
@@ -305,6 +314,10 @@ class CatalogController extends Controller
             'logo_url' => $company->logo_url,
             'whatsapp' => $company->catalog_whatsapp,
             'disclaimer' => $company->catalog_disclaimer,
+            'about' => $company->catalog_about,
+            'address' => $company->catalog_address,
+            'hours' => $company->catalog_hours,
+            'email' => $company->catalog_email,
             'social' => [
                 'instagram_url' => $company->catalog_instagram_url,
                 'facebook_url' => $company->catalog_facebook_url,
