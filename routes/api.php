@@ -51,6 +51,7 @@ Route::prefix('v1')->group(function () {
         Route::patch('/quotes/{quote}/approve', [QuoteController::class, 'approve']);
         Route::patch('/quotes/{quote}/reject', [QuoteController::class, 'reject']);
         Route::patch('/quotes/{quote}/cancel', [QuoteController::class, 'cancel']);
+        Route::patch('/quotes/{quote}/payment', [QuoteController::class, 'updatePayment']);
         Route::patch('/quotes/{quote}/pause', [QuoteController::class, 'pause']);
         Route::patch('/quotes/{quote}/resume', [QuoteController::class, 'resume']);
         Route::patch('/quotes/{quote}/production-status', [QuoteController::class, 'updateProductionStatus']);

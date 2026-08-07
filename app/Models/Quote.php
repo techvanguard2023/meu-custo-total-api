@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -38,6 +39,10 @@ class Quote extends Model
         self::PAYMENT_DEBIT,
     ];
 
+    public const PAYMENT_UNPAID = 'unpaid';
+    public const PAYMENT_PARTIAL = 'partial';
+    public const PAYMENT_PAID = 'paid';
+
     protected $fillable = [
         'company_id', 'customer_id', 'printer_id', 'material_id',
         'name', 'quantity', 'print_time_minutes', 'material_weight_g',
@@ -46,7 +51,7 @@ class Quote extends Model
         'material_cost', 'energy_cost', 'depreciation_cost', 'labor_cost',
         'failure_cost', 'subtotal_cost', 'final_price', 'unit_price',
         'profit_amount', 'status', 'production_status', 'production_order', 'approved_at',
-        'payment_method', 'cancelled_at', 'cancel_reason',
+        'payment_method', 'amount_paid', 'paid_at', 'cancelled_at', 'cancel_reason',
         'model_urls', 'notes', 'paused_at', 'pause_reason',
     ];
 
@@ -66,10 +71,40 @@ class Quote extends Model
         'final_price' => 'decimal:2',
         'unit_price' => 'decimal:2',
         'profit_amount' => 'decimal:2',
+        'amount_paid' => 'decimal:2',
         'approved_at' => 'datetime',
+        'paid_at' => 'datetime',
         'cancelled_at' => 'datetime',
         'paused_at' => 'datetime',
     ];
+
+    protected $appends = ['payment_status', 'amount_due'];
+
+    /**
+     * Situação do recebimento, derivada do valor — nunca armazenada. Guardar o
+     * rótulo junto do valor abriria espaço pros dois discordarem entre si.
+     */
+    protected function paymentStatus(): Attribute
+    {
+        return Attribute::get(function () {
+            $paid = (float) $this->amount_paid;
+            $total = (float) $this->final_price;
+
+            return match (true) {
+                $paid <= 0 => self::PAYMENT_UNPAID,
+                $paid >= $total => self::PAYMENT_PAID,
+                default => self::PAYMENT_PARTIAL,
+            };
+        });
+    }
+
+    /** Quanto ainda falta receber desta venda. */
+    protected function amountDue(): Attribute
+    {
+        return Attribute::get(
+            fn () => round(max(0, (float) $this->final_price - (float) $this->amount_paid), 2)
+        );
+    }
 
     public function company(): BelongsTo
     {

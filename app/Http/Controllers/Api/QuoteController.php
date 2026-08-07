@@ -126,10 +126,13 @@ class QuoteController extends Controller
 
         $data = $request->validate([
             'payment_method' => ['sometimes', 'nullable', Rule::in(Quote::PAYMENT_METHODS)],
+            // Aprovar não significa ter recebido: pode entrar tudo, parte ou nada.
+            'amount_paid' => ['sometimes', 'numeric', 'min:0', 'max:'.(float) $quote->final_price],
         ]);
 
         DB::transaction(function () use ($quote, $data) {
             $this->applyApproval($quote, $data['payment_method'] ?? null);
+            $this->applyPayment($quote, (float) ($data['amount_paid'] ?? 0));
         });
 
         return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product']));
@@ -178,6 +181,8 @@ class QuoteController extends Controller
 
             // Venda balcão: cliente já levou o produto na hora, não passa pelo fluxo de produção.
             $this->applyApproval($quote, $data['payment_method'], Quote::PRODUCTION_DELIVERED);
+            // Venda de balcão: o dinheiro entra na hora, não faz sentido perguntar.
+            $this->applyPayment($quote, (float) $quote->final_price);
 
             return $quote;
         });
@@ -277,6 +282,45 @@ class QuoteController extends Controller
             'approved_at' => now(),
             'payment_method' => $paymentMethod,
         ]);
+    }
+
+    /**
+     * Registra quanto já foi recebido desta venda. `paid_at` marca o momento em
+     * que fechou o valor total — fica nulo enquanto ainda faltar receber, e é
+     * limpo se o valor for corrigido pra menos.
+     */
+    private function applyPayment(Quote $quote, float $amountPaid): void
+    {
+        $amountPaid = round(max(0, min($amountPaid, (float) $quote->final_price)), 2);
+        $settled = $amountPaid >= (float) $quote->final_price && $amountPaid > 0;
+
+        $quote->update([
+            'amount_paid' => $amountPaid,
+            'paid_at' => $settled ? ($quote->paid_at ?? now()) : null,
+        ]);
+    }
+
+    /** Atualiza o valor recebido de uma venda já aprovada (card do kanban / detalhe). */
+    public function updatePayment(Request $request, Quote $quote)
+    {
+        $this->authorizeCompany($request, $quote);
+
+        abort_unless($quote->status === Quote::STATUS_APPROVED, 422, 'Apenas vendas aprovadas têm recebimento.');
+
+        $data = $request->validate([
+            'amount_paid' => ['required', 'numeric', 'min:0', 'max:'.(float) $quote->final_price],
+            'payment_method' => ['sometimes', 'nullable', Rule::in(Quote::PAYMENT_METHODS)],
+        ], [
+            'amount_paid.max' => 'O valor recebido não pode ser maior que o total da venda.',
+        ]);
+
+        if (array_key_exists('payment_method', $data)) {
+            $quote->update(['payment_method' => $data['payment_method']]);
+        }
+
+        $this->applyPayment($quote, (float) $data['amount_paid']);
+
+        return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product']));
     }
 
     public function reject(Request $request, Quote $quote)
