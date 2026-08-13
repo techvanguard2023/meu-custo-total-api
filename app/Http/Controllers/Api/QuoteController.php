@@ -128,11 +128,12 @@ class QuoteController extends Controller
             'payment_method' => ['sometimes', 'nullable', Rule::in(Quote::PAYMENT_METHODS)],
             // Aprovar não significa ter recebido: pode entrar tudo, parte ou nada.
             'amount_paid' => ['sometimes', 'numeric', 'min:0', 'max:'.(float) $quote->final_price],
+            'is_courtesy' => ['sometimes', 'boolean'],
         ]);
 
         DB::transaction(function () use ($quote, $data) {
             $this->applyApproval($quote, $data['payment_method'] ?? null);
-            $this->applyPayment($quote, (float) ($data['amount_paid'] ?? 0));
+            $this->applyPayment($quote, (float) ($data['amount_paid'] ?? 0), (bool) ($data['is_courtesy'] ?? false));
         });
 
         return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product']));
@@ -289,12 +290,25 @@ class QuoteController extends Controller
      * que fechou o valor total — fica nulo enquanto ainda faltar receber, e é
      * limpo se o valor for corrigido pra menos.
      */
-    private function applyPayment(Quote $quote, float $amountPaid): void
+    private function applyPayment(Quote $quote, float $amountPaid, bool $isCourtesy = false): void
     {
+        // Cortesia zera qualquer valor: não entrou dinheiro e não vai entrar.
+        if ($isCourtesy) {
+            $quote->update([
+                'is_courtesy' => true,
+                'amount_paid' => 0,
+                'paid_at' => null,
+                'payment_method' => null,
+            ]);
+
+            return;
+        }
+
         $amountPaid = round(max(0, min($amountPaid, (float) $quote->final_price)), 2);
         $settled = $amountPaid >= (float) $quote->final_price && $amountPaid > 0;
 
         $quote->update([
+            'is_courtesy' => false,
             'amount_paid' => $amountPaid,
             'paid_at' => $settled ? ($quote->paid_at ?? now()) : null,
         ]);
@@ -310,15 +324,18 @@ class QuoteController extends Controller
         $data = $request->validate([
             'amount_paid' => ['required', 'numeric', 'min:0', 'max:'.(float) $quote->final_price],
             'payment_method' => ['sometimes', 'nullable', Rule::in(Quote::PAYMENT_METHODS)],
+            'is_courtesy' => ['sometimes', 'boolean'],
         ], [
             'amount_paid.max' => 'O valor recebido não pode ser maior que o total da venda.',
         ]);
 
-        if (array_key_exists('payment_method', $data)) {
+        $isCourtesy = (bool) ($data['is_courtesy'] ?? false);
+
+        if (! $isCourtesy && array_key_exists('payment_method', $data)) {
             $quote->update(['payment_method' => $data['payment_method']]);
         }
 
-        $this->applyPayment($quote, (float) $data['amount_paid']);
+        $this->applyPayment($quote, (float) $data['amount_paid'], $isCourtesy);
 
         return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product']));
     }

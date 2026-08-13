@@ -42,6 +42,7 @@ class Quote extends Model
     public const PAYMENT_UNPAID = 'unpaid';
     public const PAYMENT_PARTIAL = 'partial';
     public const PAYMENT_PAID = 'paid';
+    public const PAYMENT_COURTESY = 'courtesy';
 
     protected $fillable = [
         'company_id', 'customer_id', 'printer_id', 'material_id',
@@ -51,7 +52,7 @@ class Quote extends Model
         'material_cost', 'energy_cost', 'depreciation_cost', 'labor_cost',
         'failure_cost', 'subtotal_cost', 'final_price', 'unit_price',
         'profit_amount', 'status', 'production_status', 'production_order', 'approved_at',
-        'payment_method', 'amount_paid', 'paid_at', 'cancelled_at', 'cancel_reason',
+        'payment_method', 'amount_paid', 'paid_at', 'is_courtesy', 'cancelled_at', 'cancel_reason',
         'model_urls', 'notes', 'paused_at', 'pause_reason',
     ];
 
@@ -72,6 +73,7 @@ class Quote extends Model
         'unit_price' => 'decimal:2',
         'profit_amount' => 'decimal:2',
         'amount_paid' => 'decimal:2',
+        'is_courtesy' => 'boolean',
         'approved_at' => 'datetime',
         'paid_at' => 'datetime',
         'cancelled_at' => 'datetime',
@@ -87,6 +89,11 @@ class Quote extends Model
     protected function paymentStatus(): Attribute
     {
         return Attribute::get(function () {
+            // Cortesia vem antes de tudo: é a única situação que o valor não revela.
+            if ($this->is_courtesy) {
+                return self::PAYMENT_COURTESY;
+            }
+
             $paid = (float) $this->amount_paid;
             $total = (float) $this->final_price;
 
@@ -98,11 +105,13 @@ class Quote extends Model
         });
     }
 
-    /** Quanto ainda falta receber desta venda. */
+    /** Quanto ainda falta receber desta venda. Cortesia não gera nada a receber. */
     protected function amountDue(): Attribute
     {
         return Attribute::get(
-            fn () => round(max(0, (float) $this->final_price - (float) $this->amount_paid), 2)
+            fn () => $this->is_courtesy
+                ? 0.0
+                : round(max(0, (float) $this->final_price - (float) $this->amount_paid), 2)
         );
     }
 
