@@ -217,7 +217,13 @@ class ProductController extends Controller
                     ->ignore($ignoreProductId),
             ],
             'description' => ['nullable', 'string'],
-            'category_id' => ['nullable', 'integer', Rule::exists('product_categories', 'id')],
+            // Só as padrão do sistema e as da própria empresa — sem isso daria para
+            // apontar um produto para a categoria privada de outra empresa.
+            'category_id' => [
+                'nullable', 'integer',
+                Rule::exists('product_categories', 'id')
+                    ->where(fn ($query) => $query->whereNull('company_id')->orWhere('company_id', $companyId)),
+            ],
             'model_3d_url' => ['nullable', 'url', 'max:2048'],
             'cost' => ['required', 'numeric', 'min:0'],
             'sale_price' => ['nullable', 'numeric', 'min:0'],
