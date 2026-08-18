@@ -9,6 +9,7 @@ use App\Models\ProductImage;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 class ProductController extends Controller
@@ -47,6 +48,19 @@ class ProductController extends Controller
         throw new \RuntimeException('Não foi possível gerar um código único de produto.');
     }
 
+    /** Slug único por empresa (não globalmente) — duas lojas podem ter cada uma o seu "vaso-azul". */
+    private function generateUniqueSlug(string $name, int $companyId): string
+    {
+        $base = Str::slug($name) ?: 'produto';
+        $slug = $base;
+
+        for ($suffix = 2; Product::where('company_id', $companyId)->where('slug', $slug)->exists(); $suffix++) {
+            $slug = "{$base}-{$suffix}";
+        }
+
+        return $slug;
+    }
+
     public function store(Request $request)
     {
         $this->enforceFreeLimit($request, 'products', $request->user()->company->products()->count(), 'produtos');
@@ -54,6 +68,11 @@ class ProductController extends Controller
         $data = $this->validated($request, $request->user()->company_id);
         $variations = $data['variations'] ?? null;
         unset($data['variations']);
+
+        // Gerado uma vez, aqui — nunca a partir do input do cliente, e nunca
+        // regerado depois. Se mudasse junto do nome, todo link já compartilhado
+        // (WhatsApp, Instagram) apontando pra esse produto quebraria.
+        $data['slug'] = $this->generateUniqueSlug($data['name'], $request->user()->company_id);
 
         $product = DB::transaction(function () use ($request, $data, $variations) {
             $product = $request->user()->company->products()->create($data);

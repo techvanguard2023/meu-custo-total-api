@@ -31,6 +31,7 @@ class PublicCatalogController extends Controller
         $products = $company->products()
             ->where('active', true)
             ->orderBy('name')
+            ->with('category.parent')
             ->get()
             ->map(function ($product) use ($markup) {
                 $cost = (float) $product->cost;
@@ -82,11 +83,18 @@ class PublicCatalogController extends Controller
 
                 return [
                     'id' => $product->id,
+                    'slug' => $product->slug,
                     'sku' => $product->sku,
                     'name' => $product->name,
                     'description' => $product->description,
+                    // A categoria do produto pode ser uma raiz (Chaveiros) ou uma subcategoria
+                    // (Carros, dentro de Chaveiros). O front usa root_id/root_label pra agrupar
+                    // o filtro em dois níveis e pra não confundir subcategorias homônimas de
+                    // pais diferentes (ex: "Carros" em Chaveiros e "Carros" em Miniaturas).
                     'category_id' => $product->category_id,
                     'category_label' => $product->category?->name,
+                    'category_root_id' => $product->category?->parent_id ?? $product->category_id,
+                    'category_root_label' => $product->category?->parent?->name ?? $product->category?->name,
                     'image_url' => $product->image_url,
                     'images' => $product->images->map(fn ($image) => $image->image_url)->values(),
                     // Quando há promoção ativa, "price" já é o valor com desconto (é o que o
