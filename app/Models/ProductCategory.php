@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class ProductCategory extends Model
 {
-    protected $fillable = ['company_id', 'parent_id', 'name'];
+    protected $fillable = ['company_id', 'parent_id', 'name', 'slug'];
 
     protected $appends = ['is_default'];
 

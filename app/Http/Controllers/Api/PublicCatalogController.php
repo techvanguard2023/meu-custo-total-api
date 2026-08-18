@@ -93,8 +93,12 @@ class PublicCatalogController extends Controller
                     // pais diferentes (ex: "Carros" em Chaveiros e "Carros" em Miniaturas).
                     'category_id' => $product->category_id,
                     'category_label' => $product->category?->name,
+                    // Slugs estáveis (nunca mudam ao renomear) — usados pra montar e
+                    // resolver a URL de categoria (/catalog/loja/chaveiros/carros).
+                    'category_slug' => $product->category?->slug,
                     'category_root_id' => $product->category?->parent_id ?? $product->category_id,
                     'category_root_label' => $product->category?->parent?->name ?? $product->category?->name,
+                    'category_root_slug' => $product->category?->parent?->slug ?? $product->category?->slug,
                     'image_url' => $product->image_url,
                     'images' => $product->images->map(fn ($image) => $image->image_url)->values(),
                     // Quando há promoção ativa, "price" já é o valor com desconto (é o que o

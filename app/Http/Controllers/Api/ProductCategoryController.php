@@ -3,8 +3,10 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Product;
 use App\Models\ProductCategory;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 /**
@@ -39,12 +41,16 @@ class ProductCategoryController extends Controller
         ]);
 
         $parentId = $this->resolveParentId($this->intOrNull($data['parent_id'] ?? null), $companyId);
+        $name = trim($data['name']);
 
         $category = ProductCategory::create([
             // Subcategoria é sempre da empresa, mesmo quando o pai é uma padrão
             'company_id' => $companyId,
             'parent_id' => $parentId,
-            'name' => trim($data['name']),
+            'name' => $name,
+            // Gerado uma vez, aqui — nunca a partir do input do cliente, e nunca
+            // regerado ao renomear (senão todo link de categoria já compartilhado quebraria).
+            'slug' => $this->generateUniqueSlug($name, $companyId, $parentId),
         ]);
 
         return response()->json($category, 201);
@@ -107,6 +113,35 @@ class ProductCategoryController extends Controller
                     ->when($parentId === null, fn ($q) => $q->whereNull('parent_id'))
                     ->when($parentId !== null, fn ($q) => $q->where('parent_id', $parentId));
             });
+    }
+
+    /** Slug único por grupo (empresa + pai) — "Carros" pode existir em Chaveiros e em Miniaturas. */
+    private function generateUniqueSlug(string $name, int $companyId, ?int $parentId): string
+    {
+        $base = Str::slug($name) ?: 'categoria';
+        $slug = $base;
+
+        for ($suffix = 2; $this->slugConflicts($slug, $companyId, $parentId); $suffix++) {
+            $slug = "{$base}-{$suffix}";
+        }
+
+        return $slug;
+    }
+
+    /**
+     * Categoria e produto dividem o mesmo espaço de nomes na URL do catálogo —
+     * o último segmento do link pode ser de qualquer um dos dois — então
+     * nenhum pode repetir o slug do outro dentro da mesma empresa.
+     */
+    private function slugConflicts(string $slug, int $companyId, ?int $parentId): bool
+    {
+        $categoryTaken = ProductCategory::visibleTo($companyId)
+            ->where('slug', $slug)
+            ->when($parentId === null, fn ($q) => $q->whereNull('parent_id'))
+            ->when($parentId !== null, fn ($q) => $q->where('parent_id', $parentId))
+            ->exists();
+
+        return $categoryTaken || Product::where('company_id', $companyId)->where('slug', $slug)->exists();
     }
 
     private function intOrNull($value): ?int

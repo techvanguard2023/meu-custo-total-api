@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Http\Controllers\Controller;
 use App\Models\Product;
+use App\Models\ProductCategory;
 use App\Models\ProductImage;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -54,11 +55,22 @@ class ProductController extends Controller
         $base = Str::slug($name) ?: 'produto';
         $slug = $base;
 
-        for ($suffix = 2; Product::where('company_id', $companyId)->where('slug', $slug)->exists(); $suffix++) {
+        for ($suffix = 2; $this->slugConflicts($slug, $companyId); $suffix++) {
             $slug = "{$base}-{$suffix}";
         }
 
         return $slug;
+    }
+
+    /**
+     * Produto e categoria dividem o mesmo espaço de nomes na URL do catálogo —
+     * o último segmento do link pode ser de qualquer um dos dois — então
+     * nenhum pode repetir o slug do outro dentro da mesma empresa.
+     */
+    private function slugConflicts(string $slug, int $companyId): bool
+    {
+        return Product::where('company_id', $companyId)->where('slug', $slug)->exists()
+            || ProductCategory::visibleTo($companyId)->where('slug', $slug)->exists();
     }
 
     public function store(Request $request)
