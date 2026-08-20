@@ -75,6 +75,7 @@ Route::prefix('v1')->group(function () {
         Route::get('/catalog/analytics', [CatalogController::class, 'analytics']);
         Route::patch('/catalog', [CatalogController::class, 'update']);
         Route::post('/catalog/regenerate', [CatalogController::class, 'regenerate']);
+        Route::patch('/catalog/slug', [CatalogController::class, 'updateSlug']);
         Route::post('/catalog/logo', [CatalogController::class, 'uploadLogo']);
         Route::delete('/catalog/logo', [CatalogController::class, 'destroyLogo']);
         Route::post('/catalog/banners', [CatalogController::class, 'uploadBanner']);

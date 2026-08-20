@@ -87,6 +87,44 @@ class CatalogController extends Controller
         return response()->json($this->payload($company));
     }
 
+    /**
+     * Endereço do catálogo (/catalog/{slug}) — editável pelo dono da empresa, ao
+     * contrário do sufixo aleatório gerado no cadastro. Disponível pra qualquer
+     * plano: é a identidade da empresa, não um recurso do catálogo em si.
+     *
+     * Trocar o slug quebra qualquer link já compartilhado com o endereço antigo
+     * (o front avisa disso antes de confirmar) — não há redirecionamento do
+     * endereço velho pro novo.
+     */
+    public function updateSlug(Request $request)
+    {
+        $company = $request->user()->company;
+
+        $data = $request->validate([
+            'slug' => ['required', 'string', 'max:80'],
+        ]);
+
+        $slug = Str::slug($data['slug']);
+
+        abort_if(strlen($slug) < 3, 422, 'O endereço deve ter pelo menos 3 caracteres.');
+        abort_if(strlen($slug) > 60, 422, 'O endereço deve ter no máximo 60 caracteres.');
+
+        // Confere contra slug e contra catalog_token de outras empresas — o
+        // resolvedor público aceita os dois, então os dois precisam ficar livres
+        // pra não um novo endereço acidentalmente abrir o catálogo de outra loja.
+        $taken = Company::where('id', '!=', $company->id)
+            ->where(fn ($q) => $q->where('slug', $slug)->orWhere('catalog_token', $slug))
+            ->exists();
+        abort_if($taken, 422, 'Esse endereço já está em uso por outra empresa.');
+
+        $company->update(['slug' => $slug]);
+
+        return response()->json([
+            'message' => 'Endereço do catálogo atualizado!',
+            'user' => $request->user()->fresh()->load('company'),
+        ]);
+    }
+
     /** Logo exibida no cabeçalho do catálogo público — opcional. */
     public function uploadLogo(Request $request)
     {
