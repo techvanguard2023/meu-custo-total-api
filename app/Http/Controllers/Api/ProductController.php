@@ -23,7 +23,7 @@ class ProductController extends Controller
 
     public function index(Request $request)
     {
-        return $request->user()->company->products()->latest()->get();
+        return $request->user()->company->products()->with('collections:id,name')->latest()->get();
     }
 
     /** Sugere um código de produto único (dentro da empresa) pra preencher o campo SKU. */
@@ -79,16 +79,18 @@ class ProductController extends Controller
 
         $data = $this->validated($request, $request->user()->company_id);
         $variations = $data['variations'] ?? null;
-        unset($data['variations']);
+        $collectionIds = $data['collection_ids'] ?? null;
+        unset($data['variations'], $data['collection_ids']);
 
         // Gerado uma vez, aqui — nunca a partir do input do cliente, e nunca
         // regerado depois. Se mudasse junto do nome, todo link já compartilhado
         // (WhatsApp, Instagram) apontando pra esse produto quebraria.
         $data['slug'] = $this->generateUniqueSlug($data['name'], $request->user()->company_id);
 
-        $product = DB::transaction(function () use ($request, $data, $variations) {
+        $product = DB::transaction(function () use ($request, $data, $variations, $collectionIds) {
             $product = $request->user()->company->products()->create($data);
             $this->syncVariations($product, $variations);
+            $this->syncCollections($product, $collectionIds);
 
             return $product;
         });
@@ -100,7 +102,7 @@ class ProductController extends Controller
     {
         $this->authorizeCompany($request, $product);
 
-        return $product;
+        return $product->load('collections:id,name');
     }
 
     public function update(Request $request, Product $product)
@@ -109,14 +111,32 @@ class ProductController extends Controller
 
         $data = $this->validated($request, $product->company_id, $product->id);
         $variations = $data['variations'] ?? null;
-        unset($data['variations']);
+        $collectionIds = $data['collection_ids'] ?? null;
+        unset($data['variations'], $data['collection_ids']);
 
-        DB::transaction(function () use ($product, $data, $variations) {
+        DB::transaction(function () use ($product, $data, $variations, $collectionIds) {
             $product->update($data);
             $this->syncVariations($product, $variations);
+            $this->syncCollections($product, $collectionIds);
         });
 
-        return $product->fresh();
+        return $product->fresh()->load('collections:id,name');
+    }
+
+    /**
+     * $collectionIds === null significa "campo não enviado" — mantém como está,
+     * mesmo padrão de $variations === null em syncVariations().
+     */
+    private function syncCollections(Product $product, ?array $collectionIds): void
+    {
+        if ($collectionIds === null) {
+            return;
+        }
+
+        // Só coleções da própria empresa — sem isso daria pra marcar um produto
+        // numa coleção de outra empresa.
+        $ownIds = $product->company->productCollections()->whereIn('id', $collectionIds)->pluck('id');
+        $product->collections()->sync($ownIds);
     }
 
     /**
@@ -263,6 +283,9 @@ class ProductController extends Controller
             'featured' => ['sometimes', 'boolean'],
             'discount_percent' => ['nullable', 'numeric', 'min:0.01', 'max:95'],
             'active' => ['sometimes', 'boolean'],
+
+            'collection_ids' => ['sometimes', 'array'],
+            'collection_ids.*' => ['integer'],
 
             'variations' => ['sometimes', 'array', 'max:50'],
             'variations.*.id' => ['sometimes', 'nullable', 'integer'],

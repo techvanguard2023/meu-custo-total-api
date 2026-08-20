@@ -86,4 +86,9 @@ class Company extends Model
     {
         return $this->hasMany(CatalogBanner::class)->orderBy('position');
     }
+
+    public function productCollections(): HasMany
+    {
+        return $this->hasMany(ProductCollection::class);
+    }
 }

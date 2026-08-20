@@ -140,6 +140,21 @@ class PublicCatalogController extends Controller
                 'link_url' => $banner->link_url,
             ])->values(),
             'products' => $products,
+            // Coleções de campanha (Natal, Réveillon...) ativas e com pelo menos um
+            // produto ativo — o dono liga/desliga manualmente em Configurações.
+            'collections' => $company->productCollections()
+                ->where('active', true)
+                ->with(['products' => fn ($q) => $q->where('active', true)])
+                ->get()
+                ->filter(fn ($c) => $c->products->isNotEmpty())
+                ->map(fn ($c) => [
+                    'slug' => $c->slug,
+                    'name' => $c->name,
+                    'description' => $c->description,
+                    'banner_url' => $c->banner_url,
+                    'product_ids' => $c->products->pluck('id')->values(),
+                ])
+                ->values(),
         ]);
     }
 

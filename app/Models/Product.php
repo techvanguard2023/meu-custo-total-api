@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\Storage;
 
@@ -85,5 +86,15 @@ class Product extends Model
     public function variations(): HasMany
     {
         return $this->hasMany(ProductVariation::class)->orderBy('position')->orderBy('id');
+    }
+
+    /**
+     * Coleções de campanha (Natal, Réveillon...) em que o produto aparece — não faz
+     * parte do $with padrão de propósito: o catálogo público expõe coleção por
+     * product_ids no nível raiz, não precisa dela pendurada em cada produto.
+     */
+    public function collections(): BelongsToMany
+    {
+        return $this->belongsToMany(ProductCollection::class, 'product_collection_product');
     }
 }
