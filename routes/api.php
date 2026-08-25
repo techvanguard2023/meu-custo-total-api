@@ -7,7 +7,9 @@ use App\Http\Controllers\Api\MaterialController;
 use App\Http\Controllers\Api\PasswordResetController;
 use App\Http\Controllers\Api\PlanController;
 use App\Http\Controllers\Api\ProfileController;
+use App\Http\Controllers\Api\ProductReviewController;
 use App\Http\Controllers\Api\PublicCatalogController;
+use App\Http\Controllers\Api\PublicReviewController;
 use App\Http\Controllers\Api\SubscriptionController;
 use App\Http\Controllers\Api\PrinterController;
 use App\Http\Controllers\Api\ProductCategoryController;
@@ -33,6 +35,13 @@ Route::prefix('v1')->group(function () {
     Route::get('/public/catalog/{token}', [PublicCatalogController::class, 'show'])
         ->middleware('throttle:60,1');
 
+    // Avaliação do cliente final — sem autenticação, só com o link recebido.
+    // O POST tem limite mais apertado que a leitura: é escrita vinda de fora.
+    Route::get('/public/review/{token}', [PublicReviewController::class, 'show'])
+        ->middleware('throttle:60,1');
+    Route::post('/public/review/{token}', [PublicReviewController::class, 'store'])
+        ->middleware('throttle:10,1');
+
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::get('/me', [AuthController::class, 'me']);
@@ -44,6 +53,10 @@ Route::prefix('v1')->group(function () {
         Route::post('/product-categories', [ProductCategoryController::class, 'store']);
         Route::put('/product-categories/{productCategory}', [ProductCategoryController::class, 'update']);
         Route::delete('/product-categories/{productCategory}', [ProductCategoryController::class, 'destroy']);
+        Route::get('/product-reviews', [ProductReviewController::class, 'index']);
+        Route::patch('/product-reviews/{productReview}/moderate', [ProductReviewController::class, 'moderate']);
+        Route::delete('/product-reviews/{productReview}', [ProductReviewController::class, 'destroy']);
+        Route::post('/quotes/{quote}/review-link', [ProductReviewController::class, 'link']);
         Route::get('/product-collections', [ProductCollectionController::class, 'index']);
         Route::post('/product-collections', [ProductCollectionController::class, 'store']);
         Route::put('/product-collections/{productCollection}', [ProductCollectionController::class, 'update']);

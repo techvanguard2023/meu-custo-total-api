@@ -28,10 +28,33 @@ class PublicCatalogController extends Controller
 
         $markup = (float) ($company->setting?->default_markup ?? 0);
 
+        // Depoimentos sobre a loja como um todo — de vendas sob encomenda, sem
+        // produto de catálogo vinculado, então não cabem no card de um produto.
+        $storeReviews = $company->productReviews()->whereNull('product_id');
+        $storeRatingAvg = (clone $storeReviews)->avg('rating');
+        $storeRatingCount = (clone $storeReviews)->count();
+        $testimonials = (clone $storeReviews)
+            ->withApprovedComment()
+            ->latest()
+            ->limit(20)
+            ->get()
+            ->map(fn ($review) => [
+                'rating' => $review->rating,
+                'comment' => $review->comment,
+                'reviewer_name' => $review->reviewer_first_name,
+                'created_at' => $review->created_at?->toIso8601String(),
+            ])
+            ->values();
+
         $products = $company->products()
             ->where('active', true)
             ->orderBy('name')
             ->with('category.parent')
+            // Uma consulta só pra média/contagem e outra pros comentários
+            // aprovados — sem isso seria uma query por produto no map abaixo.
+            ->withAvg('reviews as rating_avg', 'rating')
+            ->withCount('reviews as rating_count')
+            ->with(['reviews' => fn ($q) => $q->withApprovedComment()->latest()->limit(20)])
             ->get()
             ->map(function ($product) use ($markup) {
                 $cost = (float) $product->cost;
@@ -111,6 +134,17 @@ class PublicCatalogController extends Controller
                     'stock_status' => $this->stockStatus($stock),
                     'made_to_order' => (bool) $product->made_to_order,
                     'featured' => (bool) $product->featured,
+                    // Média das notas + quantas avaliações — o card mostra as duas
+                    // juntas, pra "5,0" com uma única avaliação não parecer consenso.
+                    'rating_avg' => $product->rating_avg !== null ? round((float) $product->rating_avg, 1) : null,
+                    'rating_count' => (int) $product->rating_count,
+                    // Só comentários liberados pelo lojista chegam aqui.
+                    'reviews' => $product->reviews->map(fn ($review) => [
+                        'rating' => $review->rating,
+                        'comment' => $review->comment,
+                        'reviewer_name' => $review->reviewer_first_name,
+                        'created_at' => $review->created_at?->toIso8601String(),
+                    ])->values(),
                     'variations' => $variations,
                 ];
             });
@@ -121,6 +155,11 @@ class PublicCatalogController extends Controller
             'whatsapp' => $company->catalog_whatsapp,
             'disclaimer' => $company->catalog_disclaimer,
             'about' => $company->catalog_about,
+            // Nota geral da loja + depoimentos — só de vendas sem produto de
+            // catálogo vinculado (o resto já aparece no card de cada produto).
+            'store_rating_avg' => $storeRatingAvg !== null ? round((float) $storeRatingAvg, 1) : null,
+            'store_rating_count' => $storeRatingCount,
+            'testimonials' => $testimonials,
             // Só o que o dono preencheu explicitamente para ser público — o menu
             // "Contatos" some quando nada aqui foi informado.
             'contact' => array_filter([

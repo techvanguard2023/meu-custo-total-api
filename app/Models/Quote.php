@@ -52,7 +52,7 @@ class Quote extends Model
         'material_cost', 'energy_cost', 'depreciation_cost', 'labor_cost',
         'failure_cost', 'subtotal_cost', 'final_price', 'unit_price',
         'profit_amount', 'status', 'production_status', 'production_order', 'approved_at',
-        'payment_method', 'amount_paid', 'paid_at', 'is_courtesy', 'cancelled_at', 'cancel_reason',
+        'payment_method', 'amount_paid', 'paid_at', 'is_courtesy', 'review_token', 'cancelled_at', 'cancel_reason',
         'model_urls', 'notes', 'paused_at', 'pause_reason',
     ];
 
@@ -138,5 +138,10 @@ class Quote extends Model
     public function items(): HasMany
     {
         return $this->hasMany(QuoteItem::class);
+    }
+
+    public function reviews(): HasMany
+    {
+        return $this->hasMany(ProductReview::class);
     }
 }

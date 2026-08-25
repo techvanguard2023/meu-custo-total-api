@@ -88,6 +88,11 @@ class Product extends Model
         return $this->hasMany(ProductVariation::class)->orderBy('position')->orderBy('id');
     }
 
+    public function reviews(): HasMany
+    {
+        return $this->hasMany(ProductReview::class);
+    }
+
     /**
      * Coleções de campanha (Natal, Réveillon...) em que o produto aparece — não faz
      * parte do $with padrão de propósito: o catálogo público expõe coleção por

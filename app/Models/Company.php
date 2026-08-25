@@ -91,4 +91,9 @@ class Company extends Model
     {
         return $this->hasMany(ProductCollection::class);
     }
+
+    public function productReviews(): HasMany
+    {
+        return $this->hasMany(ProductReview::class);
+    }
 }
