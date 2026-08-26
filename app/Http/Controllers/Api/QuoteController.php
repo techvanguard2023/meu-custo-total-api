@@ -160,7 +160,8 @@ class QuoteController extends Controller
         $data = $request->validate([
             'name' => ['nullable', 'string', 'max:255'],
             'customer_id' => ['nullable', 'exists:customers,id'],
-            'payment_method' => ['required', Rule::in(Quote::PAYMENT_METHODS)],
+            'payment_method' => ['nullable', Rule::in(Quote::PAYMENT_METHODS)],
+            'is_courtesy' => ['sometimes', 'boolean'],
             'discount_amount' => ['sometimes', 'numeric', 'min:0'],
             'products' => ['required', 'array', 'min:1'],
             'products.*.product_id' => ['required', 'integer'],
@@ -168,12 +169,15 @@ class QuoteController extends Controller
             'products.*.quantity' => ['required', 'integer', 'min:1'],
         ]);
 
+        $isCourtesy = (bool) ($data['is_courtesy'] ?? false);
+        abort_if(! $isCourtesy && empty($data['payment_method']), 422, 'Selecione a forma de pagamento.');
+
         $productLines = $this->resolveProducts($request, $data);
         $setting = $request->user()->company->setting;
 
         $breakdown = $this->calculator->calculate($data, [], null, $setting, $productLines);
 
-        $quote = DB::transaction(function () use ($request, $data, $breakdown) {
+        $quote = DB::transaction(function () use ($request, $data, $breakdown, $isCourtesy) {
             $quote = $request->user()->company->quotes()->create(array_merge(
                 $this->quoteAttributes($data, $breakdown, Quote::STATUS_SENT),
                 ['name' => $data['name'] ?? 'Venda balcão']
@@ -181,9 +185,10 @@ class QuoteController extends Controller
             $this->syncProductItems($quote, $breakdown);
 
             // Venda balcão: cliente já levou o produto na hora, não passa pelo fluxo de produção.
-            $this->applyApproval($quote, $data['payment_method'], Quote::PRODUCTION_DELIVERED);
-            // Venda de balcão: o dinheiro entra na hora, não faz sentido perguntar.
-            $this->applyPayment($quote, (float) $quote->final_price);
+            $this->applyApproval($quote, $isCourtesy ? null : $data['payment_method'], Quote::PRODUCTION_DELIVERED);
+            // Venda de balcão: o dinheiro entra na hora (ou é cortesia, e não entra
+            // mesmo) — mesmo fluxo de cortesia usado na aprovação de orçamento.
+            $this->applyPayment($quote, $isCourtesy ? 0 : (float) $quote->final_price, $isCourtesy);
 
             return $quote;
         });
