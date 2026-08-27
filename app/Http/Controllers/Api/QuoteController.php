@@ -9,6 +9,7 @@ use App\Models\Printer;
 use App\Models\Product;
 use App\Models\ProductVariation;
 use App\Models\Quote;
+use App\Models\SalesChannel;
 use App\Services\QuoteCalculatorService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -23,7 +24,7 @@ class QuoteController extends Controller
     public function index(Request $request)
     {
         return $request->user()->company->quotes()
-            ->with(['customer', 'printer', 'material', 'items.product'])
+            ->with(['customer', 'printer', 'material', 'items.product', 'salesChannel:id,name'])
             ->latest()
             ->get();
     }
@@ -32,7 +33,7 @@ class QuoteController extends Controller
     {
         $this->authorizeCompany($request, $quote);
 
-        return $quote->load(['customer', 'printer', 'material', 'items.product']);
+        return $quote->load(['customer', 'printer', 'material', 'items.product', 'salesChannel:id,name']);
     }
 
     public function preview(Request $request)
@@ -41,10 +42,11 @@ class QuoteController extends Controller
         $materialLines = $this->resolveMaterials($request, $data);
         $printer = $this->resolvePrinter($request, $data);
         $productLines = $this->resolveProducts($request, $data);
+        $channel = $this->resolveSalesChannel($request, $data);
         $setting = $request->user()->company->setting;
 
         return response()->json(
-            $this->calculator->calculate($data, $materialLines, $printer, $setting, $productLines)
+            $this->calculator->calculate($data, $materialLines, $printer, $setting, $productLines, $channel)
         );
     }
 
@@ -63,9 +65,10 @@ class QuoteController extends Controller
         $materialLines = $this->resolveMaterials($request, $data);
         $printer = $this->resolvePrinter($request, $data);
         $productLines = $this->resolveProducts($request, $data);
+        $channel = $this->resolveSalesChannel($request, $data);
         $setting = $request->user()->company->setting;
 
-        $breakdown = $this->calculator->calculate($data, $materialLines, $printer, $setting, $productLines);
+        $breakdown = $this->calculator->calculate($data, $materialLines, $printer, $setting, $productLines, $channel);
 
         $quote = DB::transaction(function () use ($request, $data, $breakdown) {
             $quote = $request->user()->company->quotes()->create(
@@ -77,7 +80,7 @@ class QuoteController extends Controller
             return $quote;
         });
 
-        return response()->json($quote->load(['customer', 'printer', 'material', 'items.product']), 201);
+        return response()->json($quote->load(['customer', 'printer', 'material', 'items.product', 'salesChannel:id,name']), 201);
     }
 
     public function update(Request $request, Quote $quote)
@@ -94,9 +97,10 @@ class QuoteController extends Controller
         $materialLines = $this->resolveMaterials($request, $data);
         $printer = $this->resolvePrinter($request, $data);
         $productLines = $this->resolveProducts($request, $data);
+        $channel = $this->resolveSalesChannel($request, $data);
         $setting = $request->user()->company->setting;
 
-        $breakdown = $this->calculator->calculate($data, $materialLines, $printer, $setting, $productLines);
+        $breakdown = $this->calculator->calculate($data, $materialLines, $printer, $setting, $productLines, $channel);
 
         DB::transaction(function () use ($quote, $data, $breakdown) {
             $quote->update($this->quoteAttributes($data, $breakdown, $quote->status));
@@ -104,7 +108,7 @@ class QuoteController extends Controller
             $this->syncMaterialItems($quote, $breakdown);
         });
 
-        return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product']));
+        return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product', 'salesChannel:id,name']));
     }
 
     public function destroy(Request $request, Quote $quote)
@@ -136,7 +140,7 @@ class QuoteController extends Controller
             $this->applyPayment($quote, (float) ($data['amount_paid'] ?? 0), (bool) ($data['is_courtesy'] ?? false));
         });
 
-        return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product']));
+        return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product', 'salesChannel:id,name']));
     }
 
     /**
@@ -342,7 +346,7 @@ class QuoteController extends Controller
 
         $this->applyPayment($quote, (float) $data['amount_paid'], $isCourtesy);
 
-        return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product']));
+        return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product', 'salesChannel:id,name']));
     }
 
     public function reject(Request $request, Quote $quote)
@@ -368,7 +372,7 @@ class QuoteController extends Controller
             'pause_reason' => $data['reason'] ?? null,
         ]);
 
-        return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product']));
+        return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product', 'salesChannel:id,name']));
     }
 
     /** Retoma a produção — estende o prazo automaticamente pelos dias que ficou pausada. */
@@ -390,7 +394,7 @@ class QuoteController extends Controller
             'pause_reason' => null,
         ]);
 
-        return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product']));
+        return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product', 'salesChannel:id,name']));
     }
 
     /**
@@ -466,7 +470,7 @@ class QuoteController extends Controller
             ]);
         });
 
-        return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product']));
+        return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product', 'salesChannel:id,name']));
     }
 
     public function updateProductionStatus(Request $request, Quote $quote)
@@ -493,7 +497,7 @@ class QuoteController extends Controller
 
         $quote->update($attributes);
 
-        return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product']));
+        return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product', 'salesChannel:id,name']));
     }
 
     /**
@@ -550,7 +554,7 @@ class QuoteController extends Controller
 
         $quote->update(['status' => $status]);
 
-        return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product']));
+        return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product', 'salesChannel:id,name']));
     }
 
     private function quoteAttributes(array $data, array $breakdown, string $status): array
@@ -580,6 +584,7 @@ class QuoteController extends Controller
             'final_price' => $breakdown['final_price'],
             'unit_price' => $breakdown['unit_price'],
             'profit_amount' => $breakdown['profit_amount'],
+            'channel_fee_amount' => $breakdown['channel_fee_amount'],
             'status' => $status,
         ]);
     }
@@ -626,6 +631,15 @@ class QuoteController extends Controller
 
         return isset($data['printer_id'])
             ? Printer::where('company_id', $companyId)->findOrFail($data['printer_id'])
+            : null;
+    }
+
+    private function resolveSalesChannel(Request $request, array $data): ?SalesChannel
+    {
+        $companyId = $request->user()->company_id;
+
+        return isset($data['sales_channel_id'])
+            ? SalesChannel::where('company_id', $companyId)->findOrFail($data['sales_channel_id'])
             : null;
     }
 
@@ -698,6 +712,7 @@ class QuoteController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'customer_id' => ['nullable', 'exists:customers,id'],
             'printer_id' => ['nullable', 'exists:printers,id'],
+            'sales_channel_id' => ['nullable', 'exists:sales_channels,id'],
             'quantity' => ['sometimes', 'integer', 'min:1'],
             'print_time_minutes' => ['required_without:products', 'nullable', 'integer', 'min:1'],
             'setup_minutes' => ['sometimes', 'integer', 'min:0'],

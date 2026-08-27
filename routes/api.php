@@ -17,6 +17,8 @@ use App\Http\Controllers\Api\ProductCollectionController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\QuoteController;
 use App\Http\Controllers\Api\ReportController;
+use App\Http\Controllers\Api\SalesChannelController;
+use App\Http\Controllers\Api\DisplayController;
 use App\Http\Controllers\Api\SettingsController;
 use Illuminate\Support\Facades\Route;
 
@@ -63,6 +65,21 @@ Route::prefix('v1')->group(function () {
         Route::delete('/product-collections/{productCollection}', [ProductCollectionController::class, 'destroy']);
         Route::post('/product-collections/{productCollection}/banner', [ProductCollectionController::class, 'uploadBanner']);
         Route::delete('/product-collections/{productCollection}/banner', [ProductCollectionController::class, 'destroyBanner']);
+
+        Route::get('/sales-channels', [SalesChannelController::class, 'index']);
+        Route::post('/sales-channels', [SalesChannelController::class, 'store']);
+        Route::put('/sales-channels/{salesChannel}', [SalesChannelController::class, 'update']);
+        Route::delete('/sales-channels/{salesChannel}', [SalesChannelController::class, 'destroy']);
+
+        Route::get('/displays', [DisplayController::class, 'index']);
+        Route::post('/displays', [DisplayController::class, 'store']);
+        Route::get('/displays/{display}', [DisplayController::class, 'show']);
+        Route::put('/displays/{display}', [DisplayController::class, 'update']);
+        Route::delete('/displays/{display}', [DisplayController::class, 'destroy']);
+        Route::post('/displays/{display}/restock', [DisplayController::class, 'restock']);
+        Route::post('/displays/{display}/retrieve', [DisplayController::class, 'retrieve']);
+        Route::post('/displays/{display}/reconcile', [DisplayController::class, 'reconcile']);
+        Route::post('/displays/{display}/close', [DisplayController::class, 'close']);
         Route::get('/products/generate-sku', [ProductController::class, 'generateSku']);
         Route::post('/products/{product}/images', [ProductController::class, 'uploadImages']);
         Route::delete('/products/{product}/images/{image}', [ProductController::class, 'destroyImage']);

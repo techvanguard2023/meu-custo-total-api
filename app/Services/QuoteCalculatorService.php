@@ -2,8 +2,10 @@
 
 namespace App\Services;
 
+use App\Models\Display;
 use App\Models\Material;
 use App\Models\Printer;
+use App\Models\SalesChannel;
 use App\Models\Setting;
 
 class QuoteCalculatorService
@@ -24,7 +26,7 @@ class QuoteCalculatorService
      * @param  array<int, array{material: Material, weight: float}>  $materialLines
      * @param  array<int, array{product: \App\Models\Product, quantity: int}>  $productLines
      */
-    public function calculate(array $data, array $materialLines, ?Printer $printer, ?Setting $setting, array $productLines = []): array
+    public function calculate(array $data, array $materialLines, ?Printer $printer, ?Setting $setting, array $productLines = [], ?SalesChannel $channel = null, ?Display $display = null): array
     {
         $quantity = max(1, (int) ($data['quantity'] ?? 1));
         $printTimeHours = ((int) ($data['print_time_minutes'] ?? 0)) / 60;
@@ -116,10 +118,32 @@ class QuoteCalculatorService
             $finalPrice = (float) $setting->minimum_order_price;
         }
 
+        // Vendendo por um canal (Mercado Livre, Shopee...) que desconta comissão +
+        // taxa fixa do valor recebido: o preço de tabela sobe o suficiente pra sobrar,
+        // líquido, o mesmo que uma venda direta — a margem não muda, só o preço exibido.
+        $channelFeeAmount = 0.0;
+        if ($channel) {
+            $commissionPercent = min(99.99, max(0, (float) $channel->commission_percent));
+            $fixedFee = max(0, (float) $channel->fixed_fee);
+            $priceWithChannel = ($finalPrice + $fixedFee) / (1 - $commissionPercent / 100);
+            $channelFeeAmount = round($priceWithChannel - $finalPrice, 2);
+            $finalPrice = round($priceWithChannel, 2);
+        }
+
+        // Venda apurada num expositor em consignação: o preço ao consumidor é fixo
+        // (não sobe pra compensar, diferente do canal de marketplace) — a comissão do
+        // parceiro só sai do seu lucro.
+        $displayCommissionAmount = 0.0;
+        if ($display) {
+            $commissionPercent = min(99.99, max(0, (float) $display->commission_percent));
+            $displayCommissionAmount = round($finalPrice * $commissionPercent / 100, 2);
+        }
+
         $grandTotalCost = $totalCost + $productsCost;
 
         $unitPrice = $finalPrice / $quantity;
-        $profitAmount = $finalPrice - $grandTotalCost;
+        // Lucro é sobre o que fica depois da taxa do canal e da comissão do expositor.
+        $profitAmount = ($finalPrice - $channelFeeAmount) - $grandTotalCost - $displayCommissionAmount;
 
         return [
             'material_cost' => round($materialCost, 2),
@@ -142,6 +166,11 @@ class QuoteCalculatorService
             'quantity' => $quantity,
             'unit_price' => round($unitPrice, 2),
             'profit_amount' => round($profitAmount, 2),
+            'sales_channel_id' => $channel?->id,
+            'sales_channel_name' => $channel?->name,
+            'channel_fee_amount' => round($channelFeeAmount, 2),
+            'display_id' => $display?->id,
+            'display_commission_amount' => round($displayCommissionAmount, 2),
         ];
     }
 }

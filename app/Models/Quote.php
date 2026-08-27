@@ -54,6 +54,8 @@ class Quote extends Model
         'profit_amount', 'status', 'production_status', 'production_order', 'approved_at',
         'payment_method', 'amount_paid', 'paid_at', 'is_courtesy', 'review_token', 'cancelled_at', 'cancel_reason',
         'model_urls', 'notes', 'paused_at', 'pause_reason',
+        'sales_channel_id', 'channel_fee_amount',
+        'display_id', 'display_commission_amount',
     ];
 
     protected $casts = [
@@ -73,6 +75,8 @@ class Quote extends Model
         'unit_price' => 'decimal:2',
         'profit_amount' => 'decimal:2',
         'amount_paid' => 'decimal:2',
+        'channel_fee_amount' => 'decimal:2',
+        'display_commission_amount' => 'decimal:2',
         'is_courtesy' => 'boolean',
         'approved_at' => 'datetime',
         'paid_at' => 'datetime',
@@ -143,5 +147,15 @@ class Quote extends Model
     public function reviews(): HasMany
     {
         return $this->hasMany(ProductReview::class);
+    }
+
+    public function salesChannel(): BelongsTo
+    {
+        return $this->belongsTo(SalesChannel::class);
+    }
+
+    public function display(): BelongsTo
+    {
+        return $this->belongsTo(Display::class);
     }
 }
