@@ -106,4 +106,9 @@ class Company extends Model
     {
         return $this->hasMany(Display::class);
     }
+
+    public function materialCategories(): HasMany
+    {
+        return $this->hasMany(MaterialCategory::class);
+    }
 }

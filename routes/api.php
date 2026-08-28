@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CatalogController;
 use App\Http\Controllers\Api\CustomerController;
 use App\Http\Controllers\Api\MaterialController;
+use App\Http\Controllers\Api\MaterialCategoryController;
 use App\Http\Controllers\Api\PasswordResetController;
 use App\Http\Controllers\Api\PlanController;
 use App\Http\Controllers\Api\ProfileController;
@@ -51,6 +52,11 @@ Route::prefix('v1')->group(function () {
         Route::apiResource('materials', MaterialController::class);
         Route::apiResource('printers', PrinterController::class);
         Route::apiResource('customers', CustomerController::class);
+        Route::get('/material-categories', [MaterialCategoryController::class, 'index']);
+        Route::post('/material-categories', [MaterialCategoryController::class, 'store']);
+        Route::put('/material-categories/{materialCategory}', [MaterialCategoryController::class, 'update']);
+        Route::delete('/material-categories/{materialCategory}', [MaterialCategoryController::class, 'destroy']);
+
         Route::get('/product-categories', [ProductCategoryController::class, 'index']);
         Route::post('/product-categories', [ProductCategoryController::class, 'store']);
         Route::put('/product-categories/{productCategory}', [ProductCategoryController::class, 'update']);

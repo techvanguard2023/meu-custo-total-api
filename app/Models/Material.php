@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Material extends Model
 {
     protected $fillable = [
-        'company_id', 'name', 'brand', 'type', 'color', 'pantone_code', 'hex_color',
+        'company_id', 'name', 'brand', 'type', 'material_category_id', 'color', 'pantone_code', 'hex_color',
         'spool_weight_g', 'spool_cost', 'cost_per_g', 'density', 'stock_quantity',
         'purchase_url', 'image_url', 'active',
     ];
@@ -30,5 +30,10 @@ class Material extends Model
     public function quotes(): HasMany
     {
         return $this->hasMany(Quote::class);
+    }
+
+    public function category(): BelongsTo
+    {
+        return $this->belongsTo(MaterialCategory::class, 'material_category_id');
     }
 }

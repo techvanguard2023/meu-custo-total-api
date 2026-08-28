@@ -5,12 +5,13 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Material;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class MaterialController extends Controller
 {
     public function index(Request $request)
     {
-        return $request->user()->company->materials()->latest()->get();
+        return $request->user()->company->materials()->with('category')->latest()->get();
     }
 
     public function store(Request $request)
@@ -18,14 +19,14 @@ class MaterialController extends Controller
         $data = $this->validated($request);
         $material = $request->user()->company->materials()->create($data);
 
-        return response()->json($material, 201);
+        return response()->json($material->load('category'), 201);
     }
 
     public function show(Request $request, Material $material)
     {
         $this->authorizeCompany($request, $material);
 
-        return $material;
+        return $material->load('category');
     }
 
     public function update(Request $request, Material $material)
@@ -33,7 +34,7 @@ class MaterialController extends Controller
         $this->authorizeCompany($request, $material);
         $material->update($this->validated($request));
 
-        return $material;
+        return $material->load('category');
     }
 
     public function destroy(Request $request, Material $material)
@@ -46,10 +47,17 @@ class MaterialController extends Controller
 
     private function validated(Request $request): array
     {
+        $companyId = $request->user()->company_id;
+
         return $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'brand' => ['nullable', 'string', 'max:255'],
             'type' => ['nullable', 'string', 'max:255'],
+            'material_category_id' => [
+                'nullable',
+                Rule::exists('material_categories', 'id')
+                    ->where(fn ($q) => $q->whereNull('company_id')->orWhere('company_id', $companyId)),
+            ],
             'color' => ['nullable', 'string', 'max:255'],
             'pantone_code' => ['nullable', 'string', 'max:20'],
             'hex_color' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
