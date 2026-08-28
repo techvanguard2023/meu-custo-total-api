@@ -21,7 +21,7 @@ class Display extends Model
     ];
 
     protected $fillable = [
-        'company_id', 'name', 'contact_name', 'phone', 'address',
+        'company_id', 'name', 'code', 'contact_name', 'phone', 'address',
         'commission_percent', 'status', 'started_at', 'ended_at', 'notes',
     ];
 
@@ -44,6 +44,11 @@ class Display extends Model
     public function movements(): HasMany
     {
         return $this->hasMany(DisplayStockMovement::class);
+    }
+
+    public function visits(): HasMany
+    {
+        return $this->hasMany(DisplayVisit::class);
     }
 
     /** Vendas apuradas nas conferências deste expositor. */

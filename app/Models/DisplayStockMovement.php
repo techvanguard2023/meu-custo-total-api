@@ -14,12 +14,17 @@ class DisplayStockMovement extends Model
     public const TYPE_RETURN = 'return';
 
     protected $fillable = [
-        'display_id', 'product_id', 'product_variation_id', 'type', 'quantity', 'quote_id',
+        'display_id', 'display_visit_id', 'product_id', 'product_variation_id', 'type', 'quantity', 'quote_id',
     ];
 
     public function display(): BelongsTo
     {
         return $this->belongsTo(Display::class);
+    }
+
+    public function visit(): BelongsTo
+    {
+        return $this->belongsTo(DisplayVisit::class, 'display_visit_id');
     }
 
     public function product(): BelongsTo

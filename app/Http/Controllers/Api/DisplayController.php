@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Display;
 use App\Models\DisplayStockLine;
 use App\Models\DisplayStockMovement;
+use App\Models\DisplayVisit;
 use App\Models\Product;
 use App\Models\ProductVariation;
 use App\Models\Quote;
@@ -48,6 +49,7 @@ class DisplayController extends Controller
         $display->load([
             'stockLines' => fn ($q) => $q->where('quantity_current', '>', 0)->with(['product', 'variation']),
             'quotes' => fn ($q) => $q->latest()->with('items.product'),
+            'visits' => fn ($q) => $q->latest()->with(['quote.items', 'movements.product', 'movements.variation']),
         ]);
 
         return response()->json([
@@ -113,16 +115,26 @@ class DisplayController extends Controller
         $this->authorizeCompany($request, $display);
         abort_if($display->status === Display::STATUS_ENDED, 422, 'Este expositor está encerrado.');
 
+        $this->normalizeLinesInput($request);
+
         $data = $request->validate([
             'lines' => ['required', 'array', 'min:1'],
             'lines.*.product_id' => ['required', 'integer'],
             'lines.*.product_variation_id' => ['sometimes', 'nullable', 'integer'],
             'lines.*.quantity' => ['required', 'integer', 'min:1'],
-        ]);
+            'photo' => ['sometimes', 'nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
+        ], $this->photoMessages());
 
         $resolved = $this->resolveLines($request, $data['lines']);
+        $photoPath = $this->storePhoto($request);
 
-        DB::transaction(function () use ($display, $resolved) {
+        DB::transaction(function () use ($display, $resolved, $photoPath) {
+            $visit = DisplayVisit::create([
+                'display_id' => $display->id,
+                'type' => DisplayVisit::TYPE_RESTOCK,
+                'photo_path' => $photoPath,
+            ]);
+
             foreach ($resolved as $line) {
                 $target = $line['variation']
                     ? ProductVariation::lockForUpdate()->find($line['variation']->id)
@@ -148,6 +160,7 @@ class DisplayController extends Controller
 
                 DisplayStockMovement::create([
                     'display_id' => $display->id,
+                    'display_visit_id' => $visit->id,
                     'product_id' => $line['product']->id,
                     'product_variation_id' => $line['variation']?->id,
                     'type' => DisplayStockMovement::TYPE_RESTOCK,
@@ -225,18 +238,22 @@ class DisplayController extends Controller
         $this->authorizeCompany($request, $display);
         abort_if($display->status === Display::STATUS_ENDED, 422, 'Este expositor está encerrado.');
 
+        $this->normalizeLinesInput($request);
+
         $data = $request->validate([
             'lines' => ['required', 'array', 'min:1'],
             'lines.*.product_id' => ['required', 'integer'],
             'lines.*.product_variation_id' => ['sometimes', 'nullable', 'integer'],
             'lines.*.remaining' => ['required', 'integer', 'min:0'],
             'lines.*.lost' => ['sometimes', 'integer', 'min:0'],
-        ]);
+            'photo' => ['sometimes', 'nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
+        ], $this->photoMessages());
 
         $resolved = $this->resolveLines($request, $data['lines']);
         $setting = $request->user()->company->setting;
+        $photoPath = $this->storePhoto($request);
 
-        $quote = DB::transaction(function () use ($display, $resolved, $setting, $request) {
+        $quote = DB::transaction(function () use ($display, $resolved, $setting, $request, $photoPath) {
             $productLines = [];
             $soldByLine = [];
 
@@ -311,6 +328,13 @@ class DisplayController extends Controller
                 'paid_at' => now(),
             ]);
 
+            $visit = DisplayVisit::create([
+                'display_id' => $display->id,
+                'type' => DisplayVisit::TYPE_RECONCILIATION,
+                'photo_path' => $photoPath,
+                'quote_id' => $quote->id,
+            ]);
+
             foreach ($breakdown['products'] as $productLine) {
                 $quote->items()->create([
                     'product_id' => $productLine['product_id'],
@@ -334,6 +358,7 @@ class DisplayController extends Controller
                 if ($line['sold'] > 0) {
                     DisplayStockMovement::create([
                         'display_id' => $display->id,
+                        'display_visit_id' => $visit->id,
                         'product_id' => $resolvedLine['product']->id,
                         'product_variation_id' => $resolvedLine['variation']?->id,
                         'type' => DisplayStockMovement::TYPE_SALE,
@@ -345,6 +370,7 @@ class DisplayController extends Controller
                 if ($line['lost'] > 0) {
                     DisplayStockMovement::create([
                         'display_id' => $display->id,
+                        'display_visit_id' => $visit->id,
                         'product_id' => $resolvedLine['product']->id,
                         'product_variation_id' => $resolvedLine['variation']?->id,
                         'type' => DisplayStockMovement::TYPE_LOSS,
@@ -433,6 +459,36 @@ class DisplayController extends Controller
     }
 
     /**
+     * "lines" chega como array normal numa chamada JSON, mas como texto JSON
+     * quando vem junto de uma foto (multipart/form-data não sabe carregar
+     * array aninhado) — decodifica antes da validação, se for o caso.
+     */
+    private function normalizeLinesInput(Request $request): void
+    {
+        $lines = $request->input('lines');
+        if (is_string($lines)) {
+            $decoded = json_decode($lines, true);
+            abort_unless(is_array($decoded), 422, 'Formato de "lines" inválido.');
+            $request->merge(['lines' => $decoded]);
+        }
+    }
+
+    /** Foto de evidência da visita — uma por reposição/conferência, opcional. */
+    private function storePhoto(Request $request): ?string
+    {
+        return $request->hasFile('photo') ? $request->file('photo')->store('display-visits', 'public') : null;
+    }
+
+    private function photoMessages(): array
+    {
+        return [
+            'photo.max' => 'A foto deve ter no máximo 4MB.',
+            'photo.image' => 'Envie um arquivo de imagem válido (JPG, PNG ou WebP).',
+            'photo.mimes' => 'Formato não suportado — envie JPG, PNG ou WebP.',
+        ];
+    }
+
+    /**
      * @param  array<int, array{product_id: int, product_variation_id?: int|null, quantity?: int, remaining?: int, lost?: int}>  $lines
      * @return array<int, array{product: Product, variation: ?ProductVariation, label: string, quantity?: int, remaining?: int, lost?: int}>
      */
@@ -473,6 +529,9 @@ class DisplayController extends Controller
     {
         return $request->validate([
             'name' => ['required', 'string', 'max:255'],
+            // O código que o lojista já usa pra identificar o móvel fisicamente
+            // (etiqueta no expositor) — livre, sem formato imposto.
+            'code' => ['nullable', 'string', 'max:60'],
             'contact_name' => ['nullable', 'string', 'max:255'],
             'phone' => ['nullable', 'string', 'max:30'],
             'address' => ['nullable', 'string', 'max:255'],
