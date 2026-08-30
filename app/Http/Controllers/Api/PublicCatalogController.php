@@ -155,6 +155,9 @@ class PublicCatalogController extends Controller
             'whatsapp' => $company->catalog_whatsapp,
             'disclaimer' => $company->catalog_disclaimer,
             'about' => $company->catalog_about,
+            // Só a cor de destaque (botões, badges, links) — fundo e texto
+            // continuam neutros, pra não arriscar contraste ilegível.
+            'accent_color' => $company->catalog_accent_color,
             // Nota geral da loja + depoimentos — só de vendas sem produto de
             // catálogo vinculado (o resto já aparece no card de cada produto).
             'store_rating_avg' => $storeRatingAvg !== null ? round((float) $storeRatingAvg, 1) : null,

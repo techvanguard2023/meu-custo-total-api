@@ -21,6 +21,7 @@ class Company extends Model
         'catalog_instagram_url', 'catalog_facebook_url', 'catalog_youtube_url',
         'catalog_tiktok_url', 'catalog_linkedin_url',
         'catalog_about', 'catalog_address', 'catalog_hours', 'catalog_email',
+        'catalog_accent_color',
     ];
 
     protected $casts = [
