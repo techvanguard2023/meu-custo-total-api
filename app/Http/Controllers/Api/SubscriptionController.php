@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use Laravel\Cashier\Cashier;
 use Laravel\Cashier\Subscription;
 
 class SubscriptionController extends Controller
@@ -66,16 +67,23 @@ class SubscriptionController extends Controller
     private function subscriptionData(Subscription $subscription): array
     {
         $renewsAt = null;
+        $price = null;
 
         try {
             $stripeSubscription = $subscription->asStripeSubscription();
+            $item = $stripeSubscription->items->data[0] ?? null;
             // API novas movem current_period_end para os itens da assinatura
-            $periodEnd = $stripeSubscription->items->data[0]->current_period_end
-                ?? $stripeSubscription->current_period_end
-                ?? null;
+            $periodEnd = $item->current_period_end ?? $stripeSubscription->current_period_end ?? null;
             $renewsAt = $periodEnd ? date('c', $periodEnd) : null;
+
+            // O valor real cobrado — não o preço atual do plano — pois uma
+            // assinatura antiga pode estar presa a um Price anterior (grandfathering
+            // natural do Stripe quando o preço do plano é reajustado).
+            if ($item?->price?->unit_amount !== null) {
+                $price = Cashier::formatAmount($item->price->unit_amount, $item->price->currency);
+            }
         } catch (\Throwable) {
-            // Stripe indisponível: segue sem a data de renovação
+            // Stripe indisponível: segue sem a data de renovação/preço
         }
 
         return [
@@ -84,6 +92,7 @@ class SubscriptionController extends Controller
             'on_grace_period' => $subscription->onGracePeriod(),
             'ends_at' => $subscription->ends_at?->toIso8601String(),
             'renews_at' => $renewsAt,
+            'price' => $price,
             'created_at' => $subscription->created_at?->toIso8601String(),
         ];
     }
