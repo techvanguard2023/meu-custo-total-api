@@ -54,6 +54,10 @@ RUN mkdir -p storage/app/public \
 RUN chown -R www-data:www-data storage bootstrap/cache \
     && chmod -R ug+rwX storage bootstrap/cache
 
+# Agenda do Laravel (Schedule::command em routes/console.php) — o crond do próprio
+# Alpine checa a cada minuto o que está devido; o supervisor mantém o processo vivo.
+RUN echo '* * * * * cd /app && php artisan schedule:run >> /dev/null 2>&1' >> /etc/crontabs/root
+
 EXPOSE 80
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
