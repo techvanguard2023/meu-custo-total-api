@@ -13,6 +13,7 @@ class Product extends Model
 {
     protected $fillable = [
         'company_id', 'name', 'slug', 'sku', 'description', 'category_id', 'image_path', 'model_3d_url',
+        'marketplace_mercado_livre_url', 'marketplace_shopee_url', 'marketplace_amazon_url',
         'cost', 'sale_price', 'stock_quantity', 'made_to_order', 'featured', 'discount_percent', 'active',
     ];
 

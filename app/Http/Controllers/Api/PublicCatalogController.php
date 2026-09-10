@@ -134,6 +134,13 @@ class PublicCatalogController extends Controller
                     'stock_status' => $this->stockStatus($stock),
                     'made_to_order' => (bool) $product->made_to_order,
                     'featured' => (bool) $product->featured,
+                    // Só os marketplaces que o lojista de fato preencheu — o botão
+                    // "Comprar no Marketplace" some quando nenhum está configurado.
+                    'marketplace_urls' => array_filter([
+                        'mercado_livre' => $product->marketplace_mercado_livre_url,
+                        'shopee' => $product->marketplace_shopee_url,
+                        'amazon' => $product->marketplace_amazon_url,
+                    ]),
                     // Média das notas + quantas avaliações — o card mostra as duas
                     // juntas, pra "5,0" com uma única avaliação não parecer consenso.
                     'rating_avg' => $product->rating_avg !== null ? round((float) $product->rating_avg, 1) : null,
