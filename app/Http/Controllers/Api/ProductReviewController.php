@@ -42,9 +42,13 @@ class ProductReviewController extends Controller
 
         // Sem produto de catálogo vinculado (peça sob encomenda), a avaliação
         // vira sobre a loja como um todo — ainda assim tem o que avaliar.
-        if (! $quote->review_token) {
-            $quote->update(['review_token' => Str::random(32)]);
-        }
+        // review_requested_at é sempre atualizado (não só na primeira vez): é a
+        // partir dele que a tela decide quando liberar um novo pedido, após 15 dias
+        // sem resposta.
+        $quote->update([
+            'review_token' => $quote->review_token ?: Str::random(32),
+            'review_requested_at' => now(),
+        ]);
 
         return response()->json([
             'review_token' => $quote->review_token,

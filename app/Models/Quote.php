@@ -52,7 +52,7 @@ class Quote extends Model
         'material_cost', 'energy_cost', 'depreciation_cost', 'labor_cost',
         'failure_cost', 'subtotal_cost', 'final_price', 'unit_price',
         'profit_amount', 'status', 'production_status', 'production_order', 'approved_at',
-        'payment_method', 'amount_paid', 'paid_at', 'is_courtesy', 'review_token', 'cancelled_at', 'cancel_reason',
+        'payment_method', 'amount_paid', 'paid_at', 'is_courtesy', 'review_token', 'review_requested_at', 'cancelled_at', 'cancel_reason',
         'model_urls', 'notes', 'paused_at', 'pause_reason',
         'sales_channel_id', 'channel_fee_amount',
         'display_id', 'display_commission_amount',
@@ -80,6 +80,7 @@ class Quote extends Model
         'is_courtesy' => 'boolean',
         'approved_at' => 'datetime',
         'paid_at' => 'datetime',
+        'review_requested_at' => 'datetime',
         'cancelled_at' => 'datetime',
         'paused_at' => 'datetime',
     ];

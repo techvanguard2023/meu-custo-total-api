@@ -25,6 +25,9 @@ class QuoteController extends Controller
     {
         return $request->user()->company->quotes()
             ->with(['customer', 'printer', 'material', 'items.product', 'salesChannel:id,name'])
+            // Só a contagem — pra tela saber se o cliente já respondeu à avaliação
+            // sem precisar carregar o conteúdo de cada uma.
+            ->withCount('reviews')
             ->latest()
             ->get();
     }
@@ -33,7 +36,7 @@ class QuoteController extends Controller
     {
         $this->authorizeCompany($request, $quote);
 
-        return $quote->load(['customer', 'printer', 'material', 'items.product', 'salesChannel:id,name']);
+        return $quote->loadCount('reviews')->load(['customer', 'printer', 'material', 'items.product', 'salesChannel:id,name']);
     }
 
     public function preview(Request $request)
