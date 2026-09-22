@@ -149,7 +149,14 @@ class QuoteController extends Controller
     /**
      * Venda balcão: cria e já aprova num só passo, só com produtos prontos
      * (sem impressora/material/tempo de impressão). Tudo numa única
-     * transação — se o estoque não bater, nada fica registrado.
+     * transação — se o estoque não bater (e não for sob encomenda), nada fica
+     * registrado.
+     *
+     * Itens sob encomenda sem estoque viram uma venda separada, em Aguardando
+     * Produção — o cliente não leva pra casa na hora, então não faz sentido
+     * misturar com o que já sai na hora (Entregue ao Cliente). Só a venda
+     * entregue na hora é marcada como paga automaticamente; a de encomenda
+     * fica em aberto, pra ser recebida depois do jeito que já existe hoje.
      */
     public function quickSale(Request $request)
     {
@@ -182,25 +189,83 @@ class QuoteController extends Controller
         $productLines = $this->resolveProducts($request, $data);
         $setting = $request->user()->company->setting;
 
-        $breakdown = $this->calculator->calculate($data, [], null, $setting, $productLines);
+        [$readyLines, $backorderLines] = $this->splitByAvailability($productLines);
 
-        $quote = DB::transaction(function () use ($request, $data, $breakdown, $isCourtesy) {
-            $quote = $request->user()->company->quotes()->create(array_merge(
-                $this->quoteAttributes($data, $breakdown, Quote::STATUS_SENT),
-                ['name' => $data['name'] ?? 'Venda balcão']
-            ));
-            $this->syncProductItems($quote, $breakdown);
+        $quotes = DB::transaction(function () use ($request, $data, $setting, $isCourtesy, $readyLines, $backorderLines) {
+            $created = [];
 
-            // Venda balcão: cliente já levou o produto na hora, não passa pelo fluxo de produção.
-            $this->applyApproval($quote, $isCourtesy ? null : $data['payment_method'], Quote::PRODUCTION_DELIVERED);
-            // Venda de balcão: o dinheiro entra na hora (ou é cortesia, e não entra
-            // mesmo) — mesmo fluxo de cortesia usado na aprovação de orçamento.
-            $this->applyPayment($quote, $isCourtesy ? 0 : (float) $quote->final_price, $isCourtesy);
+            if ($readyLines) {
+                // O desconto informado vale pro que está sendo pago agora — a parte
+                // sob encomenda (se houver) sai pelo preço cheio.
+                $created[] = $this->createQuickSaleQuote(
+                    $request, $data, $readyLines, $setting, $isCourtesy,
+                    Quote::PRODUCTION_DELIVERED, payFull: true,
+                );
+            }
 
-            return $quote;
+            if ($backorderLines) {
+                // O desconto (se houver) já foi todo aplicado na venda entregue na
+                // hora acima — aqui sai pelo preço cheio, sem descontar de novo.
+                $backorderData = array_diff_key($data, ['discount_amount' => null]);
+                $created[] = $this->createQuickSaleQuote(
+                    $request, $backorderData, $backorderLines, $setting, $isCourtesy,
+                    Quote::PRODUCTION_PENDING, payFull: false,
+                );
+            }
+
+            return $created;
         });
 
-        return response()->json($quote->fresh()->load(['customer', 'items.product']), 201);
+        return response()->json(
+            collect($quotes)->map(fn (Quote $q) => $q->fresh()->load(['customer', 'items.product']))->values(),
+            201
+        );
+    }
+
+    /** Separa as linhas com estoque suficiente das que dependem de produção sob encomenda. */
+    private function splitByAvailability(array $productLines): array
+    {
+        $ready = [];
+        $backorder = [];
+
+        foreach ($productLines as $line) {
+            $target = $line['variation'] ?? $line['product'];
+            if ((int) $target->stock_quantity >= $line['quantity']) {
+                $ready[] = $line;
+            } else {
+                // Sem estoque e sem ser sob encomenda: applyApproval() recusa mais
+                // adiante, com a mensagem de estoque insuficiente de sempre.
+                $backorder[] = $line;
+            }
+        }
+
+        return [$ready, $backorder];
+    }
+
+    private function createQuickSaleQuote(
+        Request $request,
+        array $data,
+        array $lines,
+        $setting,
+        bool $isCourtesy,
+        string $productionStatus,
+        bool $payFull,
+    ): Quote {
+        $breakdown = $this->calculator->calculate($data, [], null, $setting, $lines);
+
+        $quote = $request->user()->company->quotes()->create(array_merge(
+            $this->quoteAttributes($data, $breakdown, Quote::STATUS_SENT),
+            ['name' => $data['name'] ?? 'Venda balcão']
+        ));
+        $this->syncProductItems($quote, $breakdown);
+
+        $paymentMethod = ! $isCourtesy && $payFull ? $data['payment_method'] : null;
+        $this->applyApproval($quote, $paymentMethod, $productionStatus);
+
+        $amountPaid = $isCourtesy ? 0 : ($payFull ? (float) $quote->final_price : 0);
+        $this->applyPayment($quote, $amountPaid, $isCourtesy);
+
+        return $quote;
     }
 
     /** Baixa de estoque (produtos e materiais) + transição pra aprovado. Deve rodar dentro de uma transação. */
@@ -234,8 +299,10 @@ class QuoteController extends Controller
                 abort_unless($target, 422, "A variação de \"{$product->name}\" não está mais cadastrada.");
 
                 $label = $item->product_variation_id ? "{$product->name} ({$target->display_name})" : $product->name;
+                // Sob encomenda, estoque insuficiente não bloqueia — o item ainda vai
+                // ser produzido, não vendido do que já está pronto.
                 abort_unless(
-                    $target->stock_quantity >= $item->quantity,
+                    $target->stock_quantity >= $item->quantity || $product->made_to_order,
                     422,
                     "Estoque insuficiente para \"{$label}\": disponível {$target->stock_quantity}, necessário {$item->quantity}."
                 );
@@ -246,7 +313,11 @@ class QuoteController extends Controller
                     ? $variations->get($item->product_variation_id)
                     : $products->get($item->product_id);
 
-                $target->decrement('stock_quantity', $item->quantity);
+                // Só debita o que de fato existe agora — sob encomenda sem estoque
+                // suficiente não deixa o saldo negativo, o item ainda não foi produzido.
+                if ($target->stock_quantity >= $item->quantity) {
+                    $target->decrement('stock_quantity', $item->quantity);
+                }
             }
         }
 
