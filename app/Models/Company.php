@@ -22,6 +22,7 @@ class Company extends Model
         'catalog_tiktok_url', 'catalog_linkedin_url',
         'catalog_about', 'catalog_address', 'catalog_hours', 'catalog_email',
         'catalog_accent_color',
+        'whatsapp_session_name',
     ];
 
     protected $casts = [

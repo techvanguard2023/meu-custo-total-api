@@ -39,6 +39,11 @@ return [
         'price_pro' => env('STRIPE_PRICE_PRO'),
     ],
 
+    'waha' => [
+        'url' => env('WAHA_URL'),
+        'api_key' => env('WAHA_API_KEY'),
+    ],
+
     'frontend_url' => env('FRONTEND_URL', 'http://localhost:3000'),
 
 ];

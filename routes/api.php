@@ -3,6 +3,8 @@
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CatalogController;
 use App\Http\Controllers\Api\CustomerController;
+use App\Http\Controllers\Api\IntegrationTokenController;
+use App\Http\Controllers\Api\WhatsAppConnectionController;
 use App\Http\Controllers\Api\MaterialController;
 use App\Http\Controllers\Api\MaterialCategoryController;
 use App\Http\Controllers\Api\PasswordResetController;
@@ -94,6 +96,15 @@ Route::prefix('v1')->group(function () {
 
         Route::post('/quotes/preview', [QuoteController::class, 'preview']);
         Route::post('/quotes/quick-sale', [QuoteController::class, 'quickSale']);
+        Route::post('/quotes/external-order', [QuoteController::class, 'externalOrder']);
+
+        Route::get('/integration-tokens', [IntegrationTokenController::class, 'index']);
+        Route::post('/integration-tokens', [IntegrationTokenController::class, 'store']);
+        Route::delete('/integration-tokens/{integrationToken}', [IntegrationTokenController::class, 'destroy']);
+
+        Route::get('/whatsapp', [WhatsAppConnectionController::class, 'show']);
+        Route::post('/whatsapp/connect', [WhatsAppConnectionController::class, 'connect']);
+        Route::post('/whatsapp/disconnect', [WhatsAppConnectionController::class, 'disconnect']);
         Route::patch('/quotes/{quote}/approve', [QuoteController::class, 'approve']);
         Route::patch('/quotes/{quote}/reject', [QuoteController::class, 'reject']);
         Route::patch('/quotes/{quote}/cancel', [QuoteController::class, 'cancel']);

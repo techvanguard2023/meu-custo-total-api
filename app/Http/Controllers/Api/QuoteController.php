@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Http\Controllers\Controller;
+use App\Models\Customer;
 use App\Models\Material;
 use App\Models\Printer;
 use App\Models\Product;
@@ -220,6 +221,113 @@ class QuoteController extends Controller
             collect($quotes)->map(fn (Quote $q) => $q->fresh()->load(['customer', 'items.product']))->values(),
             201
         );
+    }
+
+    /**
+     * Pedido vindo de um canal remoto (ex: chatbot de WhatsApp via n8n, autenticado
+     * com um token de integração da empresa) — o cliente ainda não recebeu nada na
+     * mão, então mesmo o que tem estoque só fica "Finalizado" (pronto, aguardando
+     * envio), nunca "Entregue ao Cliente" (isso é exclusivo da venda de balcão).
+     * Nunca marca como pago automaticamente — ninguém confirmou o pagamento ainda.
+     */
+    public function externalOrder(Request $request)
+    {
+        $this->requirePro($request, 'Pedidos externos (WhatsApp)');
+
+        $this->enforceFreeLimit(
+            $request,
+            'quotes_per_month',
+            $request->user()->company->quotes()
+                ->where('created_at', '>=', now()->startOfMonth())
+                ->count(),
+            'orçamentos por mês'
+        );
+
+        $data = $request->validate([
+            'customer_name' => ['required', 'string', 'max:255'],
+            'customer_phone' => ['required', 'string', 'max:30'],
+            'sales_channel_id' => [
+                'nullable', 'integer',
+                Rule::exists('sales_channels', 'id')->where('company_id', $request->user()->company_id),
+            ],
+            // Identifica o pedido do lado de quem chama (ex: ID da conversa no n8n)
+            // — reenviar com a mesma referência devolve o que já foi criado, em vez
+            // de duplicar a venda.
+            'external_reference' => ['nullable', 'string', 'max:100'],
+            'products' => ['required', 'array', 'min:1'],
+            'products.*.product_id' => ['required', 'integer'],
+            'products.*.product_variation_id' => ['sometimes', 'nullable', 'integer'],
+            'products.*.quantity' => ['required', 'integer', 'min:1'],
+        ]);
+
+        if (! empty($data['external_reference'])) {
+            $existing = $request->user()->company->quotes()
+                ->where('external_reference', $data['external_reference'])
+                ->with(['customer', 'items.product'])
+                ->get();
+
+            if ($existing->isNotEmpty()) {
+                return response()->json($existing->values(), 200);
+            }
+        }
+
+        $customer = $this->findOrCreateCustomerByPhone($request, $data['customer_name'], $data['customer_phone']);
+
+        $productLines = $this->resolveProducts($request, $data);
+        $setting = $request->user()->company->setting;
+
+        [$readyLines, $backorderLines] = $this->splitByAvailability($productLines);
+
+        $orderData = [
+            'name' => 'Pedido via WhatsApp',
+            'customer_id' => $customer->id,
+            'external_reference' => $data['external_reference'] ?? null,
+            'sales_channel_id' => $data['sales_channel_id'] ?? null,
+        ];
+
+        $quotes = DB::transaction(function () use ($request, $orderData, $setting, $readyLines, $backorderLines) {
+            $created = [];
+
+            if ($readyLines) {
+                $created[] = $this->createQuickSaleQuote(
+                    $request, $orderData, $readyLines, $setting, isCourtesy: false,
+                    productionStatus: Quote::PRODUCTION_FINISHED, payFull: false,
+                );
+            }
+
+            if ($backorderLines) {
+                $created[] = $this->createQuickSaleQuote(
+                    $request, $orderData, $backorderLines, $setting, isCourtesy: false,
+                    productionStatus: Quote::PRODUCTION_PENDING, payFull: false,
+                );
+            }
+
+            return $created;
+        });
+
+        return response()->json(
+            collect($quotes)->map(fn (Quote $q) => $q->fresh()->load(['customer', 'items.product']))->values(),
+            201
+        );
+    }
+
+    /** Acha o cliente pelo telefone (só os dígitos) dentro da empresa, ou cria um novo. */
+    private function findOrCreateCustomerByPhone(Request $request, string $name, string $phone): Customer
+    {
+        $digits = preg_replace('/\D/', '', $phone);
+
+        $customer = $request->user()->company->customers()
+            ->get(['id', 'name', 'phone'])
+            ->first(fn ($c) => $c->phone && preg_replace('/\D/', '', $c->phone) === $digits);
+
+        if ($customer) {
+            return $customer;
+        }
+
+        return $request->user()->company->customers()->create([
+            'name' => $name,
+            'phone' => $phone,
+        ]);
     }
 
     /** Separa as linhas com estoque suficiente das que dependem de produção sob encomenda. */

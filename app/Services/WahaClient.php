@@ -1,0 +1,85 @@
+<?php
+
+namespace App\Services;
+
+use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Support\Facades\Http;
+
+/**
+ * Cliente HTTP fino pro WAHA (WhatsApp HTTP API) — uma sessão por empresa,
+ * nomeada de forma previsível ("empresa-{id}") pra quem recebe a mensagem do
+ * outro lado (o fluxo no n8n) saber de qual loja ela é sem perguntar pra gente.
+ */
+class WahaClient
+{
+    public function isConfigured(): bool
+    {
+        return ! empty(config('services.waha.url')) && ! empty(config('services.waha.api_key'));
+    }
+
+    private function http(): PendingRequest
+    {
+        return Http::baseUrl(rtrim((string) config('services.waha.url'), '/').'/api')
+            ->withHeaders(['X-Api-Key' => config('services.waha.api_key')])
+            ->acceptJson()
+            ->timeout(15);
+    }
+
+    /** null quando a sessão nunca foi criada (ou foi deletada). */
+    public function getSession(string $name): ?array
+    {
+        $response = $this->http()->get("/sessions/{$name}");
+
+        if ($response->status() === 404) {
+            return null;
+        }
+
+        $response->throw();
+
+        return $response->json();
+    }
+
+    /**
+     * Garante que a sessão existe e está iniciando/rodando. Cria na primeira
+     * vez; nas seguintes (ex: depois de um logout), só reinicia — a própria
+     * WAHA já devolve pra "aguardando QR code" sozinha.
+     */
+    public function ensureSessionStarted(string $name): array
+    {
+        $existing = $this->getSession($name);
+
+        $response = $existing === null
+            ? $this->http()->post('/sessions', ['name' => $name, 'start' => true])
+            : $this->http()->post("/sessions/{$name}/start");
+
+        $response->throw();
+
+        return $response->json();
+    }
+
+    /** QR code pronto pra usar num <img src>; null quando a sessão não está esperando scan. */
+    public function getQrCodeDataUri(string $name): ?string
+    {
+        $response = $this->http()->get("/{$name}/auth/qr");
+
+        if (! $response->successful()) {
+            return null;
+        }
+
+        $data = $response->json();
+
+        return isset($data['data'], $data['mimetype']) ? "data:{$data['mimetype']};base64,{$data['data']}" : null;
+    }
+
+    /**
+     * Desloga e para a sessão (sem apagar) — reconectar depois só pede um QR
+     * novo. Só o logout não é suficiente: a WAHA reinicia sozinha pra
+     * "aguardando QR" em seguida, o que faria a tela parecer que está
+     * tentando reconectar sem o lojista ter pedido.
+     */
+    public function logoutSession(string $name): void
+    {
+        $this->http()->post("/sessions/{$name}/logout");
+        $this->http()->post("/sessions/{$name}/stop");
+    }
+}
