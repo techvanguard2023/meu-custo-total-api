@@ -140,10 +140,14 @@ class QuoteController extends Controller
             'is_courtesy' => ['sometimes', 'boolean'],
         ]);
 
+        $previousPaid = (float) $quote->amount_paid;
+
         DB::transaction(function () use ($quote, $data) {
             $this->applyApproval($quote, $data['payment_method'] ?? null);
             $this->applyPayment($quote, (float) ($data['amount_paid'] ?? 0), (bool) ($data['is_courtesy'] ?? false));
         });
+
+        app(ProductionStageNotifier::class)->paymentChanged($quote, $previousPaid);
 
         return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product', 'salesChannel:id,name']));
     }
@@ -527,7 +531,11 @@ class QuoteController extends Controller
             $quote->update(['payment_method' => $data['payment_method']]);
         }
 
+        $previousPaid = (float) $quote->amount_paid;
+
         $this->applyPayment($quote, (float) $data['amount_paid'], $isCourtesy);
+
+        app(ProductionStageNotifier::class)->paymentChanged($quote, $previousPaid);
 
         return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product', 'salesChannel:id,name']));
     }

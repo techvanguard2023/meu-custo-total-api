@@ -137,7 +137,7 @@ class WhatsAppConnectionController extends Controller
     /** Guarda só as etapas conhecidas; mensagem em branco volta pro texto padrão. */
     private function normalizeStatusNotifications(array $input): array
     {
-        return collect(array_keys(ProductionStageNotifier::STAGES))
+        return collect(array_keys(ProductionStageNotifier::events()))
             ->mapWithKeys(fn ($stage) => [$stage => [
                 'enabled' => (bool) ($input[$stage]['enabled'] ?? true),
                 'message' => trim((string) ($input[$stage]['message'] ?? '')) ?: null,
