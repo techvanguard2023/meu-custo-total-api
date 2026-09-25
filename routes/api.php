@@ -103,6 +103,8 @@ Route::prefix('v1')->group(function () {
         Route::delete('/integration-tokens/{integrationToken}', [IntegrationTokenController::class, 'destroy']);
 
         Route::get('/whatsapp', [WhatsAppConnectionController::class, 'show']);
+        Route::get('/whatsapp/settings', [WhatsAppConnectionController::class, 'settings']);
+        Route::put('/whatsapp/settings', [WhatsAppConnectionController::class, 'updateSettings']);
         Route::post('/whatsapp/connect', [WhatsAppConnectionController::class, 'connect']);
         Route::post('/whatsapp/disconnect', [WhatsAppConnectionController::class, 'disconnect']);
         Route::patch('/quotes/{quote}/approve', [QuoteController::class, 'approve']);

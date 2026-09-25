@@ -44,17 +44,31 @@ class WahaClient
      * vez; nas seguintes (ex: depois de um logout), só reinicia — a própria
      * WAHA já devolve pra "aguardando QR code" sozinha.
      */
-    public function ensureSessionStarted(string $name): array
+    public function ensureSessionStarted(string $name, array $webhooks = []): array
     {
         $existing = $this->getSession($name);
 
-        $response = $existing === null
-            ? $this->http()->post('/sessions', ['name' => $name, 'start' => true])
-            : $this->http()->post("/sessions/{$name}/start");
+        if ($existing === null) {
+            $payload = ['name' => $name, 'start' => true];
+            if ($webhooks !== []) {
+                $payload['config'] = ['webhooks' => $webhooks];
+            }
+            $response = $this->http()->post('/sessions', $payload);
+        } else {
+            // Sessão já existe: alinha o webhook com o que está salvo antes de reiniciar.
+            $this->updateWebhooks($name, $webhooks);
+            $response = $this->http()->post("/sessions/{$name}/start");
+        }
 
         $response->throw();
 
         return $response->json();
+    }
+
+    /** Substitui os webhooks da sessão; lista vazia remove todos. */
+    public function updateWebhooks(string $name, array $webhooks): void
+    {
+        $this->http()->put("/sessions/{$name}", ['config' => ['webhooks' => $webhooks]])->throw();
     }
 
     /** QR code pronto pra usar num <img src>; null quando a sessão não está esperando scan. */

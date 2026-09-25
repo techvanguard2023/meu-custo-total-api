@@ -22,11 +22,13 @@ class Company extends Model
         'catalog_tiktok_url', 'catalog_linkedin_url',
         'catalog_about', 'catalog_address', 'catalog_hours', 'catalog_email',
         'catalog_accent_color',
-        'whatsapp_session_name',
+        'whatsapp_session_name', 'whatsapp_webhook_url', 'whatsapp_webhook_events',
+        'whatsapp_bot_prompt', 'whatsapp_payment_link', 'whatsapp_pix_key',
     ];
 
     protected $casts = [
         'catalog_enabled' => 'boolean',
+        'whatsapp_webhook_events' => 'array',
     ];
 
     protected $appends = ['logo_url'];
