@@ -91,6 +91,15 @@ class WahaClient
         return isset($data['data'], $data['mimetype']) ? "data:{$data['mimetype']};base64,{$data['data']}" : null;
     }
 
+    public function sendText(string $session, string $chatId, string $text): void
+    {
+        $this->http()->timeout(8)->post('/sendText', [
+            'session' => $session,
+            'chatId' => $chatId,
+            'text' => $text,
+        ])->throw();
+    }
+
     /**
      * Desloga e para a sessão (sem apagar) — reconectar depois só pede um QR
      * novo. Só o logout não é suficiente: a WAHA reinicia sozinha pra

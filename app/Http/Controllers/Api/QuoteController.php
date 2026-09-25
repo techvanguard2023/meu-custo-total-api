@@ -11,6 +11,7 @@ use App\Models\Product;
 use App\Models\ProductVariation;
 use App\Models\Quote;
 use App\Models\SalesChannel;
+use App\Services\ProductionStageNotifier;
 use App\Services\QuoteCalculatorService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -677,7 +678,11 @@ class QuoteController extends Controller
             $attributes['production_order'] = $this->nextProductionOrder($quote, $data['production_status']);
         }
 
+        $previousStatus = $quote->production_status;
+
         $quote->update($attributes);
+
+        app(ProductionStageNotifier::class)->stageChanged($quote, $previousStatus);
 
         return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product', 'salesChannel:id,name']));
     }
@@ -704,17 +709,30 @@ class QuoteController extends Controller
             ->get()
             ->keyBy('id');
 
-        DB::transaction(function () use ($data, $quotes) {
+        // Só quem de fato mudou de coluna avisa o cliente — reordenar dentro da coluna não.
+        $moved = [];
+
+        DB::transaction(function () use ($data, $quotes, &$moved) {
             foreach (array_values($data['ordered_ids']) as $index => $id) {
                 $quote = $quotes->get($id);
                 abort_unless($quote, 404, 'Venda não encontrada.');
+
+                $previousStatus = $quote->production_status;
 
                 $quote->update([
                     'production_status' => $data['production_status'],
                     'production_order' => $index,
                 ]);
+
+                if ($previousStatus !== $data['production_status']) {
+                    $moved[] = [$quote, $previousStatus];
+                }
             }
         });
+
+        foreach ($moved as [$quote, $previousStatus]) {
+            app(ProductionStageNotifier::class)->stageChanged($quote, $previousStatus);
+        }
 
         return response()->json(['message' => 'Ordem atualizada com sucesso.']);
     }

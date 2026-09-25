@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Http\Controllers\Controller;
+use App\Services\ProductionStageNotifier;
 use App\Services\WahaClient;
 use App\Models\Company;
 use Illuminate\Http\Request;
@@ -63,6 +64,9 @@ class WhatsAppConnectionController extends Controller
             'webhook_events.*' => ['string', Rule::in(array_keys(self::WEBHOOK_EVENTS))],
             'chat_filters' => ['nullable', 'array'],
             'chat_filters.*' => ['boolean'],
+            'status_notifications' => ['nullable', 'array'],
+            'status_notifications.*.enabled' => ['boolean'],
+            'status_notifications.*.message' => ['nullable', 'string', 'max:1000'],
             'bot_prompt' => ['nullable', 'string', 'max:10000'],
             'payment_link' => ['nullable', 'url', 'max:2048'],
             'pix_key' => ['nullable', 'string', 'max:1000'],
@@ -79,6 +83,7 @@ class WhatsAppConnectionController extends Controller
                 ? (array_values($data['webhook_events'] ?? []) ?: ['message'])
                 : null,
             'whatsapp_chat_filters' => $this->normalizeChatFilters($data['chat_filters'] ?? []),
+            'whatsapp_status_notifications' => $this->normalizeStatusNotifications($data['status_notifications'] ?? []),
             'whatsapp_bot_prompt' => $data['bot_prompt'] ?? null,
             'whatsapp_payment_link' => $data['payment_link'] ?? null,
             'whatsapp_pix_key' => $data['pix_key'] ?? null,
@@ -109,6 +114,10 @@ class WhatsAppConnectionController extends Controller
             'available_chat_filters' => collect(self::CHAT_FILTERS)
                 ->map(fn ($label, $key) => ['key' => $key, 'label' => $label])
                 ->values(),
+            'status_notifications' => ProductionStageNotifier::settingsFor($company),
+            'notification_placeholders' => collect(ProductionStageNotifier::PLACEHOLDERS)
+                ->map(fn ($label, $key) => ['key' => $key, 'label' => $label])
+                ->values(),
             'bot_prompt' => $company->whatsapp_bot_prompt,
             'payment_link' => $company->whatsapp_payment_link,
             'pix_key' => $company->whatsapp_pix_key,
@@ -122,6 +131,17 @@ class WhatsAppConnectionController extends Controller
 
         return collect(array_keys(self::CHAT_FILTERS))
             ->mapWithKeys(fn ($key) => [$key => (bool) ($saved[$key] ?? true)])
+            ->all();
+    }
+
+    /** Guarda só as etapas conhecidas; mensagem em branco volta pro texto padrão. */
+    private function normalizeStatusNotifications(array $input): array
+    {
+        return collect(array_keys(ProductionStageNotifier::STAGES))
+            ->mapWithKeys(fn ($stage) => [$stage => [
+                'enabled' => (bool) ($input[$stage]['enabled'] ?? true),
+                'message' => trim((string) ($input[$stage]['message'] ?? '')) ?: null,
+            ]])
             ->all();
     }
 
