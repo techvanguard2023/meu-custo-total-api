@@ -32,6 +32,14 @@ class WhatsAppConnectionController extends Controller
         'call.received' => 'Ligação recebida',
     ];
 
+    /** Tipos de conversa que a sessão pode receber — chave da WAHA => rótulo. */
+    public const CHAT_FILTERS = [
+        'status' => 'Status',
+        'groups' => 'Grupos',
+        'channels' => 'Canais',
+        'broadcast' => 'Listas de transmissão',
+    ];
+
     public function __construct(private WahaClient $waha) {}
 
     /**
@@ -53,6 +61,8 @@ class WhatsAppConnectionController extends Controller
             'webhook_url' => ['nullable', 'url', 'max:2048'],
             'webhook_events' => ['nullable', 'array'],
             'webhook_events.*' => ['string', Rule::in(array_keys(self::WEBHOOK_EVENTS))],
+            'chat_filters' => ['nullable', 'array'],
+            'chat_filters.*' => ['boolean'],
             'bot_prompt' => ['nullable', 'string', 'max:10000'],
             'payment_link' => ['nullable', 'url', 'max:2048'],
             'pix_key' => ['nullable', 'string', 'max:1000'],
@@ -60,7 +70,7 @@ class WhatsAppConnectionController extends Controller
 
         $company = $request->user()->company;
 
-        $webhookChanged = $request->hasAny(['webhook_url', 'webhook_events']);
+        $configChanged = $request->hasAny(['webhook_url', 'webhook_events', 'chat_filters']);
 
         $company->update([
             'whatsapp_webhook_url' => $data['webhook_url'] ?? null,
@@ -68,6 +78,7 @@ class WhatsAppConnectionController extends Controller
             'whatsapp_webhook_events' => ! empty($data['webhook_url'])
                 ? (array_values($data['webhook_events'] ?? []) ?: ['message'])
                 : null,
+            'whatsapp_chat_filters' => $this->normalizeChatFilters($data['chat_filters'] ?? []),
             'whatsapp_bot_prompt' => $data['bot_prompt'] ?? null,
             'whatsapp_payment_link' => $data['payment_link'] ?? null,
             'whatsapp_pix_key' => $data['pix_key'] ?? null,
@@ -75,11 +86,11 @@ class WhatsAppConnectionController extends Controller
 
         // Sessão já criada: aplica o novo webhook na hora. Se a WAHA estiver fora,
         // o valor fica salvo e é reaplicado na próxima vez que conectar.
-        if ($webhookChanged && $company->whatsapp_session_name && $this->waha->isConfigured()) {
+        if ($configChanged && $company->whatsapp_session_name && $this->waha->isConfigured()) {
             try {
-                $this->waha->updateWebhooks($company->whatsapp_session_name, $this->webhooksFor($company->fresh()));
+                $this->waha->updateConfig($company->whatsapp_session_name, $this->sessionConfigFor($company->fresh()));
             } catch (\Throwable $e) {
-                Log::warning('Falha ao atualizar webhook na WAHA: '.$e->getMessage());
+                Log::warning('Falha ao atualizar a configuração na WAHA: '.$e->getMessage());
             }
         }
 
@@ -94,9 +105,39 @@ class WhatsAppConnectionController extends Controller
             'available_events' => collect(self::WEBHOOK_EVENTS)
                 ->map(fn ($label, $key) => ['key' => $key, 'label' => $label])
                 ->values(),
+            'chat_filters' => $this->receiveFlags($company),
+            'available_chat_filters' => collect(self::CHAT_FILTERS)
+                ->map(fn ($label, $key) => ['key' => $key, 'label' => $label])
+                ->values(),
             'bot_prompt' => $company->whatsapp_bot_prompt,
             'payment_link' => $company->whatsapp_payment_link,
             'pix_key' => $company->whatsapp_pix_key,
+        ];
+    }
+
+    /** true = a sessão recebe esse tipo de conversa (padrão: tudo ligado, como na WAHA). */
+    private function receiveFlags(Company $company): array
+    {
+        $saved = $company->whatsapp_chat_filters ?? [];
+
+        return collect(array_keys(self::CHAT_FILTERS))
+            ->mapWithKeys(fn ($key) => [$key => (bool) ($saved[$key] ?? true)])
+            ->all();
+    }
+
+    private function normalizeChatFilters(array $input): array
+    {
+        return collect(array_keys(self::CHAT_FILTERS))
+            ->mapWithKeys(fn ($key) => [$key => (bool) ($input[$key] ?? true)])
+            ->all();
+    }
+
+    /** Trecho de config que a WAHA espera: webhooks + o que ignorar (o inverso de "receber"). */
+    private function sessionConfigFor(Company $company): array
+    {
+        return [
+            'webhooks' => $this->webhooksFor($company),
+            'ignore' => collect($this->receiveFlags($company))->map(fn ($receive) => ! $receive)->all(),
         ];
     }
 
@@ -152,7 +193,7 @@ class WhatsAppConnectionController extends Controller
         // criada continua com o nome antigo, sem quebrar nada.
         $sessionName = $company->whatsapp_session_name ?: $company->slug;
 
-        $session = $this->waha->ensureSessionStarted($sessionName, $this->webhooksFor($company));
+        $session = $this->waha->ensureSessionStarted($sessionName, $this->sessionConfigFor($company));
 
         if (! $company->whatsapp_session_name) {
             $company->update(['whatsapp_session_name' => $sessionName]);

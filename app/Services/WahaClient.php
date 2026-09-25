@@ -44,19 +44,19 @@ class WahaClient
      * vez; nas seguintes (ex: depois de um logout), só reinicia — a própria
      * WAHA já devolve pra "aguardando QR code" sozinha.
      */
-    public function ensureSessionStarted(string $name, array $webhooks = []): array
+    public function ensureSessionStarted(string $name, array $config = []): array
     {
         $existing = $this->getSession($name);
 
         if ($existing === null) {
             $payload = ['name' => $name, 'start' => true];
-            if ($webhooks !== []) {
-                $payload['config'] = ['webhooks' => $webhooks];
+            if ($config !== []) {
+                $payload['config'] = $config;
             }
             $response = $this->http()->post('/sessions', $payload);
         } else {
-            // Sessão já existe: alinha o webhook com o que está salvo antes de reiniciar.
-            $this->updateWebhooks($name, $webhooks);
+            // Sessão já existe: alinha a configuração com o que está salvo antes de reiniciar.
+            $this->updateConfig($name, $config);
             $response = $this->http()->post("/sessions/{$name}/start");
         }
 
@@ -65,10 +65,16 @@ class WahaClient
         return $response->json();
     }
 
-    /** Substitui os webhooks da sessão; lista vazia remove todos. */
-    public function updateWebhooks(string $name, array $webhooks): void
+    /**
+     * Atualiza chaves da configuração da sessão (ex: webhooks, ignore). A WAHA
+     * SUBSTITUI o config inteiro no PUT, então parte do que já existe e só
+     * troca as chaves pedidas — senão mudar o webhook apagaria os filtros.
+     */
+    public function updateConfig(string $name, array $changes): void
     {
-        $this->http()->put("/sessions/{$name}", ['config' => ['webhooks' => $webhooks]])->throw();
+        $current = $this->getSession($name)['config'] ?? [];
+
+        $this->http()->put("/sessions/{$name}", ['config' => array_merge($current, $changes)])->throw();
     }
 
     /** QR code pronto pra usar num <img src>; null quando a sessão não está esperando scan. */
