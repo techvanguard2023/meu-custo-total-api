@@ -46,6 +46,8 @@ class PublicCatalogController extends Controller
             ])
             ->values();
 
+        $catalogUrl = rtrim((string) config('services.frontend_url'), '/').'/catalog/'.$company->slug;
+
         $products = $company->products()
             ->where('active', true)
             ->orderBy('name')
@@ -56,7 +58,7 @@ class PublicCatalogController extends Controller
             ->withCount('reviews as rating_count')
             ->with(['reviews' => fn ($q) => $q->withApprovedComment()->latest()->limit(20)])
             ->get()
-            ->map(function ($product) use ($markup) {
+            ->map(function ($product) use ($markup, $catalogUrl) {
                 $cost = (float) $product->cost;
                 $regularPrice = $product->sale_price !== null
                     ? (float) $product->sale_price
@@ -108,6 +110,14 @@ class PublicCatalogController extends Controller
                     'id' => $product->id,
                     'slug' => $product->slug,
                     'sku' => $product->sku,
+                    // Link direto do produto no catálogo (mesmo formato que o app monta) — o bot do
+                    // WhatsApp usa pra mandar o link certo em vez de montar a URL.
+                    'url' => implode('/', array_filter([
+                        $catalogUrl,
+                        $product->category?->parent?->slug ?? $product->category?->slug,
+                        $product->category?->parent ? $product->category->slug : null,
+                        $product->slug ?: $product->id,
+                    ])),
                     'name' => $product->name,
                     'description' => $product->description,
                     // A categoria do produto pode ser uma raiz (Chaveiros) ou uma subcategoria
@@ -158,6 +168,7 @@ class PublicCatalogController extends Controller
 
         return response()->json([
             'company_name' => $company->name,
+            'catalog_url' => $catalogUrl,
             'logo_url' => $company->logo_url,
             'whatsapp' => $company->catalog_whatsapp,
             'disclaimer' => $company->catalog_disclaimer,

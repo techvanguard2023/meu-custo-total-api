@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\CatalogController;
 use App\Http\Controllers\Api\CustomerController;
 use App\Http\Controllers\Api\IntegrationTokenController;
 use App\Http\Controllers\Api\WhatsAppConnectionController;
+use App\Http\Controllers\Api\WhatsAppHandoffController;
 use App\Http\Controllers\Api\MaterialController;
 use App\Http\Controllers\Api\MaterialCategoryController;
 use App\Http\Controllers\Api\PasswordResetController;
@@ -107,6 +108,9 @@ Route::prefix('v1')->group(function () {
         Route::put('/whatsapp/settings', [WhatsAppConnectionController::class, 'updateSettings']);
         Route::post('/whatsapp/connect', [WhatsAppConnectionController::class, 'connect']);
         Route::post('/whatsapp/disconnect', [WhatsAppConnectionController::class, 'disconnect']);
+        Route::post('/whatsapp/handoffs', [WhatsAppHandoffController::class, 'store']);
+        Route::get('/whatsapp/handoffs/{phone}', [WhatsAppHandoffController::class, 'show']);
+        Route::delete('/whatsapp/handoffs/{phone}', [WhatsAppHandoffController::class, 'destroy']);
         Route::patch('/quotes/{quote}/approve', [QuoteController::class, 'approve']);
         Route::patch('/quotes/{quote}/reject', [QuoteController::class, 'reject']);
         Route::patch('/quotes/{quote}/cancel', [QuoteController::class, 'cancel']);
