@@ -100,6 +100,17 @@ class WahaClient
         ])->throw();
     }
 
+    /** Manda um arquivo (ex: PDF de orçamento) a partir de uma URL pública acessível pela WAHA. */
+    public function sendFile(string $session, string $chatId, string $fileUrl, string $filename, ?string $caption = null): void
+    {
+        $this->http()->timeout(15)->post('/sendFile', [
+            'session' => $session,
+            'chatId' => $chatId,
+            'file' => ['mimetype' => 'application/pdf', 'filename' => $filename, 'url' => $fileUrl],
+            'caption' => $caption,
+        ])->throw();
+    }
+
     /**
      * Desloga e para a sessão (sem apagar) — reconectar depois só pede um QR
      * novo. Só o logout não é suficiente: a WAHA reinicia sozinha pra

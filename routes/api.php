@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\ProductCategoryController;
 use App\Http\Controllers\Api\ProductCollectionController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\QuoteController;
+use App\Http\Controllers\Api\QuoteRequestController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\SalesChannelController;
 use App\Http\Controllers\Api\DisplayController;
@@ -98,6 +99,14 @@ Route::prefix('v1')->group(function () {
         Route::post('/quotes/preview', [QuoteController::class, 'preview']);
         Route::post('/quotes/quick-sale', [QuoteController::class, 'quickSale']);
         Route::post('/quotes/external-order', [QuoteController::class, 'externalOrder']);
+        Route::post('/quotes/external-quote-request', [QuoteRequestController::class, 'externalStore']);
+        Route::get('/quotes/{quote}/pdf', [QuoteController::class, 'pdf']);
+
+        Route::get('/quote-requests', [QuoteRequestController::class, 'index']);
+        Route::get('/quote-requests/{quoteRequest}', [QuoteRequestController::class, 'show']);
+        Route::patch('/quote-requests/{quoteRequest}', [QuoteRequestController::class, 'update']);
+        Route::delete('/quote-requests/{quoteRequest}', [QuoteRequestController::class, 'destroy']);
+        Route::post('/quote-requests/{quoteRequest}/link-quote', [QuoteRequestController::class, 'linkQuote']);
 
         Route::get('/integration-tokens', [IntegrationTokenController::class, 'index']);
         Route::post('/integration-tokens', [IntegrationTokenController::class, 'store']);

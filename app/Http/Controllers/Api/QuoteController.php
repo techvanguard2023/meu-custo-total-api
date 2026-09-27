@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Concerns\EnforcesPlanLimits;
+use App\Http\Controllers\Concerns\FindsCustomerByPhone;
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\Material;
@@ -13,6 +14,7 @@ use App\Models\Quote;
 use App\Models\SalesChannel;
 use App\Services\ProductionStageNotifier;
 use App\Services\QuoteCalculatorService;
+use App\Services\QuotePdfNotifier;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -20,6 +22,7 @@ use Illuminate\Validation\Rule;
 class QuoteController extends Controller
 {
     use EnforcesPlanLimits;
+    use FindsCustomerByPhone;
 
     public function __construct(private QuoteCalculatorService $calculator) {}
 
@@ -125,6 +128,16 @@ class QuoteController extends Controller
         $quote->delete();
 
         return response()->json(null, 204);
+    }
+
+    /** PDF do orçamento — botão "Baixar PDF" na tela do orçamento. */
+    public function pdf(Request $request, Quote $quote, QuotePdfNotifier $notifier)
+    {
+        $this->authorizeCompany($request, $quote);
+
+        $quote->load(['customer', 'company', 'items']);
+
+        return $notifier->render($quote)->stream("orcamento-{$quote->id}.pdf");
     }
 
     public function approve(Request $request, Quote $quote)
@@ -314,25 +327,6 @@ class QuoteController extends Controller
             collect($quotes)->map(fn (Quote $q) => $q->fresh()->load(['customer', 'items.product']))->values(),
             201
         );
-    }
-
-    /** Acha o cliente pelo telefone (só os dígitos) dentro da empresa, ou cria um novo. */
-    private function findOrCreateCustomerByPhone(Request $request, string $name, string $phone): Customer
-    {
-        $digits = preg_replace('/\D/', '', $phone);
-
-        $customer = $request->user()->company->customers()
-            ->get(['id', 'name', 'phone'])
-            ->first(fn ($c) => $c->phone && preg_replace('/\D/', '', $c->phone) === $digits);
-
-        if ($customer) {
-            return $customer;
-        }
-
-        return $request->user()->company->customers()->create([
-            'name' => $name,
-            'phone' => $phone,
-        ]);
     }
 
     /** Separa as linhas com estoque suficiente das que dependem de produção sob encomenda. */
