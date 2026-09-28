@@ -207,7 +207,7 @@ class ProductController extends Controller
     public function uploadImages(Request $request, Product $product)
     {
         $this->authorizeCompany($request, $product);
-        $this->requirePro($request, 'Fotos do produto');
+        $this->requireEssential($request, 'Fotos do produto');
 
         $request->validate([
             'images' => ['required', 'array', 'min:1'],

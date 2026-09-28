@@ -5,8 +5,11 @@ namespace App\Http\Controllers\Concerns;
 use Illuminate\Http\Request;
 
 /**
- * Gates do plano gratuito. Toda verificação de plano acontece aqui,
- * no backend — o frontend apenas espelha com telas de upsell.
+ * Gates dos planos pagos. Toda verificação de plano acontece aqui, no
+ * backend — o frontend apenas espelha com telas de upsell. Três níveis:
+ * Gratuito (limitado), Essencial (uso ilimitado + catálogo/PDF/Caixa/avaliações)
+ * e Pro (tudo do Essencial + automação/operação: bot de WhatsApp, Linha de
+ * Produção, relatórios, expositores, coleções e métricas completas).
  */
 trait EnforcesPlanLimits
 {
@@ -23,6 +26,12 @@ trait EnforcesPlanLimits
         return $request->user()->company->isPro();
     }
 
+    /** Essencial ou Pro. */
+    private function isEssential(Request $request): bool
+    {
+        return $request->user()->company->hasEssential();
+    }
+
     /** Bloqueia recursos exclusivos do plano Pro. */
     private function requirePro(Request $request, string $feature): void
     {
@@ -33,10 +42,20 @@ trait EnforcesPlanLimits
         );
     }
 
-    /** Bloqueia criação além do limite do plano gratuito. */
+    /** Bloqueia recursos dos planos pagos (Essencial ou Pro). */
+    private function requireEssential(Request $request, string $feature): void
+    {
+        abort_unless(
+            $this->isEssential($request),
+            403,
+            "\"{$feature}\" é um recurso dos planos Essencial e Pro. Assine para desbloquear."
+        );
+    }
+
+    /** Bloqueia criação além do limite do plano gratuito — Essencial e Pro são ilimitados. */
     private function enforceFreeLimit(Request $request, string $resource, int $currentCount, string $label): void
     {
-        if ($this->isPro($request)) {
+        if ($this->isEssential($request)) {
             return;
         }
 
@@ -45,7 +64,7 @@ trait EnforcesPlanLimits
         abort_unless(
             $currentCount < $limit,
             403,
-            "Limite do plano gratuito atingido ({$limit} {$label}). Assine o Pro para cadastrar sem limites."
+            "Limite do plano gratuito atingido ({$limit} {$label}). Assine o Essencial ou o Pro para cadastrar sem limites."
         );
     }
 }

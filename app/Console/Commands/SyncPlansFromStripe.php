@@ -9,8 +9,8 @@ use Illuminate\Console\Command;
 
 #[Signature('plan:sync
     {company? : ID da empresa — se omitido, verifica todas}
-    {--downgrade : Também rebaixa para "free" quem não tem assinatura local válida (arriscado: pode afetar Pro concedido manualmente, sem assinatura Stripe)}')]
-#[Description('Promove para "pro" quem tem assinatura Stripe ativa mas ficou preso em "free" — corrige quando o webhook de plano falha ou se perde')]
+    {--downgrade : Também rebaixa para "free" quem não tem assinatura Stripe válida (arriscado: pode afetar plano concedido manualmente, sem assinatura Stripe)}')]
+#[Description('Corrige companies.plan pra bater com a assinatura Stripe local (essential/pro conforme o preço) — usado quando o webhook de plano falha ou se perde')]
 class SyncPlansFromStripe extends Command
 {
     public function handle(): int
@@ -36,24 +36,27 @@ class SyncPlansFromStripe extends Command
 
         foreach ($companies as $company) {
             $wasPlan = $company->plan;
-            // Lê a assinatura já sincronizada localmente (subscriptions table) — não faz
-            // chamada à Stripe. Por padrão só promove (free → pro): é o sentido seguro,
-            // que desbloqueia quem já pagou. Rebaixar (pro → free) é arriscado — uma
-            // empresa pode estar em "pro" sem assinatura Stripe (cortesia, concedido à
-            // mão) — por isso exige --downgrade explícito.
-            $hasValidSubscription = $company->subscribed('default');
+            $correctPlan = Company::planForSubscription($company->subscription('default'));
 
-            if ($wasPlan === Company::PLAN_FREE && $hasValidSubscription) {
-                $company->update(['plan' => Company::PLAN_PRO]);
-                $fixed++;
-                $this->warn("Empresa #{$company->id} ({$company->name}): free → pro");
-            } elseif ($downgrade && $wasPlan === Company::PLAN_PRO && ! $hasValidSubscription) {
-                $company->update(['plan' => Company::PLAN_FREE]);
-                $fixed++;
-                $this->warn("Empresa #{$company->id} ({$company->name}): pro → free");
-            } else {
+            if ($wasPlan === $correctPlan) {
                 $this->line("Empresa #{$company->id} ({$company->name}): já em \"{$wasPlan}\" (ok)");
+
+                continue;
             }
+
+            // Rebaixar pra "free" só quando não existe assinatura Stripe válida — a empresa
+            // pode estar num plano pago concedido à mão, sem assinatura; exige --downgrade
+            // explícito. Qualquer outra correção (inclusive Pro → Essencial) reflete uma
+            // assinatura Stripe real e sempre pode ser aplicada.
+            if ($correctPlan === Company::PLAN_FREE && ! $downgrade) {
+                $this->line("Empresa #{$company->id} ({$company->name}): sem assinatura válida, mas está em \"{$wasPlan}\" — use --downgrade se for pra rebaixar.");
+
+                continue;
+            }
+
+            $company->update(['plan' => $correctPlan]);
+            $fixed++;
+            $this->warn("Empresa #{$company->id} ({$company->name}): {$wasPlan} → {$correctPlan}");
         }
 
         $this->info("Concluído. {$fixed} empresa(s) corrigida(s) de {$companies->count()} verificada(s).");

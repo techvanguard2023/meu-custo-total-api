@@ -13,6 +13,7 @@ class Company extends Model
     use Billable;
 
     public const PLAN_FREE = 'free';
+    public const PLAN_ESSENTIAL = 'essential';
     public const PLAN_PRO = 'pro';
 
     protected $fillable = [
@@ -47,10 +48,34 @@ class Company extends Model
         return $this->plan === self::PLAN_PRO;
     }
 
-    /** Catálogo público só fica de fato acessível se estiver ligado E a empresa ainda for Pro. */
+    /** Essencial ou Pro — os dois planos pagos, usado pelos recursos que não são exclusivos do topo. */
+    public function hasEssential(): bool
+    {
+        return in_array($this->plan, [self::PLAN_ESSENTIAL, self::PLAN_PRO], true);
+    }
+
+    /** Catálogo público só fica de fato acessível se estiver ligado E a empresa ainda for Essencial/Pro. */
     public function hasCatalogActive(): bool
     {
-        return $this->catalog_enabled && $this->catalog_token && $this->isPro();
+        return $this->catalog_enabled && $this->catalog_token && $this->hasEssential();
+    }
+
+    /**
+     * Qual plano corresponde à assinatura Stripe local — usada pelo webhook e pelo
+     * comando plan:sync, pra nunca rebaixar quem tem assinatura ativa num preço que
+     * a gente não reconhece (ex: criado direto no painel da Stripe).
+     */
+    public static function planForSubscription(?\Laravel\Cashier\Subscription $subscription): string
+    {
+        if (! $subscription || ! $subscription->valid()) {
+            return self::PLAN_FREE;
+        }
+
+        return match ($subscription->stripe_price) {
+            config('services.stripe.price_pro') => self::PLAN_PRO,
+            config('services.stripe.price_essential') => self::PLAN_ESSENTIAL,
+            default => self::PLAN_PRO,
+        };
     }
 
     public function users(): HasMany

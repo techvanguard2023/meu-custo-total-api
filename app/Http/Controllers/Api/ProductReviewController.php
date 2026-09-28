@@ -21,7 +21,7 @@ class ProductReviewController extends Controller
 
     public function index(Request $request)
     {
-        $this->requirePro($request, 'Avaliações de produto');
+        $this->requireEssential($request, 'Avaliações de produto');
 
         return $request->user()->company->productReviews()
             ->with(['product:id,name', 'quote:id,name'])
@@ -36,7 +36,7 @@ class ProductReviewController extends Controller
      */
     public function link(Request $request, Quote $quote)
     {
-        $this->requirePro($request, 'Avaliações de produto');
+        $this->requireEssential($request, 'Avaliações de produto');
         abort_unless($quote->company_id === $request->user()->company_id, 403);
         abort_unless($quote->status === Quote::STATUS_APPROVED, 422, 'Só vendas aprovadas podem ser avaliadas.');
 
@@ -59,7 +59,7 @@ class ProductReviewController extends Controller
     /** Libera ou barra o comentário. A nota não passa por aqui: ela já está na média. */
     public function moderate(Request $request, ProductReview $productReview)
     {
-        $this->requirePro($request, 'Avaliações de produto');
+        $this->requireEssential($request, 'Avaliações de produto');
         $this->authorizeCompany($request, $productReview);
 
         $data = $request->validate([

@@ -179,7 +179,7 @@ class QuoteController extends Controller
      */
     public function quickSale(Request $request)
     {
-        $this->requirePro($request, 'Caixa (venda rápida)');
+        $this->requireEssential($request, 'Caixa (venda rápida)');
 
         $this->enforceFreeLimit(
             $request,

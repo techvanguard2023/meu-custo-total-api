@@ -6,8 +6,10 @@ use App\Models\Company;
 use Laravel\Cashier\Events\WebhookHandled;
 
 /**
- * Mantém companies.plan sincronizado com o status da assinatura na Stripe.
- * Pagamento confirmado → pro; cancelamento/inadimplência → free.
+ * Mantém companies.plan sincronizado com a assinatura na Stripe. Roda depois
+ * que o próprio Cashier já atualizou a tabela local de assinaturas, então só
+ * precisa reler `$company->subscription('default')` — sem reprocessar o JSON
+ * cru do webhook.
  */
 class SyncPlanFromStripe
 {
@@ -35,12 +37,8 @@ class SyncPlanFromStripe
             return;
         }
 
-        $status = $payload['data']['object']['status'] ?? null;
-        $isActive = $payload['type'] !== 'customer.subscription.deleted'
-            && in_array($status, ['active', 'trialing'], true);
-
         $company->update([
-            'plan' => $isActive ? Company::PLAN_PRO : Company::PLAN_FREE,
+            'plan' => Company::planForSubscription($company->subscription('default')),
         ]);
     }
 }

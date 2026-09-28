@@ -36,6 +36,7 @@ return [
     ],
 
     'stripe' => [
+        'price_essential' => env('STRIPE_PRICE_ESSENTIAL'),
         'price_pro' => env('STRIPE_PRICE_PRO'),
     ],
 

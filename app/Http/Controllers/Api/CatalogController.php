@@ -31,7 +31,7 @@ class CatalogController extends Controller
 
     public function update(Request $request)
     {
-        $this->requirePro($request, 'Catálogo público');
+        $this->requireEssential($request, 'Catálogo público');
 
         $data = $request->validate([
             'enabled' => ['required', 'boolean'],
@@ -80,7 +80,7 @@ class CatalogController extends Controller
     /** Gera um novo link, invalidando o anterior (útil se o link vazou). */
     public function regenerate(Request $request)
     {
-        $this->requirePro($request, 'Catálogo público');
+        $this->requireEssential($request, 'Catálogo público');
 
         $company = $request->user()->company;
         $company->update(['catalog_token' => $this->generateToken()]);
@@ -129,7 +129,7 @@ class CatalogController extends Controller
     /** Logo exibida no cabeçalho do catálogo público — opcional. */
     public function uploadLogo(Request $request)
     {
-        $this->requirePro($request, 'Catálogo público');
+        $this->requireEssential($request, 'Catálogo público');
 
         $request->validate([
             'logo' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
@@ -162,7 +162,7 @@ class CatalogController extends Controller
     /** Banner de anúncio no topo do catálogo público — carrossel de até 3. */
     public function uploadBanner(Request $request)
     {
-        $this->requirePro($request, 'Catálogo público');
+        $this->requireEssential($request, 'Catálogo público');
 
         $data = $request->validate([
             'image' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
@@ -189,7 +189,7 @@ class CatalogController extends Controller
 
     public function updateBanner(Request $request, CatalogBanner $banner)
     {
-        $this->requirePro($request, 'Catálogo público');
+        $this->requireEssential($request, 'Catálogo público');
         abort_unless($banner->company_id === $request->user()->company_id, 403);
 
         $data = $request->validate([
