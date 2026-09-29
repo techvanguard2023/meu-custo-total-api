@@ -286,6 +286,9 @@ class ProductController extends Controller
             'featured' => ['sometimes', 'boolean'],
             'discount_percent' => ['nullable', 'numeric', 'min:0.01', 'max:95'],
             'active' => ['sometimes', 'boolean'],
+            // Ativo mas fora do catálogo público — pra quem vende esse item só por fora
+            // (marketplace, encomenda combinada) sem publicar no link da loja.
+            'show_in_catalog' => ['sometimes', 'boolean'],
 
             'collection_ids' => ['sometimes', 'array'],
             'collection_ids.*' => ['integer'],

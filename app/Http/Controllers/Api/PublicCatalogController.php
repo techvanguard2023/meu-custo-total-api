@@ -50,6 +50,7 @@ class PublicCatalogController extends Controller
 
         $products = $company->products()
             ->where('active', true)
+            ->where('show_in_catalog', true)
             ->orderBy('name')
             ->with('category.parent')
             // Uma consulta só pra média/contagem e outra pros comentários
@@ -204,7 +205,7 @@ class PublicCatalogController extends Controller
             // produto ativo — o dono liga/desliga manualmente em Configurações.
             'collections' => $company->productCollections()
                 ->where('active', true)
-                ->with(['products' => fn ($q) => $q->where('active', true)])
+                ->with(['products' => fn ($q) => $q->where('active', true)->where('show_in_catalog', true)])
                 ->get()
                 ->filter(fn ($c) => $c->products->isNotEmpty())
                 ->map(fn ($c) => [
