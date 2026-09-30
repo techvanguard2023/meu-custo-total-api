@@ -94,6 +94,14 @@ class QuoteCalculatorService
             $definedPrice = $variation ? $variation->effectivePrice($product) : ($product->sale_price !== null ? (float) $product->sale_price : null);
             $unitPrice = $definedPrice ?? round($unitCost * (1 + ((float) $markup / 100)), 2);
 
+            // Desconto é sempre do produto (nunca da variação) e vale mesmo quando a
+            // variação tem preço próprio — mesmo critério do catálogo público. Sem isso,
+            // Caixa, pedido externo (WhatsApp) e conferência de expositor cobravam o
+            // preço cheio mesmo com promoção ativa no catálogo.
+            if ($product->discount_percent !== null) {
+                $unitPrice = round($unitPrice * (1 - (float) $product->discount_percent / 100), 2);
+            }
+
             $lineCost = $unitCost * $lineQty;
             $lineTotal = $unitPrice * $lineQty;
             $productsCost += $lineCost;
