@@ -15,6 +15,7 @@ class Product extends Model
         'company_id', 'name', 'slug', 'sku', 'description', 'category_id', 'image_path', 'model_3d_url',
         'marketplace_mercado_livre_url', 'marketplace_shopee_url', 'marketplace_amazon_url',
         'cost', 'sale_price', 'stock_quantity', 'made_to_order', 'featured', 'discount_percent', 'active', 'show_in_catalog',
+        'lead_time_days', 'lead_time_days_type',
     ];
 
     protected $casts = [
@@ -26,9 +27,10 @@ class Product extends Model
         'sale_price' => 'decimal:2',
         'discount_percent' => 'decimal:2',
         'stock_quantity' => 'integer',
+        'lead_time_days' => 'integer',
     ];
 
-    protected $appends = ['image_url', 'has_variations', 'total_stock'];
+    protected $appends = ['image_url', 'has_variations', 'total_stock', 'lead_time_label'];
 
     protected $with = ['images', 'category', 'variations'];
 
@@ -36,6 +38,25 @@ class Product extends Model
     protected function hasVariations(): Attribute
     {
         return Attribute::get(fn () => $this->variations->isNotEmpty());
+    }
+
+    /**
+     * Prazo de produção pronto pra exibir (ex: "5 dias úteis") — só quando o
+     * produto é sob encomenda e o lojista preencheu o prazo. Usado no catálogo
+     * público e pelo bot de WhatsApp pra responder sobre prazo.
+     */
+    protected function leadTimeLabel(): Attribute
+    {
+        return Attribute::get(function () {
+            if (! $this->made_to_order || ! $this->lead_time_days) {
+                return null;
+            }
+
+            $unit = $this->lead_time_days_type === 'business' ? 'dia útil' : 'dia corrido';
+            $unitPlural = $this->lead_time_days_type === 'business' ? 'dias úteis' : 'dias corridos';
+
+            return $this->lead_time_days.' '.($this->lead_time_days === 1 ? $unit : $unitPlural);
+        });
     }
 
     /**

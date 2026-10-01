@@ -144,6 +144,9 @@ class PublicCatalogController extends Controller
                     'stock_quantity' => $stock,
                     'stock_status' => $this->stockStatus($stock),
                     'made_to_order' => (bool) $product->made_to_order,
+                    // Só vem preenchido quando é sob encomenda e o lojista informou o prazo —
+                    // o catálogo e o bot do WhatsApp usam pra responder "qual o prazo desse item?".
+                    'lead_time_label' => $product->lead_time_label,
                     'featured' => (bool) $product->featured,
                     // Só os marketplaces que o lojista de fato preencheu — o botão
                     // "Comprar no Marketplace" some quando nenhum está configurado.

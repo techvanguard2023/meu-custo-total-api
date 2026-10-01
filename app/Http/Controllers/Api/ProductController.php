@@ -283,6 +283,10 @@ class ProductController extends Controller
             'sale_price' => ['nullable', 'numeric', 'min:0'],
             'stock_quantity' => ['sometimes', 'integer', 'min:0'],
             'made_to_order' => ['sometimes', 'boolean'],
+            // Prazo de produção — só faz sentido pra item sob encomenda, mas não
+            // bloqueia o cadastro se vier vazio (o lojista pode preencher depois).
+            'lead_time_days' => ['nullable', 'integer', 'min:1', 'max:365'],
+            'lead_time_days_type' => ['nullable', Rule::in(['business', 'calendar'])],
             'featured' => ['sometimes', 'boolean'],
             'discount_percent' => ['nullable', 'numeric', 'min:0.01', 'max:95'],
             'active' => ['sometimes', 'boolean'],
