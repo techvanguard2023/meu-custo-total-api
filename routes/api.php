@@ -117,6 +117,7 @@ Route::prefix('v1')->group(function () {
         Route::put('/whatsapp/settings', [WhatsAppConnectionController::class, 'updateSettings']);
         Route::post('/whatsapp/connect', [WhatsAppConnectionController::class, 'connect']);
         Route::post('/whatsapp/disconnect', [WhatsAppConnectionController::class, 'disconnect']);
+        Route::patch('/whatsapp/bot-status', [WhatsAppConnectionController::class, 'toggleBot']);
         Route::post('/whatsapp/handoffs', [WhatsAppHandoffController::class, 'store']);
         Route::get('/whatsapp/handoffs/{phone}', [WhatsAppHandoffController::class, 'show']);
         Route::delete('/whatsapp/handoffs/{phone}', [WhatsAppHandoffController::class, 'destroy']);

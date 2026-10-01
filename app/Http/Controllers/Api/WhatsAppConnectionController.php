@@ -121,7 +121,26 @@ class WhatsAppConnectionController extends Controller
             'bot_prompt' => $company->whatsapp_bot_prompt,
             'payment_link' => $company->whatsapp_payment_link,
             'pix_key' => $company->whatsapp_pix_key,
+            // Pausa geral do bot — o n8n confere isso antes de responder.
+            'bot_enabled' => $company->whatsapp_bot_enabled,
         ];
+    }
+
+    /**
+     * Liga/desliga o bot por tempo indeterminado (até o lojista religar aqui
+     * de novo) — diferente da pausa por conversa, que volta sozinha em 4h.
+     * O WhatsApp continua conectado; só o bot para de responder.
+     */
+    public function toggleBot(Request $request)
+    {
+        $this->requirePro($request, 'Conexão com WhatsApp');
+
+        $data = $request->validate(['enabled' => ['required', 'boolean']]);
+
+        $company = $request->user()->company;
+        $company->update(['whatsapp_bot_enabled' => $data['enabled']]);
+
+        return response()->json(['bot_enabled' => $company->whatsapp_bot_enabled]);
     }
 
     /** true = a sessão recebe esse tipo de conversa (padrão: tudo ligado, como na WAHA). */
@@ -198,7 +217,7 @@ class WhatsAppConnectionController extends Controller
             return response()->json(['status' => 'not_connected']);
         }
 
-        return response()->json($this->payload($session));
+        return response()->json($this->payload($session, $company));
     }
 
     /** Cria (ou reinicia) a sessão da empresa e devolve o estado pra tela buscar o QR. */
@@ -219,7 +238,7 @@ class WhatsAppConnectionController extends Controller
             $company->update(['whatsapp_session_name' => $sessionName]);
         }
 
-        return response()->json($this->payload($session));
+        return response()->json($this->payload($session, $company));
     }
 
     /** Desloga o WhatsApp — reconectar depois pede um QR code novo. */
@@ -235,7 +254,7 @@ class WhatsAppConnectionController extends Controller
         return response()->json(['status' => 'not_connected']);
     }
 
-    private function payload(array $session): array
+    private function payload(array $session, ?Company $company = null): array
     {
         // STOPPED é o estado de "desconectado por aqui" (ver logoutSession) —
         // a tela não precisa saber que por baixo é um estado da WAHA.
@@ -245,6 +264,7 @@ class WhatsAppConnectionController extends Controller
             'status' => $status,
             'phone' => $session['me']['id'] ?? null,
             'qr' => $status === 'SCAN_QR_CODE' ? $this->waha->getQrCodeDataUri($session['name']) : null,
+            'bot_enabled' => $company?->whatsapp_bot_enabled ?? true,
         ];
     }
 }
