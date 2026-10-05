@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Company;
+use App\Models\Customer;
 use App\Models\WhatsappHandoff;
 use Illuminate\Support\Facades\Log;
 
@@ -14,20 +15,40 @@ class HumanHandoff
 {
     public const PAUSE_HOURS = 4;
 
+    /** "Até eu reativar": pausa manual sem prazo — na prática, 10 anos. */
+    public const INDEFINITE_YEARS = 10;
+
     public function __construct(private WahaClient $waha) {}
 
-    public function start(Company $company, string $phone, ?string $customerName, ?string $reason): WhatsappHandoff
+    /**
+     * $indefinite: pausa sem prazo (pedida pela tela, até o lojista reativar).
+     * $notify: avisa o atendente no número do bot — o bot pede (padrão); pausar pela
+     * tela não precisa, quem pausou já está olhando o sistema.
+     */
+    public function start(Company $company, string $phone, ?string $customerName, ?string $reason, bool $indefinite = false, bool $notify = true): WhatsappHandoff
     {
-        $handoff = WhatsappHandoff::updateOrCreate(
-            ['company_id' => $company->id, 'phone' => $phone],
-            [
-                'customer_name' => $customerName,
-                'reason' => $reason,
-                'paused_until' => now()->addHours(self::PAUSE_HOURS),
-            ]
-        );
+        // Reaproveita a pausa existente mesmo se o telefone estiver escrito diferente
+        // (com/sem 55, com/sem nono dígito) — senão teria duas pausas pro mesmo cliente.
+        $key = Customer::phoneKey($phone);
+        $existing = WhatsappHandoff::where('company_id', $company->id)->get()
+            ->first(fn ($h) => $h->phone === $phone || ($key !== null && Customer::phoneKey($h->phone) === $key));
 
-        $this->alertAttendant($company, $handoff);
+        $values = [
+            'customer_name' => $customerName,
+            'reason' => $reason,
+            'paused_until' => $indefinite ? now()->addYears(self::INDEFINITE_YEARS) : now()->addHours(self::PAUSE_HOURS),
+        ];
+
+        if ($existing) {
+            $existing->update($values);
+            $handoff = $existing;
+        } else {
+            $handoff = WhatsappHandoff::create(['company_id' => $company->id, 'phone' => $phone] + $values);
+        }
+
+        if ($notify) {
+            $this->alertAttendant($company, $handoff);
+        }
 
         return $handoff;
     }
