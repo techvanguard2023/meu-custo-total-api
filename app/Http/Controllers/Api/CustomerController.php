@@ -8,6 +8,7 @@ use App\Models\Customer;
 use App\Models\Quote;
 use App\Models\QuoteRequest;
 use App\Models\WhatsappHandoff;
+use App\Services\CustomerMerger;
 use Illuminate\Http\Request;
 
 class CustomerController extends Controller
@@ -108,6 +109,55 @@ class CustomerController extends Controller
             ]),
             'items_summary' => $items,
         ]);
+    }
+
+    /** Grupos de cadastros repetidos da empresa (mesmo telefone em formatos diferentes). */
+    public function duplicates(Request $request, CustomerMerger $merger)
+    {
+        $groups = $merger->duplicateGroups($request->user()->company_id)
+            ->map(function ($group) {
+                $counts = Quote::whereIn('customer_id', $group->pluck('id'))->selectRaw('customer_id, count(*) as total')
+                    ->groupBy('customer_id')->pluck('total', 'customer_id');
+
+                return [
+                    // O mais antigo é o que fica.
+                    'keep_id' => $group->first()->id,
+                    'customers' => $group->map(fn (Customer $c) => [
+                        'id' => $c->id,
+                        'name' => $c->name,
+                        'phone' => $c->phone,
+                        'created_at' => $c->created_at?->toIso8601String(),
+                        'quotes_count' => (int) ($counts[$c->id] ?? 0),
+                    ])->values(),
+                ];
+            });
+
+        return response()->json($groups->values());
+    }
+
+    /** Une cadastros repetidos: tudo de $merge_ids passa pra $keep_id (só se for o mesmo telefone). */
+    public function merge(Request $request, CustomerMerger $merger)
+    {
+        $data = $request->validate([
+            'keep_id' => ['required', 'integer'],
+            'merge_ids' => ['required', 'array', 'min:1'],
+            'merge_ids.*' => ['integer'],
+        ]);
+
+        $companyId = $request->user()->company_id;
+        $keep = Customer::where('company_id', $companyId)->findOrFail($data['keep_id']);
+        $extras = Customer::where('company_id', $companyId)->whereIn('id', $data['merge_ids'])->get();
+
+        abort_unless($extras->count() === count(array_unique($data['merge_ids'])), 404, 'Cliente não encontrado.');
+        abort_if(
+            $extras->contains(fn (Customer $c) => Customer::phoneKey($c->phone) === null || Customer::phoneKey($c->phone) !== Customer::phoneKey($keep->phone)),
+            422,
+            'Só dá pra unir cadastros com o mesmo telefone.'
+        );
+
+        $merged = $merger->merge($keep, $extras);
+
+        return response()->json(['merged' => $merged, 'customer' => $keep->fresh()]);
     }
 
     public function update(Request $request, Customer $customer)
