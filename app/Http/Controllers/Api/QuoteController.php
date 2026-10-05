@@ -17,6 +17,7 @@ use App\Services\QuoteCalculatorService;
 use App\Services\QuotePdfNotifier;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 class QuoteController extends Controller
@@ -275,6 +276,9 @@ class QuoteController extends Controller
             'products' => ['required', 'array', 'min:1'],
             'products.*.product_id' => ['required', 'integer'],
             'products.*.product_variation_id' => ['sometimes', 'nullable', 'integer'],
+            // Nome da variação que o cliente escolheu (ex: "Lilás"). O bot (um modelo de IA)
+            // às vezes erra o NÚMERO da variação; o nome, que está na conversa, tem prioridade.
+            'products.*.variation_label' => ['sometimes', 'nullable', 'string', 'max:100'],
             'products.*.quantity' => ['required', 'integer', 'min:1'],
         ]);
 
@@ -890,8 +894,18 @@ class QuoteController extends Controller
 
             $variation = null;
             $variationId = $line['product_variation_id'] ?? null;
+            $label = trim((string) ($line['variation_label'] ?? ''));
 
-            if ($variationId) {
+            if ($label !== '' && $product->has_variations) {
+                // Compara sem acento e sem maiúscula: "Lilás" = "lilas" = "LILAS".
+                $normalize = fn (string $v) => mb_strtolower(trim(Str::ascii($v)));
+                $variation = $product->variations->first(fn ($v) => $normalize($v->display_name) === $normalize($label));
+
+                if (! $variation) {
+                    $options = $product->variations->pluck('display_name')->implode(', ');
+                    abort(422, "Variação \"{$label}\" não existe em \"{$product->name}\". Opções: {$options}.");
+                }
+            } elseif ($variationId) {
                 $variation = $product->variations->firstWhere('id', (int) $variationId);
                 abort_unless($variation, 422, "Variação inválida para o produto \"{$product->name}\".");
             } elseif ($product->has_variations) {
