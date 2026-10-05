@@ -55,6 +55,7 @@ Route::prefix('v1')->group(function () {
 
         Route::apiResource('materials', MaterialController::class);
         Route::apiResource('printers', PrinterController::class);
+        Route::get('/customers/{customer}/profile', [CustomerController::class, 'profile']);
         Route::apiResource('customers', CustomerController::class);
         Route::get('/material-categories', [MaterialCategoryController::class, 'index']);
         Route::post('/material-categories', [MaterialCategoryController::class, 'store']);
