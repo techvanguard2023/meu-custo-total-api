@@ -28,8 +28,11 @@ class WhatsAppHandoffController extends Controller
             // Pausa pedida pela tela (indefinida e sem aviso no WhatsApp) — o bot nunca manda isso.
             'indefinite' => ['sometimes', 'boolean'],
             'notify' => ['sometimes', 'boolean'],
+            // O lojista respondeu pelo celular: o n8n pausa a conversa por 4h, sem avisar ninguém.
+            'owner_reply' => ['sometimes', 'boolean'],
         ]);
 
+        $ownerReply = (bool) ($data['owner_reply'] ?? false);
         $phone = $this->normalizePhone($data['phone']);
         abort_if(strlen($phone) < 8, 422, 'Telefone inválido.');
 
@@ -39,7 +42,8 @@ class WhatsAppHandoffController extends Controller
             $data['customer_name'] ?? null,
             $data['reason'] ?? null,
             (bool) ($data['indefinite'] ?? false),
-            (bool) ($data['notify'] ?? true),
+            $ownerReply ? false : (bool) ($data['notify'] ?? true),
+            $ownerReply,
         );
 
         return response()->json($this->payload($record), 201);

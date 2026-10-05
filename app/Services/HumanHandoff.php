@@ -24,14 +24,25 @@ class HumanHandoff
      * $indefinite: pausa sem prazo (pedida pela tela, até o lojista reativar).
      * $notify: avisa o atendente no número do bot — o bot pede (padrão); pausar pela
      * tela não precisa, quem pausou já está olhando o sistema.
+     * $onlyExtend: o lojista respondeu pelo celular — renova as 4h, mas nunca encurta uma pausa
+     * já existente (ex: a manual "até reativar").
      */
-    public function start(Company $company, string $phone, ?string $customerName, ?string $reason, bool $indefinite = false, bool $notify = true): WhatsappHandoff
+    public function start(Company $company, string $phone, ?string $customerName, ?string $reason, bool $indefinite = false, bool $notify = true, bool $onlyExtend = false): WhatsappHandoff
     {
         // Reaproveita a pausa existente mesmo se o telefone estiver escrito diferente
         // (com/sem 55, com/sem nono dígito) — senão teria duas pausas pro mesmo cliente.
         $key = Customer::phoneKey($phone);
         $existing = WhatsappHandoff::where('company_id', $company->id)->get()
             ->first(fn ($h) => $h->phone === $phone || ($key !== null && Customer::phoneKey($h->phone) === $key));
+
+        if ($onlyExtend && $existing) {
+            // Só renova o prazo (se for maior que o atual): mantém nome e motivo de quem já estava pausado.
+            if (! $existing->isPaused() || $existing->paused_until->lt(now()->addHours(self::PAUSE_HOURS))) {
+                $existing->update(['paused_until' => now()->addHours(self::PAUSE_HOURS)]);
+            }
+
+            return $existing;
+        }
 
         $values = [
             'customer_name' => $customerName,
