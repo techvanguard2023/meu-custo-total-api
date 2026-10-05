@@ -180,7 +180,7 @@ class ProductionStageNotifier
 
     private function render(string $template, Quote $quote, Company $company): string
     {
-        $items = $quote->items->map(fn ($i) => (int) $i->quantity.'x '.$i->description)->implode(', ');
+        $items = collect($quote->soldLines())->map(fn ($l) => $l['quantity'].'x '.$l['description'])->implode(', ');
 
         return strtr($template, [
             '{cliente}' => explode(' ', trim((string) $quote->customer?->name))[0] ?: 'cliente',

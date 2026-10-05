@@ -56,21 +56,14 @@ $brl = fn ($v) => 'R$ '.number_format((float) $v, 2, ',', '.');
             </tr>
         </thead>
         <tbody>
-            @forelse($quote->items as $item)
+            @foreach($quote->soldLines() as $line)
                 <tr>
-                    <td>{{ $item->description }}</td>
-                    <td class="text-right">{{ $item->quantity }}</td>
-                    <td class="text-right">{{ $brl($item->unit_price) }}</td>
-                    <td class="text-right">{{ $brl($item->amount) }}</td>
+                    <td>{{ $line['description'] }}</td>
+                    <td class="text-right">{{ $line['quantity'] }}</td>
+                    <td class="text-right">{{ $brl($line['unit_price']) }}</td>
+                    <td class="text-right">{{ $brl($line['amount']) }}</td>
                 </tr>
-            @empty
-                <tr>
-                    <td>{{ $quote->name }}</td>
-                    <td class="text-right">{{ $quote->quantity ?? 1 }}</td>
-                    <td class="text-right">{{ $brl($quote->unit_price) }}</td>
-                    <td class="text-right">{{ $brl($quote->final_price) }}</td>
-                </tr>
-            @endforelse
+            @endforeach
             <tr class="total-row">
                 <td colspan="3">Total</td>
                 <td class="text-right">{{ $brl($quote->final_price) }}</td>

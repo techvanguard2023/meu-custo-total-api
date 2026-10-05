@@ -58,7 +58,7 @@ class CustomerController extends Controller
         $saleDate = fn (Quote $q) => $q->approved_at ?? $q->created_at;
 
         $items = $sales
-            ->flatMap(fn (Quote $q) => collect($this->soldLines($q))->map(fn ($line) => $line + ['date' => $saleDate($q)]))
+            ->flatMap(fn (Quote $q) => collect($q->soldLines())->map(fn ($line) => $line + ['date' => $saleDate($q)]))
             ->groupBy('description')
             ->map(fn ($rows, $description) => [
                 'description' => $description,
@@ -105,7 +105,7 @@ class CustomerController extends Controller
                 'payment_status' => $q->payment_status,
                 'production_status' => $q->production_status,
                 'is_courtesy' => (bool) $q->is_courtesy,
-                'items' => $this->soldLines($q),
+                'items' => $q->soldLines(),
             ]),
             'items_summary' => $items,
         ]);
@@ -174,36 +174,6 @@ class CustomerController extends Controller
         $customer->delete();
 
         return response()->noContent();
-    }
-
-    /**
-     * O que o cliente de fato comprou numa venda: os produtos cadastrados (itens
-     * "product"). Os itens "material" são os insumos gastos na impressão — custo
-     * interno, não algo que o cliente levou. Venda de peça sob orçamento (sem
-     * produto cadastrado) vira uma linha só, com o nome da peça.
-     */
-    private function soldLines(Quote $quote): array
-    {
-        $products = $quote->items->where('type', 'product');
-
-        if ($products->isNotEmpty()) {
-            return $products->map(fn ($i) => [
-                'description' => $i->description,
-                'quantity' => (int) $i->quantity,
-                'unit_price' => (float) $i->unit_price,
-                'amount' => (float) $i->amount,
-            ])->values()->all();
-        }
-
-        $quantity = max(1, (int) $quote->quantity);
-        $name = trim(explode('|__JSON__|', (string) $quote->name)[0]) ?: "Venda #{$quote->id}";
-
-        return [[
-            'description' => $name,
-            'quantity' => $quantity,
-            'unit_price' => round((float) $quote->final_price / $quantity, 2),
-            'amount' => (float) $quote->final_price,
-        ]];
     }
 
     private function validated(Request $request): array

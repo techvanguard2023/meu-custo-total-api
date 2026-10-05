@@ -146,6 +146,37 @@ class Quote extends Model
         return $this->hasMany(QuoteItem::class);
     }
 
+    /**
+     * O que o cliente efetivamente comprou: os produtos do orçamento (os insumos — filamento,
+     * embalagem — são custo interno e não aparecem pro cliente). Sem produtos (orçamento de peça
+     * avulsa), vira uma linha só com o nome e o valor do orçamento.
+     *
+     * @return array<int, array{description: string, quantity: int, unit_price: float, amount: float}>
+     */
+    public function soldLines(): array
+    {
+        $products = $this->items->where('type', 'product');
+
+        if ($products->isNotEmpty()) {
+            return $products->map(fn ($i) => [
+                'description' => $i->description,
+                'quantity' => (int) $i->quantity,
+                'unit_price' => (float) $i->unit_price,
+                'amount' => (float) $i->amount,
+            ])->values()->all();
+        }
+
+        $quantity = max(1, (int) $this->quantity);
+        $name = trim(explode('|__JSON__|', (string) $this->name)[0]) ?: "Venda #{$this->id}";
+
+        return [[
+            'description' => $name,
+            'quantity' => $quantity,
+            'unit_price' => round((float) $this->final_price / $quantity, 2),
+            'amount' => (float) $this->final_price,
+        ]];
+    }
+
     public function reviews(): HasMany
     {
         return $this->hasMany(ProductReview::class);
