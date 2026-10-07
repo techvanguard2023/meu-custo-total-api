@@ -23,12 +23,17 @@ class ReportController extends Controller
         $this->requirePro($request, 'Relatórios financeiros');
 
         $data = $request->validate([
-            'period' => ['required', 'in:day,month,year'],
-            'date' => ['required', 'string', 'max:10'],
+            'period' => ['required', 'in:day,month,year,range'],
+            'date' => ['required_unless:period,range', 'nullable', 'string', 'max:10'],
+            // Período livre: data inicial e final (inclusive), no máximo 5 anos.
+            'from' => ['required_if:period,range', 'nullable', 'date_format:Y-m-d'],
+            'to' => ['required_if:period,range', 'nullable', 'date_format:Y-m-d', 'after_or_equal:from'],
         ]);
 
-        [$from, $to, $label] = $this->resolveRange($data['period'], $data['date']);
-        [$prevFrom, $prevTo] = $this->previousRange($data['period'], $from);
+        [$from, $to, $label] = $data['period'] === 'range'
+            ? $this->resolveCustomRange($data['from'], $data['to'])
+            : $this->resolveRange($data['period'], $data['date']);
+        [$prevFrom, $prevTo] = $this->previousRange($data['period'], $from, $to);
 
         $sales = $this->salesBetween($request, $from, $to);
         $previousSales = $this->salesBetween($request, $prevFrom, $prevTo);
@@ -96,10 +101,32 @@ class ReportController extends Controller
         }
     }
 
+    /** @return array{0: Carbon, 1: Carbon, 2: string} */
+    private function resolveCustomRange(string $fromDate, string $toDate): array
+    {
+        $from = Carbon::createFromFormat('Y-m-d', $fromDate)->startOfDay();
+        $to = Carbon::createFromFormat('Y-m-d', $toDate)->endOfDay();
+
+        abort_if($from->diffInDays($to) > 366 * 5, 422, 'O período pode ter no máximo 5 anos.');
+
+        $label = $from->isSameDay($to)
+            ? $from->format('d/m/Y')
+            : $from->format('d/m/Y').' a '.$to->format('d/m/Y');
+
+        return [$from, $to, $label];
+    }
+
     /** @return array{0: Carbon, 1: Carbon} */
-    private function previousRange(string $period, Carbon $from): array
+    private function previousRange(string $period, Carbon $from, Carbon $to): array
     {
         return match ($period) {
+            // Período livre: o intervalo de mesma duração imediatamente antes do escolhido.
+            'range' => (function () use ($from, $to) {
+                $days = (int) $from->copy()->startOfDay()->diffInDays($to->copy()->startOfDay()) + 1;
+                $prevTo = $from->copy()->subDay()->endOfDay();
+
+                return [$prevTo->copy()->subDays($days - 1)->startOfDay(), $prevTo];
+            })(),
             'day' => [$from->copy()->subDay()->startOfDay(), $from->copy()->subDay()->endOfDay()],
             'month' => [$from->copy()->subMonth()->startOfMonth(), $from->copy()->subMonth()->endOfMonth()],
             'year' => [$from->copy()->subYear()->startOfYear(), $from->copy()->subYear()->endOfYear()],
@@ -182,11 +209,24 @@ class ReportController extends Controller
 
         $buckets = [];
 
-        if ($period === 'month') {
+        // Período livre: dia a dia até ~3 meses; acima disso agrupa por mês (senão o gráfico vira um borrão).
+        $daily = $period === 'month' || ($period === 'range' && $from->diffInDays($to) <= 92);
+
+        if ($daily) {
             for ($day = $from->copy(); $day->lte($to); $day->addDay()) {
                 $buckets[$day->format('Y-m-d')] = ['label' => $day->format('d/m'), 'revenue' => 0.0, 'profit' => 0.0, 'count' => 0];
             }
             $keyFor = fn (Carbon $date) => $date->format('Y-m-d');
+        } elseif ($period === 'range') {
+            for ($month = $from->copy()->startOfMonth(); $month->lte($to); $month->addMonthNoOverflow()) {
+                $buckets[$month->format('Y-m')] = [
+                    'label' => mb_substr(self::MONTHS_PT[$month->month], 0, 3).'/'.$month->format('y'),
+                    'revenue' => 0.0,
+                    'profit' => 0.0,
+                    'count' => 0,
+                ];
+            }
+            $keyFor = fn (Carbon $date) => $date->format('Y-m');
         } else {
             for ($month = 1; $month <= 12; $month++) {
                 $buckets[sprintf('%d-%02d', $from->year, $month)] = [
