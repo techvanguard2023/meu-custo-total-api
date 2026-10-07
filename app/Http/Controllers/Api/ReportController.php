@@ -38,8 +38,15 @@ class ReportController extends Controller
         $sales = $this->salesBetween($request, $from, $to);
         $previousSales = $this->salesBetween($request, $prevFrom, $prevTo);
 
-        $summary = $this->summarize($sales);
-        $previousSummary = $this->summarize($previousSales);
+        // Cortesia é venda (baixou estoque, passou pela produção), mas não gerou dinheiro: entra na
+        // contagem e na tabela, e fica fora de faturamento, lucro e rankings — mesmo critério do
+        // Dashboard e da tela de Vendas, pra não haver dois números pro mesmo fato.
+        $billable = $sales->reject(fn ($s) => $s->is_courtesy)->values();
+        $courtesies = $sales->filter(fn ($s) => $s->is_courtesy)->values();
+        $previousBillable = $previousSales->reject(fn ($s) => $s->is_courtesy)->values();
+
+        $summary = $this->summarize($billable);
+        $previousSummary = $this->summarize($previousBillable);
 
         return response()->json([
             'period' => $data['period'],
@@ -49,18 +56,28 @@ class ReportController extends Controller
                 'label' => $label,
             ],
             'summary' => array_merge($summary, [
+                // sales_count = todas as vendas (com cortesia); paid_sales_count = só as que geraram dinheiro
+                'sales_count' => $sales->count(),
+                'paid_sales_count' => $billable->count(),
+                'courtesy' => [
+                    'count' => $courtesies->count(),
+                    // valor que seria cobrado e foi abonado
+                    'value' => round($courtesies->sum(fn ($s) => (float) $s->final_price), 2),
+                    // o que a cortesia custou de material e produção
+                    'cost' => round($courtesies->sum(fn ($s) => $this->saleCost($s)), 2),
+                ],
                 'previous' => [
                     'revenue' => $previousSummary['revenue'],
                     'profit' => $previousSummary['profit'],
-                    'sales_count' => $previousSummary['sales_count'],
+                    'sales_count' => $previousSales->count(),
                 ],
                 'revenue_change_percent' => $this->changePercent($previousSummary['revenue'], $summary['revenue']),
                 'profit_change_percent' => $this->changePercent($previousSummary['profit'], $summary['profit']),
             ]),
-            'costs' => $this->costBreakdown($sales),
-            'timeline' => $this->timeline($sales, $data['period'], $from, $to),
-            'top_products' => $this->topProducts($sales),
-            'top_customers' => $this->topCustomers($sales),
+            'costs' => $this->costBreakdown($billable),
+            'timeline' => $this->timeline($billable, $data['period'], $from, $to),
+            'top_products' => $this->topProducts($billable),
+            'top_customers' => $this->topCustomers($billable),
             'sales' => $sales->map(fn ($sale) => [
                 'id' => $sale->id,
                 'name' => $this->cleanName($sale->name),
@@ -70,6 +87,7 @@ class ReportController extends Controller
                 'cost' => $this->saleCost($sale),
                 'profit' => round((float) $sale->profit_amount, 2),
                 'production_status' => $sale->production_status,
+                'is_courtesy' => (bool) $sale->is_courtesy,
             ])->values(),
         ]);
     }
