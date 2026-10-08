@@ -9,7 +9,7 @@ class Setting extends Model
 {
     protected $fillable = [
         'company_id', 'electricity_rate_kwh', 'labor_hour_rate',
-        'default_failure_rate', 'default_markup', 'minimum_order_price',
+        'default_failure_rate', 'default_markup', 'minimum_order_price', 'order_discount_tiers',
     ];
 
     protected $casts = [
@@ -18,6 +18,7 @@ class Setting extends Model
         'default_failure_rate' => 'decimal:2',
         'default_markup' => 'decimal:2',
         'minimum_order_price' => 'decimal:2',
+        'order_discount_tiers' => 'array',
     ];
 
     public function company(): BelongsTo

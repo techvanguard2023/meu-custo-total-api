@@ -109,7 +109,7 @@ class ProductController extends Controller
     {
         $this->authorizeCompany($request, $product);
 
-        $data = $this->validated($request, $product->company_id, $product->id);
+        $data = $this->validated($request, $product->company_id, $product->id, $product);
         $variations = $data['variations'] ?? null;
         $collectionIds = $data['collection_ids'] ?? null;
         unset($data['variations'], $data['collection_ids']);
@@ -257,9 +257,9 @@ class ProductController extends Controller
         return response()->json($product->fresh());
     }
 
-    private function validated(Request $request, int $companyId, ?int $ignoreProductId = null): array
+    private function validated(Request $request, int $companyId, ?int $ignoreProductId = null, ?Product $current = null): array
     {
-        return $request->validate([
+        $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'sku' => [
                 'nullable', 'string', 'max:255',
@@ -289,6 +289,11 @@ class ProductController extends Controller
             'lead_time_days_type' => ['nullable', Rule::in(['business', 'calendar'])],
             'featured' => ['sometimes', 'boolean'],
             'discount_percent' => ['nullable', 'numeric', 'min:0.01', 'max:95'],
+            // Preço por quantidade (Pro): "a partir de N un, cada uma sai por R$ X" (ou X% de desconto)
+            'price_tiers' => ['sometimes', 'nullable', 'array', 'max:5'],
+            'price_tiers.*.min_quantity' => ['required', 'integer', 'min:2', 'max:99999', 'distinct'],
+            'price_tiers.*.type' => ['required', Rule::in(['fixed', 'percent'])],
+            'price_tiers.*.value' => ['required', 'numeric', 'gt:0', 'max:99999999'],
             'active' => ['sometimes', 'boolean'],
             // Ativo mas fora do catálogo público — pra quem vende esse item só por fora
             // (marketplace, encomenda combinada) sem publicar no link da loja.
@@ -313,6 +318,44 @@ class ProductController extends Controller
             'sku.unique' => 'Este código já está em uso por outro produto.',
             'variations.*.color.required_without_all' => 'Informe ao menos cor, tamanho ou peso na variação.',
         ]);
+
+        if (array_key_exists('price_tiers', $data)) {
+            $data['price_tiers'] = $this->normalizedTiers($data['price_tiers']);
+
+            // Preço por quantidade é do plano Pro. Quem saiu do Pro pode editar o produto normalmente
+            // (as faixas antigas ficam guardadas, só deixam de valer) e pode limpar as faixas, mas não criar nem alterar.
+            if (! $request->user()->company->isPro()) {
+                $unchanged = $data['price_tiers'] === ($current ? $this->normalizedTiers($current->price_tiers) : null);
+
+                abort_unless(
+                    $data['price_tiers'] === null || $unchanged,
+                    403,
+                    '"Preço por quantidade" é um recurso exclusivo do plano Pro. Assine para desbloquear.'
+                );
+
+                if ($unchanged) {
+                    unset($data['price_tiers']);
+                }
+            }
+        }
+
+        return $data;
+    }
+
+    /** Faixas ordenadas pela quantidade, com os tipos numéricos certos; vazio vira null. */
+    private function normalizedTiers(?array $tiers): ?array
+    {
+        $clean = collect($tiers ?? [])
+            ->map(fn ($t) => [
+                'min_quantity' => (int) $t['min_quantity'],
+                'type' => $t['type'],
+                'value' => $t['type'] === 'percent' ? min(95, round((float) $t['value'], 2)) : round((float) $t['value'], 2),
+            ])
+            ->sortBy('min_quantity')
+            ->values()
+            ->all();
+
+        return $clean === [] ? null : $clean;
     }
 
     private function authorizeCompany(Request $request, Product $product): void

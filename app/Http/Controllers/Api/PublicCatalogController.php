@@ -27,6 +27,8 @@ class PublicCatalogController extends Controller
         CatalogVisit::record($company, $request);
 
         $markup = (float) ($company->setting?->default_markup ?? 0);
+        // Preço por quantidade e desconto por valor do pedido são do plano Pro
+        $volumePricing = $company->isPro();
 
         // Depoimentos sobre a loja como um todo — de vendas sob encomenda, sem
         // produto de catálogo vinculado, então não cabem no card de um produto.
@@ -59,7 +61,7 @@ class PublicCatalogController extends Controller
             ->withCount('reviews as rating_count')
             ->with(['reviews' => fn ($q) => $q->withApprovedComment()->latest()->limit(20)])
             ->get()
-            ->map(function ($product) use ($markup, $catalogUrl) {
+            ->map(function ($product) use ($markup, $catalogUrl, $volumePricing) {
                 $cost = (float) $product->cost;
                 $regularPrice = $product->sale_price !== null
                     ? (float) $product->sale_price
@@ -141,6 +143,8 @@ class PublicCatalogController extends Controller
                     'price' => $promoPrice ?? $regularPrice,
                     'original_price' => $promoPrice ? $regularPrice : null,
                     'discount_percent' => $promoPrice ? $discountPercent : null,
+                    // Faixas "a partir de N un" (Pro): fixed = preço de cada unidade; percent = % sobre o preço de tabela
+                    'price_tiers' => $volumePricing ? array_values($product->price_tiers ?? []) : [],
                     'stock_quantity' => $stock,
                     'stock_status' => $this->stockStatus($stock),
                     'made_to_order' => (bool) $product->made_to_order,
@@ -204,6 +208,8 @@ class PublicCatalogController extends Controller
                 'link_url' => $banner->link_url,
             ])->values(),
             'products' => $products,
+            // Desconto por valor do pedido (Pro): não vale para itens que já estão em promoção
+            'order_discount_tiers' => $volumePricing ? array_values($company->setting?->order_discount_tiers ?? []) : [],
             // Coleções de campanha (Natal, Réveillon...) ativas e com pelo menos um
             // produto ativo — o dono liga/desliga manualmente em Configurações.
             'collections' => $company->productCollections()

@@ -14,7 +14,7 @@ class Product extends Model
     protected $fillable = [
         'company_id', 'name', 'slug', 'sku', 'description', 'category_id', 'image_path', 'model_3d_url',
         'marketplace_mercado_livre_url', 'marketplace_shopee_url', 'marketplace_amazon_url',
-        'cost', 'sale_price', 'stock_quantity', 'made_to_order', 'featured', 'discount_percent', 'active', 'show_in_catalog',
+        'cost', 'sale_price', 'stock_quantity', 'made_to_order', 'featured', 'discount_percent', 'price_tiers', 'active', 'show_in_catalog',
         'lead_time_days', 'lead_time_days_type',
     ];
 
@@ -26,6 +26,7 @@ class Product extends Model
         'cost' => 'decimal:2',
         'sale_price' => 'decimal:2',
         'discount_percent' => 'decimal:2',
+        'price_tiers' => 'array',
         'stock_quantity' => 'integer',
         'lead_time_days' => 'integer',
     ];

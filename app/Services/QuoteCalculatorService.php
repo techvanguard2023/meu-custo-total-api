@@ -81,9 +81,21 @@ class QuoteCalculatorService
 
         // Produtos prontos: sem taxa de falha (já foram produzidos).
         // Preço unitário = sale_price quando definido; senão custo + markup do orçamento.
-        $productLinesOut = [];
-        $productsCost = 0.0;
-        $productsTotal = 0.0;
+        //
+        // Preço por volume (Pro): faixa por quantidade do produto + desconto por valor do pedido.
+        // Fica de fora das vendas de expositor (preço fixo combinado com a loja parceira).
+        $volumeActive = $display === null
+            && $productLines !== []
+            && (bool) ($productLines[0]['product']->company?->isPro());
+
+        // Variações do mesmo produto somam quantidade pra atingir a faixa.
+        $quantityByProduct = [];
+        foreach ($productLines as $line) {
+            $id = $line['product']->id;
+            $quantityByProduct[$id] = ($quantityByProduct[$id] ?? 0) + max(1, (int) $line['quantity']);
+        }
+
+        $pricedLines = [];
         foreach ($productLines as $line) {
             $product = $line['product'];
             $variation = $line['variation'] ?? null;
@@ -92,31 +104,83 @@ class QuoteCalculatorService
             // Preço e custo saem da variação quando houver; em branco lá, herdam do produto.
             $unitCost = $variation ? $variation->effectiveCost($product) : (float) $product->cost;
             $definedPrice = $variation ? $variation->effectivePrice($product) : ($product->sale_price !== null ? (float) $product->sale_price : null);
-            $unitPrice = $definedPrice ?? round($unitCost * (1 + ((float) $markup / 100)), 2);
+            $basePrice = $definedPrice ?? round($unitCost * (1 + ((float) $markup / 100)), 2);
 
             // Desconto é sempre do produto (nunca da variação) e vale mesmo quando a
             // variação tem preço próprio — mesmo critério do catálogo público. Sem isso,
             // Caixa, pedido externo (WhatsApp) e conferência de expositor cobravam o
             // preço cheio mesmo com promoção ativa no catálogo.
-            if ($product->discount_percent !== null) {
-                $unitPrice = round($unitPrice * (1 - (float) $product->discount_percent / 100), 2);
+            $inPromotion = $product->discount_percent !== null;
+            $unitPrice = $inPromotion
+                ? round($basePrice * (1 - (float) $product->discount_percent / 100), 2)
+                : $basePrice;
+
+            // Faixa por quantidade e promoção não se somam: vale o menor preço.
+            $volumeApplied = false;
+            if ($volumeActive) {
+                $tier = VolumePricing::productTier($product->price_tiers, $quantityByProduct[$product->id]);
+                if ($tier) {
+                    $tierPrice = VolumePricing::tierUnitPrice($tier, $basePrice);
+                    if ($tierPrice < $unitPrice) {
+                        $unitPrice = $tierPrice;
+                        $volumeApplied = true;
+                    }
+                }
             }
 
-            $lineCost = $unitCost * $lineQty;
-            $lineTotal = $unitPrice * $lineQty;
+            $pricedLines[] = compact('product', 'variation', 'lineQty', 'unitCost', 'basePrice', 'unitPrice', 'inPromotion', 'volumeApplied');
+        }
+
+        // Desconto por valor do pedido: o limite conta o total dos produtos (já com os preços por
+        // quantidade), mas o desconto só incide nos itens que não estão em promoção.
+        $orderDiscountPercent = 0.0;
+        $orderDiscountMinTotal = null;
+        if ($volumeActive) {
+            $subtotal = collect($pricedLines)->sum(fn ($l) => $l['unitPrice'] * $l['lineQty']);
+            $orderTier = VolumePricing::orderTier($setting?->order_discount_tiers, $subtotal);
+            if ($orderTier) {
+                $orderDiscountPercent = (float) $orderTier['percent'];
+                $orderDiscountMinTotal = (float) $orderTier['min_total'];
+            }
+        }
+
+        $productLinesOut = [];
+        $productsCost = 0.0;
+        $productsTotal = 0.0;
+        $orderDiscountAmount = 0.0;
+        foreach ($pricedLines as $l) {
+            $unitPrice = $l['unitPrice'];
+            $orderDiscounted = false;
+            if ($orderDiscountPercent > 0 && ! $l['inPromotion']) {
+                $unitPrice = round($unitPrice * (1 - $orderDiscountPercent / 100), 2);
+                $orderDiscounted = $unitPrice < $l['unitPrice'];
+                $orderDiscountAmount += ($l['unitPrice'] - $unitPrice) * $l['lineQty'];
+            }
+
+            $lineCost = $l['unitCost'] * $l['lineQty'];
+            $lineTotal = $unitPrice * $l['lineQty'];
             $productsCost += $lineCost;
             $productsTotal += $lineTotal;
             $productLinesOut[] = [
-                'product_id' => $product->id,
-                'product_variation_id' => $variation?->id,
-                'name' => $variation ? "{$product->name} ({$variation->display_name})" : $product->name,
-                'quantity' => $lineQty,
-                'unit_cost' => round($unitCost, 2),
+                'product_id' => $l['product']->id,
+                'product_variation_id' => $l['variation']?->id,
+                'name' => $l['variation'] ? "{$l['product']->name} ({$l['variation']->display_name})" : $l['product']->name,
+                'quantity' => $l['lineQty'],
+                'unit_cost' => round($l['unitCost'], 2),
                 'unit_price' => round($unitPrice, 2),
+                // Preço sem nenhuma regra de volume (só a promoção do produto, se houver) — pra a tela mostrar o desconto
+                'regular_unit_price' => round($l['inPromotion'] ? $l['basePrice'] * (1 - (float) $l['product']->discount_percent / 100) : $l['basePrice'], 2),
+                'volume_applied' => $l['volumeApplied'] || $orderDiscounted,
                 'line_cost' => round($lineCost, 2),
                 'line_total' => round($lineTotal, 2),
-                'stock_quantity' => (int) ($variation ? $variation->stock_quantity : $product->stock_quantity),
+                'stock_quantity' => (int) ($l['variation'] ? $l['variation']->stock_quantity : $l['product']->stock_quantity),
             ];
+        }
+
+        // Atingiu a faixa mas todos os itens estavam em promoção: nenhum desconto de pedido foi dado.
+        if ($orderDiscountAmount <= 0) {
+            $orderDiscountPercent = 0.0;
+            $orderDiscountMinTotal = null;
         }
 
         // Desconto aplicado após o markup, sobre o total combinado.
@@ -167,6 +231,10 @@ class QuoteCalculatorService
             'products' => $productLinesOut,
             'products_cost' => round($productsCost, 2),
             'products_total' => round($productsTotal, 2),
+            // Desconto por valor do pedido (Pro): % da faixa atingida e quanto saiu do total
+            'order_discount_percent' => round($orderDiscountPercent, 2),
+            'order_discount_min_total' => $orderDiscountMinTotal,
+            'order_discount_amount' => round($orderDiscountAmount, 2),
             'total_cost' => round($grandTotalCost, 2),
             'discount_amount' => round($discount, 2),
             'markup_percent' => round((float) $markup, 2),
