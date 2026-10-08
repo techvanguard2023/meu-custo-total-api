@@ -6,6 +6,7 @@ use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Http\Controllers\Controller;
 use App\Models\ProductReview;
 use App\Models\Quote;
+use App\Services\ReviewRequestNotifier;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -34,7 +35,7 @@ class ProductReviewController extends Controller
      * regerado a cada chamada: se o lojista já mandou o link e clica de novo,
      * o que o cliente tem em mãos precisa continuar valendo.
      */
-    public function link(Request $request, Quote $quote)
+    public function link(Request $request, Quote $quote, ReviewRequestNotifier $notifier)
     {
         $this->requireEssential($request, 'Avaliações de produto');
         abort_unless($quote->company_id === $request->user()->company_id, 403);
@@ -50,9 +51,20 @@ class ProductReviewController extends Controller
             'review_requested_at' => now(),
         ]);
 
+        $url = rtrim(config('services.frontend_url'), '/').'/avaliar/'.$quote->review_token;
+
+        // `send`: a tela pede pra mandar pelo WhatsApp conectado da loja. Se não der (sem telefone,
+        // WhatsApp desconectado, plano sem WhatsApp), `sent` vem false com o motivo e a tela cai no
+        // jeito antigo — abrir o wa.me ou copiar o link.
+        $delivery = $request->boolean('send')
+            ? $notifier->send($quote->load(['customer', 'company']), $url)
+            : ['sent' => false, 'reason' => null];
+
         return response()->json([
             'review_token' => $quote->review_token,
-            'url' => rtrim(config('services.frontend_url'), '/').'/avaliar/'.$quote->review_token,
+            'url' => $url,
+            'sent' => $delivery['sent'],
+            'reason' => $delivery['reason'],
         ]);
     }
 
