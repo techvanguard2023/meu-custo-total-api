@@ -9,6 +9,7 @@ use App\Models\Quote;
 use App\Models\QuoteRequest;
 use App\Models\WhatsappHandoff;
 use App\Services\CustomerMerger;
+use App\Services\WhatsAppMessenger;
 use Illuminate\Http\Request;
 
 class CustomerController extends Controller
@@ -49,6 +50,8 @@ class CustomerController extends Controller
         $quotes = Quote::where('company_id', $customer->company_id)
             ->where('customer_id', $customer->id)
             ->with('items')
+            // Quantas avaliações a venda já recebeu — a tela só oferece "Pedir avaliação" enquanto não houver
+            ->withCount('reviews')
             ->latest()
             ->get();
 
@@ -105,9 +108,45 @@ class CustomerController extends Controller
                 'payment_status' => $q->payment_status,
                 'production_status' => $q->production_status,
                 'is_courtesy' => (bool) $q->is_courtesy,
+                'review_requested_at' => $q->review_requested_at?->toIso8601String(),
+                'reviews_count' => (int) $q->reviews_count,
                 'items' => $q->soldLines(),
             ]),
             'items_summary' => $items,
+            // Link do Instagram da loja (Configurações → Catálogo) — habilita o botão "Enviar Instagram"
+            'instagram_url' => $request->user()->company->catalog_instagram_url,
+        ]);
+    }
+
+    /**
+     * Convite pra seguir a loja no Instagram. Manda pelo WhatsApp conectado quando `send` e tudo permite;
+     * senão devolve a mensagem pronta pra a tela abrir o wa.me (ou copiar).
+     */
+    public function instagramInvite(Request $request, Customer $customer, WhatsAppMessenger $messenger)
+    {
+        $this->authorizeCompany($request, $customer);
+
+        $company = $request->user()->company;
+        $url = trim((string) $company->catalog_instagram_url);
+        abort_if($url === '', 422, 'Cadastre o link do Instagram em Configurações → Catálogo antes de enviar o convite.');
+
+        $first = explode(' ', trim($customer->name))[0];
+        $message = implode("\n", [
+            'Olá'.($first !== '' ? ", {$first}" : '')."! Aqui é da {$company->name}.",
+            '',
+            'Que tal acompanhar a gente no Instagram? Lá mostramos novidades, bastidores da produção e promoções. Se puder, segue a gente:',
+            $url,
+        ]);
+
+        $delivery = $request->boolean('send')
+            ? $messenger->deliver($company, $customer->phone, $message)
+            : ['sent' => false, 'reason' => null];
+
+        return response()->json([
+            'url' => $url,
+            'message' => $message,
+            'sent' => $delivery['sent'],
+            'reason' => $delivery['reason'],
         ]);
     }
 

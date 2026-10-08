@@ -58,6 +58,7 @@ Route::prefix('v1')->group(function () {
         Route::get('/customers/duplicates', [CustomerController::class, 'duplicates']);
         Route::post('/customers/merge', [CustomerController::class, 'merge']);
         Route::get('/customers/{customer}/profile', [CustomerController::class, 'profile']);
+        Route::post('/customers/{customer}/instagram-invite', [CustomerController::class, 'instagramInvite']);
         Route::apiResource('customers', CustomerController::class);
         Route::get('/material-categories', [MaterialCategoryController::class, 'index']);
         Route::post('/material-categories', [MaterialCategoryController::class, 'store']);
