@@ -14,6 +14,24 @@ use Illuminate\Http\Request;
  */
 class PublicCatalogController extends Controller
 {
+    /**
+     * Qual loja é dona deste domínio? O frontend, ao abrir num domínio que não é o do app, pergunta aqui
+     * pra saber qual catálogo mostrar. Chegar até aqui já prova que o DNS aponta certo, então a primeira
+     * consulta também marca o domínio como ativo.
+     */
+    public function byDomain(string $host)
+    {
+        $company = Company::where('custom_domain', strtolower($host))->first();
+
+        abort_unless($company && $company->isPro() && $company->hasCatalogActive(), 404, 'Domínio não encontrado.');
+
+        if ($company->custom_domain_verified_at === null) {
+            $company->forceFill(['custom_domain_verified_at' => now()])->save();
+        }
+
+        return response()->json(['slug' => $company->slug]);
+    }
+
     public function show(Request $request, string $token)
     {
         // Aceita tanto o slug da empresa (link novo, legível — ex: minha-empresa-a1b2c3)
@@ -48,7 +66,8 @@ class PublicCatalogController extends Controller
             ])
             ->values();
 
-        $catalogUrl = rtrim((string) config('services.frontend_url'), '/').'/catalog/'.$company->slug;
+        // No domínio próprio (Pro) o catálogo fica na raiz; senão em /catalog/{slug}
+        $catalogUrl = $company->catalogUrl();
 
         $products = $company->products()
             ->where('active', true)

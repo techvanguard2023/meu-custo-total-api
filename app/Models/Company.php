@@ -12,6 +12,21 @@ class Company extends Model
 {
     use Billable;
 
+    protected static function booted(): void
+    {
+        // Domínio próprio é do plano Pro: ao sair dele, o domínio é descadastrado da Vercel e o link padrão volta a valer.
+        static::updated(function (Company $company) {
+            if ($company->wasChanged('plan') && $company->plan !== self::PLAN_PRO && $company->custom_domain) {
+                try {
+                    app(\App\Services\VercelDomains::class)->remove($company->custom_domain);
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::warning("Domínio próprio não removido da Vercel ({$company->custom_domain}): ".$e->getMessage());
+                }
+                $company->forceFill(['custom_domain' => null, 'custom_domain_verified_at' => null])->saveQuietly();
+            }
+        });
+    }
+
     public const PLAN_FREE = 'free';
     public const PLAN_ESSENTIAL = 'essential';
     public const PLAN_PRO = 'pro';
@@ -22,7 +37,7 @@ class Company extends Model
         'catalog_instagram_url', 'catalog_facebook_url', 'catalog_youtube_url',
         'catalog_tiktok_url', 'catalog_linkedin_url',
         'catalog_about', 'catalog_address', 'catalog_hours', 'catalog_email',
-        'catalog_accent_color',
+        'catalog_accent_color', 'custom_domain', 'custom_domain_verified_at',
         'whatsapp_session_name', 'whatsapp_bot_enabled', 'whatsapp_webhook_url', 'whatsapp_webhook_events',
         'whatsapp_chat_filters', 'whatsapp_status_notifications', 'whatsapp_bot_prompt', 'whatsapp_payment_link', 'whatsapp_pix_key',
     ];
@@ -33,6 +48,7 @@ class Company extends Model
         'whatsapp_webhook_events' => 'array',
         'whatsapp_chat_filters' => 'array',
         'whatsapp_status_notifications' => 'array',
+        'custom_domain_verified_at' => 'datetime',
     ];
 
     protected $appends = ['logo_url'];
@@ -47,6 +63,28 @@ class Company extends Model
     public function isPro(): bool
     {
         return $this->plan === self::PLAN_PRO;
+    }
+
+    /** Domínio próprio do catálogo em uso: Pro, com o DNS já apontando certo. */
+    public function hasActiveCustomDomain(): bool
+    {
+        return $this->isPro() && $this->custom_domain && $this->custom_domain_verified_at !== null;
+    }
+
+    /** Raiz dos links públicos da loja (catálogo, avaliação): o domínio próprio quando ativo, senão o do app. */
+    public function publicOrigin(): string
+    {
+        return $this->hasActiveCustomDomain()
+            ? 'https://'.$this->custom_domain
+            : rtrim((string) config('services.frontend_url'), '/');
+    }
+
+    /** Endereço do catálogo: na raiz do domínio próprio, ou em /catalog/{slug} no app. */
+    public function catalogUrl(): string
+    {
+        return $this->hasActiveCustomDomain()
+            ? $this->publicOrigin()
+            : $this->publicOrigin().'/catalog/'.$this->slug;
     }
 
     /** Essencial ou Pro — os dois planos pagos, usado pelos recursos que não são exclusivos do topo. */

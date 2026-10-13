@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Models\CatalogBanner;
 use App\Models\CatalogVisit;
 use App\Models\Company;
+use App\Services\VercelDomains;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -343,6 +344,126 @@ class CatalogController extends Controller
         }
 
         return round((($current - $previous) / $previous) * 100, 1);
+    }
+
+    /* ---------- Domínio próprio (Pro) ---------- */
+
+    public function domainShow(Request $request, VercelDomains $vercel)
+    {
+        return response()->json($this->domainPayload($request->user()->company, $vercel, refresh: true));
+    }
+
+    public function domainUpdate(Request $request, VercelDomains $vercel)
+    {
+        $this->requirePro($request, 'Domínio próprio');
+        abort_unless($vercel->isConfigured(), 503, 'Domínio próprio ainda não está disponível. Fale com o suporte.');
+
+        $company = $request->user()->company;
+        $domain = $this->normalizeDomain((string) $request->input('domain'));
+
+        abort_if(
+            Company::where('custom_domain', $domain)->where('id', '!=', $company->id)->exists(),
+            422,
+            'Esse domínio já está em uso por outra loja.'
+        );
+
+        if ($company->custom_domain && $company->custom_domain !== $domain) {
+            $vercel->remove($company->custom_domain);
+        }
+
+        $result = $vercel->add($domain);
+        abort_unless($result['ok'], 422, $result['error']);
+
+        $company->forceFill(['custom_domain' => $domain, 'custom_domain_verified_at' => null])->save();
+
+        return response()->json($this->domainPayload($company, $vercel, refresh: true));
+    }
+
+    /** Reconsulta a Vercel (útil logo depois de configurar o DNS, que pode levar alguns minutos). */
+    public function domainVerify(Request $request, VercelDomains $vercel)
+    {
+        $this->requirePro($request, 'Domínio próprio');
+
+        $company = $request->user()->company;
+        abort_unless($company->custom_domain, 422, 'Nenhum domínio cadastrado.');
+
+        $vercel->verify($company->custom_domain);
+
+        return response()->json($this->domainPayload($company, $vercel, refresh: true));
+    }
+
+    public function domainDestroy(Request $request, VercelDomains $vercel)
+    {
+        $company = $request->user()->company;
+
+        if ($company->custom_domain) {
+            if ($vercel->isConfigured()) {
+                $vercel->remove($company->custom_domain);
+            }
+            $company->forceFill(['custom_domain' => null, 'custom_domain_verified_at' => null])->save();
+        }
+
+        return response()->json($this->domainPayload($company, $vercel));
+    }
+
+    private function domainPayload(Company $company, VercelDomains $vercel, bool $refresh = false): array
+    {
+        $domain = $company->custom_domain;
+        $status = ['active' => false, 'verified' => false, 'misconfigured' => true, 'cname' => VercelDomains::DEFAULT_CNAME, 'verification' => []];
+
+        if ($domain && $refresh && $vercel->isConfigured() && $company->isPro()) {
+            try {
+                $status = $vercel->status($domain);
+                if ($status['active'] && ! $company->custom_domain_verified_at) {
+                    $company->forceFill(['custom_domain_verified_at' => now()])->save();
+                }
+            } catch (\Throwable $e) {
+                // Vercel fora do ar: mostra o que já se sabe, sem quebrar a tela
+            }
+        }
+
+        $labels = explode('.', (string) $domain);
+        // Parte do endereço que vai no campo "Nome/Host" do DNS: tudo antes do domínio registrado (loja de loja.empresa.com.br)
+        $registrable = count($labels) >= 3 && in_array($labels[count($labels) - 2], self::SECOND_LEVEL_LABELS, true) ? 3 : 2;
+        $hostLabel = $domain ? implode('.', array_slice($labels, 0, max(1, count($labels) - $registrable))) : null;
+
+        return [
+            'available' => $vercel->isConfigured(),
+            'domain' => $domain,
+            'status' => ! $domain ? 'none' : ($company->custom_domain_verified_at ? 'active' : 'pending'),
+            'url' => $company->hasActiveCustomDomain() ? $company->catalogUrl() : null,
+            'dns' => $domain ? ['type' => 'CNAME', 'name' => $hostLabel, 'value' => $status['cname']] : null,
+            'verification' => $status['verification'],
+        ];
+    }
+
+    /** Segundo nível comum sob TLDs de país (empresa.com.br) — pra achar onde começa o domínio registrado. */
+    private const SECOND_LEVEL_LABELS = ['com', 'net', 'org', 'gov', 'edu', 'mil', 'art', 'eco', 'tec', 'esp', 'far', 'imb', 'ind', 'inf', 'psi', 'rec', 'srv', 'tur', 'blog', 'app'];
+
+    /**
+     * Aceita só subdomínio (loja.empresa.com.br): o domínio raiz exige configuração de DNS mais difícil
+     * e costuma já estar em uso pelo site da empresa.
+     */
+    private function normalizeDomain(string $input): string
+    {
+        $domain = strtolower(trim($input));
+        $domain = preg_replace('#^https?://#', '', $domain);
+        $domain = rtrim(explode('/', $domain)[0], '.');
+
+        $valid = (bool) preg_match('/^(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/', $domain);
+        abort_unless($valid, 422, 'Informe um endereço válido, como loja.suaempresa.com.br.');
+
+        $labels = explode('.', $domain);
+        $isApex = count($labels) < 3 || (count($labels) === 3 && in_array($labels[1], self::SECOND_LEVEL_LABELS, true));
+        abort_if($isApex, 422, 'Use um subdomínio, como loja.suaempresa.com.br (e não o domínio principal).');
+
+        abort_if(
+            Str::endsWith($domain, ['meucustototal.com.br', '.vercel.app', '.localhost']),
+            422,
+            'Esse endereço não pode ser usado. Use um domínio seu.'
+        );
+
+        return $domain;
     }
 
     private function payload(Company $company): array

@@ -51,7 +51,7 @@ class ProductReviewController extends Controller
             'review_requested_at' => now(),
         ]);
 
-        $url = rtrim(config('services.frontend_url'), '/').'/avaliar/'.$quote->review_token;
+        $url = $request->user()->company->publicOrigin().'/avaliar/'.$quote->review_token;
 
         // `send`: a tela pede pra mandar pelo WhatsApp conectado da loja. Se não der (sem telefone,
         // WhatsApp desconectado, plano sem WhatsApp), `sent` vem false com o motivo e a tela cai no

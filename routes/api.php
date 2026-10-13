@@ -42,6 +42,10 @@ Route::prefix('v1')->group(function () {
     Route::get('/public/catalog/{token}', [PublicCatalogController::class, 'show'])
         ->middleware('throttle:60,1');
 
+    // Domínio próprio: o frontend, aberto num domínio de loja, descobre qual catálogo mostrar
+    Route::get('/public/domain/{host}', [PublicCatalogController::class, 'byDomain'])
+        ->middleware('throttle:120,1');
+
     // Avaliação do cliente final — sem autenticação, só com o link recebido.
     // O POST tem limite mais apertado que a leitura: é escrita vinda de fora.
     Route::get('/public/review/{token}', [PublicReviewController::class, 'show'])
@@ -146,6 +150,10 @@ Route::prefix('v1')->group(function () {
         Route::patch('/catalog/slug', [CatalogController::class, 'updateSlug']);
         Route::post('/catalog/logo', [CatalogController::class, 'uploadLogo']);
         Route::delete('/catalog/logo', [CatalogController::class, 'destroyLogo']);
+        Route::get('/catalog/domain', [CatalogController::class, 'domainShow']);
+        Route::put('/catalog/domain', [CatalogController::class, 'domainUpdate']);
+        Route::post('/catalog/domain/verify', [CatalogController::class, 'domainVerify']);
+        Route::delete('/catalog/domain', [CatalogController::class, 'domainDestroy']);
         Route::post('/catalog/banners', [CatalogController::class, 'uploadBanner']);
         Route::patch('/catalog/banners/reorder', [CatalogController::class, 'reorderBanners']);
         Route::patch('/catalog/banners/{banner}', [CatalogController::class, 'updateBanner']);

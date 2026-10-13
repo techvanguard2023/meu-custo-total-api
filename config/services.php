@@ -45,6 +45,13 @@ return [
         'api_key' => env('WAHA_API_KEY'),
     ],
 
+    // Domínio próprio do catálogo (Pro): cadastra o domínio do lojista no projeto do frontend na Vercel
+    'vercel' => [
+        'token' => env('VERCEL_API_TOKEN'),
+        'project_id' => env('VERCEL_PROJECT_ID'),
+        'team_id' => env('VERCEL_TEAM_ID'),
+    ],
+
     'frontend_url' => env('FRONTEND_URL', 'http://localhost:3000'),
 
 ];
