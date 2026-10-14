@@ -171,6 +171,8 @@ class PublicCatalogController extends Controller
                     // o catálogo e o bot do WhatsApp usam pra responder "qual o prazo desse item?".
                     'lead_time_label' => $product->lead_time_label,
                     'featured' => (bool) $product->featured,
+                    // Pra ordenar por "mais recente" no catálogo
+                    'created_at' => $product->created_at?->toIso8601String(),
                     // Só os marketplaces que o lojista de fato preencheu — o botão
                     // "Comprar no Marketplace" some quando nenhum está configurado.
                     'marketplace_urls' => array_filter([
