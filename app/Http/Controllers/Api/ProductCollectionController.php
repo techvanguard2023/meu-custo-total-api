@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Http\Controllers\Controller;
 use App\Models\ProductCollection;
+use App\Services\ShareImageGenerator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -105,7 +106,7 @@ class ProductCollectionController extends Controller
     }
 
     /** Banner exibido no topo da página da coleção e no card de destaque no catálogo. */
-    public function uploadBanner(Request $request, ProductCollection $productCollection)
+    public function uploadBanner(Request $request, ProductCollection $productCollection, ShareImageGenerator $generator)
     {
         $this->requirePro($request, 'Coleções de campanha');
         $this->authorizeCompany($request, $productCollection);
@@ -120,20 +121,24 @@ class ProductCollectionController extends Controller
 
         if ($productCollection->banner_path) {
             Storage::disk('public')->delete($productCollection->banner_path);
+            $generator->delete($productCollection->banner_path);
         }
 
         $path = $request->file('banner')->store('collections', 'public');
         $productCollection->update(['banner_path' => $path]);
+        // Cópia leve pra prévia do link no WhatsApp; se não der, a prévia usa o banner original
+        $generator->generate($path);
 
         return response()->json($productCollection->fresh());
     }
 
-    public function destroyBanner(Request $request, ProductCollection $productCollection)
+    public function destroyBanner(Request $request, ProductCollection $productCollection, ShareImageGenerator $generator)
     {
         $this->authorizeCompany($request, $productCollection);
 
         if ($productCollection->banner_path) {
             Storage::disk('public')->delete($productCollection->banner_path);
+            $generator->delete($productCollection->banner_path);
             $productCollection->update(['banner_path' => null]);
         }
 

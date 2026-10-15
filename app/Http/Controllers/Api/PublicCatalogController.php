@@ -243,6 +243,8 @@ class PublicCatalogController extends Controller
                     'name' => $c->name,
                     'description' => $c->description,
                     'banner_url' => $c->banner_url,
+                    // Cópia leve (1200×630) do banner, usada só na prévia do link no WhatsApp
+                    'banner_share_url' => $c->shareImageUrl(),
                     'product_ids' => $c->products->pluck('id')->values(),
                 ])
                 ->values(),
