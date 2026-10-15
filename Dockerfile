@@ -24,7 +24,8 @@ FROM php:8.5-fpm-alpine
 
 # Extensões PHP (pdo_mysql usa mysqlnd → suporta caching_sha2_password)
 ADD --chmod=0755 https://github.com/mlocati/docker-php-extension-installer/releases/latest/download/install-php-extensions /usr/local/bin/
-RUN install-php-extensions pdo_mysql bcmath intl zip opcache
+# gd: gera a imagem leve (1200x630) dos banners de coleção para a prévia do WhatsApp (ShareImageGenerator)
+RUN install-php-extensions pdo_mysql bcmath intl zip opcache gd
 
 RUN apk add --no-cache nginx supervisor
 

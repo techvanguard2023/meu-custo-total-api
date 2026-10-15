@@ -18,6 +18,8 @@ class GenerateShareImages extends Command
         $done = 0;
         $failed = 0;
 
+        $this->line('Bibliotecas de imagem: GD '.(extension_loaded('gd') ? 'sim' : 'NÃO').' | Imagick '.(extension_loaded('imagick') ? 'sim' : 'NÃO'));
+
         foreach (ProductCollection::whereNotNull('banner_path')->get() as $collection) {
             if (! $this->option('force') && Storage::disk('public')->exists(ShareImageGenerator::pathFor($collection->banner_path))) {
                 continue;
@@ -28,7 +30,7 @@ class GenerateShareImages extends Command
                 $this->line("OK   #{$collection->id} {$collection->name}");
             } else {
                 $failed++;
-                $this->warn("Falhou #{$collection->id} {$collection->name} ({$collection->banner_path})");
+                $this->warn("Falhou #{$collection->id} {$collection->name} ({$collection->banner_path}): {$generator->lastError}");
             }
         }
 
