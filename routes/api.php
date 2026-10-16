@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CatalogController;
 use App\Http\Controllers\Api\CustomerController;
+use App\Http\Controllers\Api\CustomerPortalController;
 use App\Http\Controllers\Api\IntegrationTokenController;
 use App\Http\Controllers\Api\WhatsAppConnectionController;
 use App\Http\Controllers\Api\WhatsAppHandoffController;
@@ -41,6 +42,12 @@ Route::prefix('v1')->group(function () {
     // Catálogo público — sem autenticação, acessado por clientes finais via link compartilhado.
     Route::get('/public/catalog/{token}', [PublicCatalogController::class, 'show'])
         ->middleware('throttle:60,1');
+
+    // "Meus pedidos" do catálogo: login sem senha com código pelo WhatsApp da loja (ver CustomerPortal)
+    Route::post('/public/catalog/{token}/account/code', [CustomerPortalController::class, 'requestCode'])->middleware('throttle:5,1');
+    Route::post('/public/catalog/{token}/account/verify', [CustomerPortalController::class, 'verifyCode'])->middleware('throttle:15,1');
+    Route::get('/public/catalog/{token}/account/orders', [CustomerPortalController::class, 'orders'])->middleware('throttle:60,1');
+    Route::post('/public/catalog/{token}/account/logout', [CustomerPortalController::class, 'logout'])->middleware('throttle:30,1');
 
     // Domínio próprio: o frontend, aberto num domínio de loja, descobre qual catálogo mostrar
     Route::get('/public/domain/{host}', [PublicCatalogController::class, 'byDomain'])

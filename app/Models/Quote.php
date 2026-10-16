@@ -141,6 +141,36 @@ class Quote extends Model
         return $this->belongsTo(Material::class);
     }
 
+    /**
+     * Registra a data em que o pedido entrou em cada etapa da produção — é a linha do tempo que o cliente vê
+     * em "Meus pedidos". Toda mudança de etapa passa pelo model (criação, Kanban, aprovação, expositor).
+     */
+    protected static function booted(): void
+    {
+        static::created(fn (Quote $quote) => $quote->recordStage());
+        static::updated(function (Quote $quote) {
+            if ($quote->wasChanged('production_status')) {
+                $quote->recordStage();
+            }
+        });
+    }
+
+    private function recordStage(): void
+    {
+        if ($this->production_status) {
+            \Illuminate\Support\Facades\DB::table('quote_stage_events')->insert([
+                'quote_id' => $this->id,
+                'stage' => $this->production_status,
+                'created_at' => now(),
+            ]);
+        }
+    }
+
+    public function stageEvents(): HasMany
+    {
+        return $this->hasMany(QuoteStageEvent::class);
+    }
+
     public function items(): HasMany
     {
         return $this->hasMany(QuoteItem::class);
@@ -148,33 +178,49 @@ class Quote extends Model
 
     /**
      * O que o cliente efetivamente comprou: os produtos do orçamento (os insumos — filamento,
-     * embalagem — são custo interno e não aparecem pro cliente). Sem produtos (orçamento de peça
-     * avulsa), vira uma linha só com o nome e o valor do orçamento.
+     * embalagem — são custo interno e não aparecem pro cliente) e, quando há, a peça impressa sob
+     * medida. Sem produtos (orçamento de peça avulsa), vira uma linha só com o nome e o valor.
      *
      * @return array<int, array{description: string, quantity: int, unit_price: float, amount: float}>
      */
     public function soldLines(): array
     {
         $products = $this->items->where('type', 'product');
+        $name = trim(explode('|__JSON__|', (string) $this->name)[0]) ?: "Venda #{$this->id}";
+        $quantity = max(1, (int) $this->quantity);
 
-        if ($products->isNotEmpty()) {
-            return $products->map(fn ($i) => [
-                'description' => $i->description,
-                'quantity' => (int) $i->quantity,
-                'unit_price' => (float) $i->unit_price,
-                'amount' => (float) $i->amount,
-            ])->values()->all();
+        if ($products->isEmpty()) {
+            return [[
+                'description' => $name,
+                'quantity' => $quantity,
+                'unit_price' => round((float) $this->final_price / $quantity, 2),
+                'amount' => (float) $this->final_price,
+            ]];
         }
 
-        $quantity = max(1, (int) $this->quantity);
-        $name = trim(explode('|__JSON__|', (string) $this->name)[0]) ?: "Venda #{$this->id}";
+        $lines = $products->map(fn ($i) => [
+            'description' => $i->description,
+            'quantity' => (int) $i->quantity,
+            'unit_price' => (float) $i->unit_price,
+            'amount' => (float) $i->amount,
+        ])->values()->all();
 
-        return [[
-            'description' => $name,
-            'quantity' => $quantity,
-            'unit_price' => round((float) $this->final_price / $quantity, 2),
-            'amount' => (float) $this->final_price,
-        ]];
+        // Pedido que mistura produtos prontos E uma peça impressa sob medida: a peça impressa é o que
+        // sobra do total depois dos produtos — sem esta linha ela sumia (o cliente via itens somando
+        // menos que o total, no PDF, no perfil e em "Meus pedidos").
+        if ((int) $this->print_time_minutes > 0) {
+            $printed = round((float) $this->final_price - $products->sum(fn ($i) => (float) $i->amount), 2);
+            if ($printed > 0) {
+                $lines[] = [
+                    'description' => $name,
+                    'quantity' => $quantity,
+                    'unit_price' => round($printed / $quantity, 2),
+                    'amount' => $printed,
+                ];
+            }
+        }
+
+        return $lines;
     }
 
     public function reviews(): HasMany

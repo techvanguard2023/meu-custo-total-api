@@ -252,6 +252,8 @@ class PublicCatalogController extends Controller
                 'link_url' => $banner->link_url,
             ])->values(),
             'products' => $products,
+            // "Meus pedidos" (login com código pelo WhatsApp) — só loja Pro com WhatsApp conectado
+            'customer_area' => \App\Services\CustomerPortal::isAvailable($company),
             // Desconto por valor do pedido (Pro): não vale para itens que já estão em promoção
             'order_discount_tiers' => $volumePricing ? array_values($company->setting?->order_discount_tiers ?? []) : [],
             // Coleções de campanha (Natal, Réveillon...) ativas e com pelo menos um
