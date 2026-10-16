@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\CatalogVisit;
 use App\Models\Company;
+use App\Models\Quote;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Catálogo público de produtos — sem autenticação. Nunca expõe custo,
@@ -48,6 +50,25 @@ class PublicCatalogController extends Controller
         // Preço por quantidade e desconto por valor do pedido são do plano Pro
         $volumePricing = $company->isPro();
 
+        // "Mais vendidos": posição (1 a 10) de cada produto pelas unidades vendidas nos últimos 180 dias.
+        // Só a posição sai no catálogo público — a quantidade vendida é informação da loja, não do cliente.
+        $bestSellerRank = DB::table('quote_items')
+            ->join('quotes', 'quotes.id', '=', 'quote_items.quote_id')
+            ->where('quotes.company_id', $company->id)
+            ->where('quotes.status', Quote::STATUS_APPROVED)
+            ->whereNull('quotes.cancelled_at')
+            ->where('quote_items.type', 'product')
+            ->whereNotNull('quote_items.product_id')
+            ->whereRaw('COALESCE(quotes.approved_at, quotes.created_at) >= ?', [now()->subDays(180)])
+            ->groupBy('quote_items.product_id')
+            ->havingRaw('SUM(quote_items.quantity) > 0')
+            ->orderByRaw('SUM(quote_items.quantity) DESC')
+            ->limit(10)
+            ->pluck('quote_items.product_id')
+            ->values()
+            ->flip()
+            ->map(fn ($index) => $index + 1);
+
         // Depoimentos sobre a loja como um todo — de vendas sob encomenda, sem
         // produto de catálogo vinculado, então não cabem no card de um produto.
         $storeReviews = $company->productReviews()->whereNull('product_id');
@@ -80,7 +101,7 @@ class PublicCatalogController extends Controller
             ->withCount('reviews as rating_count')
             ->with(['reviews' => fn ($q) => $q->withApprovedComment()->latest()->limit(20)])
             ->get()
-            ->map(function ($product) use ($markup, $catalogUrl, $volumePricing) {
+            ->map(function ($product) use ($markup, $catalogUrl, $volumePricing, $bestSellerRank) {
                 $cost = (float) $product->cost;
                 $regularPrice = $product->sale_price !== null
                     ? (float) $product->sale_price
@@ -173,6 +194,8 @@ class PublicCatalogController extends Controller
                     'featured' => (bool) $product->featured,
                     // Pra ordenar por "mais recente" no catálogo
                     'created_at' => $product->created_at?->toIso8601String(),
+                    // 1 = mais vendido; null = fora do top 10 dos últimos 180 dias
+                    'best_seller_rank' => $bestSellerRank->get($product->id),
                     // Só os marketplaces que o lojista de fato preencheu — o botão
                     // "Comprar no Marketplace" some quando nenhum está configurado.
                     'marketplace_urls' => array_filter([
