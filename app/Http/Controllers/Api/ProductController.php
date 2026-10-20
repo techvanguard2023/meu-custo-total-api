@@ -396,6 +396,8 @@ class ProductController extends Controller
             'cost' => ['required', 'numeric', 'min:0'],
             // Ficha técnica: custo calculado pelos insumos + tempo de impressão (como no orçamento)
             'auto_cost' => ['sometimes', 'boolean'],
+            // Preço de venda = sugerido pela ficha (custo + margem); só vale junto com o custo pela ficha
+            'auto_price' => ['sometimes', 'boolean'],
             'print_time_minutes' => ['nullable', 'integer', 'min:0', 'max:100000'],
             'postprocess_minutes' => ['nullable', 'integer', 'min:0', 'max:100000'],
             'printer_id' => ['nullable', 'integer', Rule::exists('printers', 'id')->where('company_id', $companyId)],
@@ -445,6 +447,10 @@ class ProductController extends Controller
             'sku.unique' => 'Este código já está em uso por outro produto.',
             'variations.*.color.required_without_all' => 'Informe ao menos cor, tamanho ou peso na variação.',
         ]);
+
+        if (array_key_exists('auto_cost', $data) && ! $data['auto_cost']) {
+            $data['auto_price'] = false;
+        }
 
         if (array_key_exists('price_tiers', $data)) {
             $data['price_tiers'] = $this->normalizedTiers($data['price_tiers']);

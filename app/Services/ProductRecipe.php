@@ -105,8 +105,9 @@ class ProductRecipe
     }
 
     /**
-     * Recalcula o custo gravado no produto e nas variações, quando o custo é pela ficha.
-     * Variação sem insumo próprio nem tempo próprio fica sem custo (herda o do produto).
+     * Recalcula o custo gravado no produto e nas variações, quando o custo é pela ficha — e o
+     * preço de venda também, quando ele segue o preço sugerido (custo + margem).
+     * Variação sem insumo próprio nem tempo próprio fica sem custo e sem preço (herda os do produto).
      */
     public function refreshCost(Product $product): void
     {
@@ -117,13 +118,21 @@ class ProductRecipe
         $product->unsetRelation('recipeLines');
         $product->load('variations');
 
-        $product->forceFill(['cost' => $this->unitCost($product)['total']])->saveQuietly();
+        $base = $this->unitCost($product);
+        $product->forceFill(array_filter([
+            'cost' => $base['total'],
+            'sale_price' => $product->auto_price ? $base['suggested_price'] : null,
+        ], fn ($value) => $value !== null))->saveQuietly();
 
         $variationIdsWithLines = $product->recipeLines->whereNotNull('product_variation_id')->pluck('product_variation_id')->unique();
 
         foreach ($product->variations as $variation) {
-            $own = $variationIdsWithLines->contains($variation->id) || $variation->print_time_minutes !== null;
-            $variation->forceFill(['cost' => $own ? $this->unitCost($product, $variation)['total'] : null])->saveQuietly();
+            $hasOwnRecipe = $variationIdsWithLines->contains($variation->id) || $variation->print_time_minutes !== null;
+            $own = $hasOwnRecipe ? $this->unitCost($product, $variation) : null;
+            $variation->forceFill(array_merge(
+                ['cost' => $own['total'] ?? null],
+                $product->auto_price ? ['sale_price' => $own['suggested_price'] ?? null] : [],
+            ))->saveQuietly();
         }
     }
 

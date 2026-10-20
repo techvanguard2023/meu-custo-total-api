@@ -57,7 +57,8 @@ class SettingsController extends Controller
         $setting->update($data);
 
         // Produtos com custo pela ficha técnica usam energia, mão de obra e taxa de falha daqui
-        if ($setting->wasChanged(['electricity_rate_kwh', 'labor_hour_rate', 'default_failure_rate'])) {
+        // (e a margem, nos que seguem o preço sugerido)
+        if ($setting->wasChanged(['electricity_rate_kwh', 'labor_hour_rate', 'default_failure_rate', 'default_markup'])) {
             app(ProductRecipe::class)->refreshCompany($setting->company_id);
         }
 
