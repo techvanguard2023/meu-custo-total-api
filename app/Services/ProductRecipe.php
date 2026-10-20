@@ -77,14 +77,17 @@ class ProductRecipe
      */
     public function breakdown(Collection $lines, int $printTimeMinutes, int $postprocessMinutes, ?Printer $printer, ?Setting $setting): array
     {
+        // Preço sugerido = custo + margem padrão, igual à calculadora rápida e ao orçamento. O pedido
+        // mínimo fica de fora: ele vale pro pedido inteiro, não pra cada unidade do produto.
+        $unitSetting = $setting?->replicate()->forceFill(['minimum_order_price' => 0]);
+
         $calc = $this->calculator->calculate([
             'quantity' => 1,
             'print_time_minutes' => $printTimeMinutes,
             'setup_minutes' => 0,
             'postprocess_minutes' => $postprocessMinutes,
             'extra_costs' => 0,
-            'markup_percent' => 0,
-        ], $lines->map(fn ($l) => ['material' => $l['material'], 'weight' => $l['quantity']])->all(), $printer, $setting);
+        ], $lines->map(fn ($l) => ['material' => $l['material'], 'weight' => $l['quantity']])->all(), $printer, $unitSetting);
 
         return [
             'material_cost' => $calc['material_cost'],
@@ -95,6 +98,9 @@ class ProductRecipe
             'failure_rate_percent' => $calc['failure_rate_percent'],
             'failure_cost' => $calc['failure_cost'],
             'total' => $calc['print_total_cost'],
+            'markup_percent' => $calc['markup_percent'],
+            'suggested_price' => $calc['final_price'],
+            'suggested_profit' => $calc['profit_amount'],
         ];
     }
 
