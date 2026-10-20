@@ -14,7 +14,7 @@ class Product extends Model
     protected $fillable = [
         'company_id', 'name', 'slug', 'sku', 'description', 'category_id', 'image_path', 'model_3d_url',
         'marketplace_mercado_livre_url', 'marketplace_shopee_url', 'marketplace_amazon_url',
-        'cost', 'sale_price', 'stock_quantity', 'made_to_order', 'featured', 'discount_percent', 'price_tiers', 'active', 'show_in_catalog',
+        'cost', 'auto_cost', 'print_time_minutes', 'postprocess_minutes', 'printer_id', 'sale_price', 'stock_quantity', 'made_to_order', 'featured', 'discount_percent', 'price_tiers', 'active', 'show_in_catalog',
         'lead_time_days', 'lead_time_days_type',
     ];
 
@@ -23,6 +23,9 @@ class Product extends Model
         'show_in_catalog' => 'boolean',
         'made_to_order' => 'boolean',
         'featured' => 'boolean',
+        'auto_cost' => 'boolean',
+        'print_time_minutes' => 'integer',
+        'postprocess_minutes' => 'integer',
         'cost' => 'decimal:2',
         'sale_price' => 'decimal:2',
         'discount_percent' => 'decimal:2',
@@ -110,6 +113,17 @@ class Product extends Model
     public function variations(): HasMany
     {
         return $this->hasMany(ProductVariation::class)->orderBy('position')->orderBy('id');
+    }
+
+    /** Ficha técnica — linhas comuns (sem variação) e as específicas de cada variação. */
+    public function recipeLines(): HasMany
+    {
+        return $this->hasMany(ProductMaterial::class)->orderBy('id');
+    }
+
+    public function printer(): BelongsTo
+    {
+        return $this->belongsTo(Printer::class);
     }
 
     public function reviews(): HasMany

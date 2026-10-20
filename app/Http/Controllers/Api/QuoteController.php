@@ -7,12 +7,15 @@ use App\Http\Controllers\Concerns\FindsCustomerByPhone;
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\Material;
+use App\Models\MaterialMovement;
 use App\Models\Printer;
 use App\Models\Product;
 use App\Models\ProductVariation;
 use App\Models\Quote;
 use App\Models\SalesChannel;
+use App\Services\MaterialStock;
 use App\Services\ProductionStageNotifier;
+use App\Services\ProductRecipe;
 use App\Services\QuoteCalculatorService;
 use App\Services\QuotePdfNotifier;
 use Illuminate\Http\Request;
@@ -425,10 +428,13 @@ class QuoteController extends Controller
                     : $products->get($item->product_id);
 
                 // Só debita o que de fato existe agora — sob encomenda sem estoque
-                // suficiente não deixa o saldo negativo, o item ainda não foi produzido.
-                if ($target->stock_quantity >= $item->quantity) {
+                // suficiente não deixa o saldo negativo, o item ainda não foi produzido
+                // (os insumos dele baixam quando o pedido entrar em produção).
+                $fromStock = $target->stock_quantity >= $item->quantity;
+                if ($fromStock) {
                     $target->decrement('stock_quantity', $item->quantity);
                 }
+                $item->update(['stock_deducted' => $fromStock]);
             }
         }
 
@@ -466,7 +472,10 @@ class QuoteController extends Controller
                 }
 
                 $consumed = (float) $item->unit_weight * (int) $item->quantity;
-                $material->decrement('stock_quantity', $consumed);
+                MaterialStock::move($material, -$consumed, MaterialMovement::TYPE_QUOTE, [
+                    'quote_id' => $quote->id,
+                    'note' => "Orçamento #{$quote->id}",
+                ]);
             }
         }
 
@@ -621,6 +630,12 @@ class QuoteController extends Controller
                     ->keyBy('id');
 
                 foreach ($productItems as $item) {
+                    // Sob encomenda vendido sem estoque pronto não saiu do estoque — não há o que devolver.
+                    // (Vendas anteriores a esse controle ficam com null e seguem devolvendo como antes.)
+                    if ($item->stock_deducted === false) {
+                        continue;
+                    }
+
                     if ($item->product_variation_id) {
                         $variations->get($item->product_variation_id)?->increment('stock_quantity', $item->quantity);
                         continue;
@@ -648,9 +663,15 @@ class QuoteController extends Controller
                     }
 
                     $consumed = (float) $item->unit_weight * (int) $item->quantity;
-                    $material->increment('stock_quantity', $consumed);
+                    MaterialStock::move($material, $consumed, MaterialMovement::TYPE_QUOTE_RETURN, [
+                        'quote_id' => $quote->id,
+                        'note' => "Venda #{$quote->id} cancelada",
+                    ]);
                 }
             }
+
+            // Insumos da ficha técnica baixados quando o pedido entrou em produção
+            app(ProductRecipe::class)->restoreForQuote($quote);
 
             $quote->update([
                 'status' => Quote::STATUS_CANCELLED,

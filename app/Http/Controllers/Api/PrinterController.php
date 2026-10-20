@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Http\Controllers\Controller;
 use App\Models\Printer;
+use App\Services\ProductRecipe;
 use Illuminate\Http\Request;
 
 class PrinterController extends Controller
@@ -38,6 +39,11 @@ class PrinterController extends Controller
         $this->authorizeCompany($request, $printer);
         $printer->update($this->validated($request));
 
+        // Consumo e desgaste da impressora entram no custo dos produtos com ficha técnica
+        if ($printer->wasChanged(['power_watts', 'purchase_price', 'lifespan_hours', 'maintenance_percent'])) {
+            app(ProductRecipe::class)->refreshCompany($printer->company_id);
+        }
+
         return $printer;
     }
 
@@ -45,6 +51,9 @@ class PrinterController extends Controller
     {
         $this->authorizeCompany($request, $printer);
         $printer->delete();
+
+        // Produtos que usavam essa impressora na ficha técnica ficam sem energia/desgaste no custo
+        app(ProductRecipe::class)->refreshCompany($printer->company_id);
 
         return response()->noContent();
     }

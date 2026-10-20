@@ -18,12 +18,13 @@ class ProductVariation extends Model
 {
     protected $fillable = [
         'product_id', 'color', 'size', 'weight', 'sku',
-        'sale_price', 'cost', 'stock_quantity', 'active', 'position',
+        'sale_price', 'cost', 'print_time_minutes', 'stock_quantity', 'active', 'position',
     ];
 
     protected $casts = [
         'sale_price' => 'decimal:2',
         'cost' => 'decimal:2',
+        'print_time_minutes' => 'integer',
         'stock_quantity' => 'integer',
         'active' => 'boolean',
         'position' => 'integer',

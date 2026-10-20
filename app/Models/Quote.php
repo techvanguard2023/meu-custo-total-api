@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\ProductRecipe;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -151,6 +152,14 @@ class Quote extends Model
         static::updated(function (Quote $quote) {
             if ($quote->wasChanged('production_status')) {
                 $quote->recordStage();
+            }
+
+            // Peça sob encomenda vendida sem estoque pronto: os insumos da ficha técnica baixam
+            // quando o pedido entra em produção (ou pula direto pra pronto/entregue).
+            if (($quote->wasChanged('production_status') || $quote->wasChanged('status'))
+                && $quote->status === self::STATUS_APPROVED
+                && in_array($quote->production_status, ProductRecipe::CONSUMING_STAGES, true)) {
+                app(ProductRecipe::class)->consumeForQuote($quote);
             }
         });
     }

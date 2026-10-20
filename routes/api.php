@@ -64,6 +64,7 @@ Route::prefix('v1')->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::get('/me', [AuthController::class, 'me']);
 
+        Route::get('/materials/{material}/movements', [MaterialController::class, 'movements']);
         Route::apiResource('materials', MaterialController::class);
         Route::apiResource('printers', PrinterController::class);
         Route::get('/customers/duplicates', [CustomerController::class, 'duplicates']);
@@ -106,6 +107,8 @@ Route::prefix('v1')->group(function () {
         Route::post('/displays/{display}/reconcile', [DisplayController::class, 'reconcile']);
         Route::post('/displays/{display}/close', [DisplayController::class, 'close']);
         Route::get('/products/generate-sku', [ProductController::class, 'generateSku']);
+        Route::post('/products/cost-preview', [ProductController::class, 'costPreview']);
+        Route::post('/products/{product}/production', [ProductController::class, 'registerProduction']);
         Route::post('/products/{product}/images', [ProductController::class, 'uploadImages']);
         Route::delete('/products/{product}/images/{image}', [ProductController::class, 'destroyImage']);
         Route::patch('/products/{product}/images/reorder', [ProductController::class, 'reorderImages']);

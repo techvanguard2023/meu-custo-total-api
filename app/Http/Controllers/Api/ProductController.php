@@ -4,9 +4,14 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Http\Controllers\Controller;
+use App\Models\Material;
+use App\Models\MaterialMovement;
+use App\Models\Printer;
 use App\Models\Product;
 use App\Models\ProductCategory;
 use App\Models\ProductImage;
+use App\Models\ProductVariation;
+use App\Services\ProductRecipe;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -21,9 +26,12 @@ class ProductController extends Controller
     private const SKU_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
     private const SKU_LENGTH = 6;
 
+    /** O que a tela de produtos precisa além do padrão — a ficha técnica só aparece aqui, nunca no catálogo público. */
+    private const ADMIN_RELATIONS = ['collections:id,name', 'recipeLines.material.category'];
+
     public function index(Request $request)
     {
-        return $request->user()->company->products()->with('collections:id,name')->latest()->get();
+        return $request->user()->company->products()->with(self::ADMIN_RELATIONS)->latest()->get();
     }
 
     /** Sugere um código de produto único (dentro da empresa) pra preencher o campo SKU. */
@@ -80,29 +88,32 @@ class ProductController extends Controller
         $data = $this->validated($request, $request->user()->company_id);
         $variations = $data['variations'] ?? null;
         $collectionIds = $data['collection_ids'] ?? null;
-        unset($data['variations'], $data['collection_ids']);
+        $recipe = $data['recipe'] ?? null;
+        unset($data['variations'], $data['collection_ids'], $data['recipe']);
 
         // Gerado uma vez, aqui — nunca a partir do input do cliente, e nunca
         // regerado depois. Se mudasse junto do nome, todo link já compartilhado
         // (WhatsApp, Instagram) apontando pra esse produto quebraria.
         $data['slug'] = $this->generateUniqueSlug($data['name'], $request->user()->company_id);
 
-        $product = DB::transaction(function () use ($request, $data, $variations, $collectionIds) {
+        $product = DB::transaction(function () use ($request, $data, $variations, $collectionIds, $recipe) {
             $product = $request->user()->company->products()->create($data);
+            $this->syncRecipe($product, null, $recipe);
             $this->syncVariations($product, $variations);
             $this->syncCollections($product, $collectionIds);
+            app(ProductRecipe::class)->refreshCost($product);
 
             return $product;
         });
 
-        return response()->json($product->fresh(), 201);
+        return response()->json($product->fresh()->load(self::ADMIN_RELATIONS), 201);
     }
 
     public function show(Request $request, Product $product)
     {
         $this->authorizeCompany($request, $product);
 
-        return $product->load('collections:id,name');
+        return $product->load(self::ADMIN_RELATIONS);
     }
 
     public function update(Request $request, Product $product)
@@ -112,15 +123,18 @@ class ProductController extends Controller
         $data = $this->validated($request, $product->company_id, $product->id, $product);
         $variations = $data['variations'] ?? null;
         $collectionIds = $data['collection_ids'] ?? null;
-        unset($data['variations'], $data['collection_ids']);
+        $recipe = $data['recipe'] ?? null;
+        unset($data['variations'], $data['collection_ids'], $data['recipe']);
 
-        DB::transaction(function () use ($product, $data, $variations, $collectionIds) {
+        DB::transaction(function () use ($product, $data, $variations, $collectionIds, $recipe) {
             $product->update($data);
+            $this->syncRecipe($product, null, $recipe);
             $this->syncVariations($product, $variations);
             $this->syncCollections($product, $collectionIds);
+            app(ProductRecipe::class)->refreshCost($product);
         });
 
-        return $product->fresh()->load('collections:id,name');
+        return $product->fresh()->load(self::ADMIN_RELATIONS);
     }
 
     /**
@@ -165,6 +179,7 @@ class ProductController extends Controller
                 'sku' => $row['sku'] ?? null,
                 'sale_price' => $row['sale_price'] ?? null,
                 'cost' => $row['cost'] ?? null,
+                'print_time_minutes' => $row['print_time_minutes'] ?? null,
                 'stock_quantity' => (int) ($row['stock_quantity'] ?? 0),
                 'active' => $row['active'] ?? true,
                 'position' => $position,
@@ -176,14 +191,113 @@ class ProductController extends Controller
 
             if ($existing) {
                 $existing->update($payload);
-                $keptIds[] = $existing->id;
+                $variation = $existing;
             } else {
-                $keptIds[] = $product->variations()->create($payload)->id;
+                $variation = $product->variations()->create($payload);
             }
+
+            $keptIds[] = $variation->id;
+            $this->syncRecipe($product, $variation->id, $row['recipe'] ?? null);
         }
 
         $product->variations()->whereNotIn('id', $keptIds ?: [0])->delete();
         $product->unsetRelation('variations');
+    }
+
+    /**
+     * Substitui as linhas da ficha técnica — as comuns ($variationId nulo) ou as de uma variação.
+     * $lines === null significa "campo não enviado" — mantém como está.
+     */
+    private function syncRecipe(Product $product, ?int $variationId, ?array $lines): void
+    {
+        if ($lines === null) {
+            return;
+        }
+
+        $product->recipeLines()->where('product_variation_id', $variationId)->delete();
+
+        foreach ($lines as $line) {
+            $product->recipeLines()->create([
+                'product_variation_id' => $variationId,
+                'material_id' => $line['material_id'],
+                'quantity' => $line['quantity'],
+            ]);
+        }
+
+        $product->unsetRelation('recipeLines');
+    }
+
+    /**
+     * Custo de uma unidade pela ficha técnica, ainda não salva — a tela mostra enquanto o
+     * lojista monta a ficha. Mesmo cálculo do orçamento (insumos + energia + máquina + mão de obra + falha).
+     */
+    public function costPreview(Request $request, ProductRecipe $recipe)
+    {
+        $companyId = $request->user()->company_id;
+
+        $data = $request->validate([
+            'recipe' => ['present', 'array', 'max:30'],
+            'recipe.*.material_id' => ['required', 'integer', Rule::exists('materials', 'id')->where('company_id', $companyId)],
+            'recipe.*.quantity' => ['required', 'numeric', 'gt:0', 'max:100000'],
+            'print_time_minutes' => ['nullable', 'integer', 'min:0', 'max:100000'],
+            'postprocess_minutes' => ['nullable', 'integer', 'min:0', 'max:100000'],
+            'printer_id' => ['nullable', 'integer', Rule::exists('printers', 'id')->where('company_id', $companyId)],
+        ]);
+
+        $materials = Material::where('company_id', $companyId)->whereIn('id', collect($data['recipe'])->pluck('material_id'))->get()->keyBy('id');
+        $lines = collect($data['recipe'])
+            ->groupBy('material_id')
+            ->map(fn ($group, $materialId) => ['material' => $materials->get($materialId), 'quantity' => (float) $group->sum('quantity')])
+            ->values();
+
+        return response()->json($recipe->breakdown(
+            $lines,
+            (int) ($data['print_time_minutes'] ?? 0),
+            (int) ($data['postprocess_minutes'] ?? 0),
+            isset($data['printer_id']) ? Printer::find($data['printer_id']) : null,
+            $request->user()->company->setting,
+        ));
+    }
+
+    /**
+     * "Registrar produção": entram N unidades prontas no estoque do produto (ou da variação) e os
+     * insumos da ficha técnica baixam. Insumo insuficiente não bloqueia — o saldo fica negativo
+     * e a resposta lista o que faltou, pra tela avisar. Diferente de editar o estoque no
+     * cadastro, que é só correção de contagem e não mexe nos insumos.
+     */
+    public function registerProduction(Request $request, Product $product, ProductRecipe $recipe)
+    {
+        $this->authorizeCompany($request, $product);
+
+        $data = $request->validate([
+            'quantity' => ['required', 'integer', 'min:1', 'max:100000'],
+            'product_variation_id' => ['nullable', 'integer'],
+            'note' => ['nullable', 'string', 'max:200'],
+        ]);
+
+        $variationId = $data['product_variation_id'] ?? null;
+        abort_if($product->variations->isNotEmpty() && ! $variationId, 422, 'Escolha qual variação foi produzida.');
+
+        $shortages = DB::transaction(function () use ($product, $variationId, $data, $recipe) {
+            $variation = $variationId
+                ? ProductVariation::where('product_id', $product->id)->lockForUpdate()->find($variationId)
+                : null;
+            abort_if($variationId && ! $variation, 422, 'Variação não encontrada.');
+
+            $target = $variation ?? Product::lockForUpdate()->find($product->id);
+            $target->increment('stock_quantity', $data['quantity']);
+
+            $label = $variation ? "{$product->name} ({$variation->display_name})" : $product->name;
+
+            return $recipe->consume($product, $variation, (int) $data['quantity'], MaterialMovement::TYPE_PRODUCTION, [
+                'note' => trim("Produção: {$data['quantity']}× {$label}".(! empty($data['note']) ? " — {$data['note']}" : '')),
+            ]);
+        });
+
+        return response()->json([
+            'product' => $product->fresh()->load(self::ADMIN_RELATIONS),
+            'shortages' => $shortages,
+        ]);
     }
 
     public function destroy(Request $request, Product $product)
@@ -280,6 +394,14 @@ class ProductController extends Controller
             'marketplace_shopee_url' => ['nullable', 'url', 'max:2048'],
             'marketplace_amazon_url' => ['nullable', 'url', 'max:2048'],
             'cost' => ['required', 'numeric', 'min:0'],
+            // Ficha técnica: custo calculado pelos insumos + tempo de impressão (como no orçamento)
+            'auto_cost' => ['sometimes', 'boolean'],
+            'print_time_minutes' => ['nullable', 'integer', 'min:0', 'max:100000'],
+            'postprocess_minutes' => ['nullable', 'integer', 'min:0', 'max:100000'],
+            'printer_id' => ['nullable', 'integer', Rule::exists('printers', 'id')->where('company_id', $companyId)],
+            'recipe' => ['sometimes', 'array', 'max:30'],
+            'recipe.*.material_id' => ['required', 'integer', Rule::exists('materials', 'id')->where('company_id', $companyId)],
+            'recipe.*.quantity' => ['required', 'numeric', 'gt:0', 'max:100000'],
             'sale_price' => ['nullable', 'numeric', 'min:0'],
             'stock_quantity' => ['sometimes', 'integer', 'min:0'],
             'made_to_order' => ['sometimes', 'boolean'],
@@ -314,6 +436,11 @@ class ProductController extends Controller
             'variations.*.cost' => ['nullable', 'numeric', 'min:0'],
             'variations.*.stock_quantity' => ['sometimes', 'integer', 'min:0'],
             'variations.*.active' => ['sometimes', 'boolean'],
+            // Tempo próprio (em branco = o do produto) e insumos que somam aos comuns (ex: o filamento da cor)
+            'variations.*.print_time_minutes' => ['nullable', 'integer', 'min:0', 'max:100000'],
+            'variations.*.recipe' => ['sometimes', 'array', 'max:30'],
+            'variations.*.recipe.*.material_id' => ['required', 'integer', Rule::exists('materials', 'id')->where('company_id', $companyId)],
+            'variations.*.recipe.*.quantity' => ['required', 'numeric', 'gt:0', 'max:100000'],
         ], [
             'sku.unique' => 'Este código já está em uso por outro produto.',
             'variations.*.color.required_without_all' => 'Informe ao menos cor, tamanho ou peso na variação.',

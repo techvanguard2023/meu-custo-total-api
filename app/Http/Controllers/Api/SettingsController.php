@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Http\Controllers\Controller;
+use App\Services\ProductRecipe;
 use Illuminate\Http\Request;
 
 class SettingsController extends Controller
@@ -54,6 +55,11 @@ class SettingsController extends Controller
         }
 
         $setting->update($data);
+
+        // Produtos com custo pela ficha técnica usam energia, mão de obra e taxa de falha daqui
+        if ($setting->wasChanged(['electricity_rate_kwh', 'labor_hour_rate', 'default_failure_rate'])) {
+            app(ProductRecipe::class)->refreshCompany($setting->company_id);
+        }
 
         return $setting;
     }

@@ -36,4 +36,15 @@ class Material extends Model
     {
         return $this->belongsTo(MaterialCategory::class, 'material_category_id');
     }
+
+    public function movements(): HasMany
+    {
+        return $this->hasMany(MaterialMovement::class);
+    }
+
+    /** Unidade em que o estoque e a ficha técnica são medidos — mesmo critério da tela de insumos. */
+    public function unitLabel(): string
+    {
+        return $this->category?->pricing_unit === MaterialCategory::PRICING_WEIGHT ? 'g' : 'un';
+    }
 }

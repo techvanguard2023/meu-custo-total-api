@@ -4,7 +4,12 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Material;
+use App\Models\MaterialMovement;
+use App\Models\Product;
+use App\Services\MaterialStock;
+use App\Services\ProductRecipe;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class MaterialController extends Controller
@@ -19,6 +24,10 @@ class MaterialController extends Controller
         $data = $this->validated($request);
         $material = $request->user()->company->materials()->create($data);
 
+        if ($material->stock_quantity !== null && (float) $material->stock_quantity != 0) {
+            MaterialStock::record($material, (float) $material->stock_quantity, MaterialMovement::TYPE_ADJUSTMENT, ['note' => 'Estoque inicial']);
+        }
+
         return response()->json($material->load('category'), 201);
     }
 
@@ -32,15 +41,49 @@ class MaterialController extends Controller
     public function update(Request $request, Material $material)
     {
         $this->authorizeCompany($request, $material);
-        $material->update($this->validated($request));
+
+        DB::transaction(function () use ($request, $material) {
+            $before = $material->stock_quantity;
+            $material->update($this->validated($request));
+
+            // Edição manual do saldo (contagem, compra, perda) — entra no histórico como ajuste.
+            // Passar a não controlar o estoque (vazio) não gera movimentação.
+            if ($material->stock_quantity !== null && (float) $material->stock_quantity != (float) ($before ?? 0)) {
+                MaterialStock::record(
+                    $material,
+                    (float) $material->stock_quantity - (float) ($before ?? 0),
+                    MaterialMovement::TYPE_ADJUSTMENT,
+                    ['note' => $before === null ? 'Estoque inicial' : 'Ajuste manual'],
+                );
+            }
+
+            if ($material->wasChanged(['cost_per_g', 'material_category_id'])) {
+                app(ProductRecipe::class)->refreshForMaterial($material);
+            }
+        });
 
         return $material->load('category');
+    }
+
+    /** Histórico de entradas e saídas do insumo, mais recentes primeiro. */
+    public function movements(Request $request, Material $material)
+    {
+        $this->authorizeCompany($request, $material);
+
+        return $material->movements()
+            ->with(['product:id,name', 'variation:id,color,size,weight', 'user:id,name'])
+            ->orderByDesc('id')
+            ->paginate(30);
     }
 
     public function destroy(Request $request, Material $material)
     {
         $this->authorizeCompany($request, $material);
+
+        // A linha da ficha técnica some junto com o insumo — o custo dos produtos que o usavam muda.
+        $affected = Product::whereHas('recipeLines', fn ($q) => $q->where('material_id', $material->id))->get();
         $material->delete();
+        $affected->each(fn (Product $product) => app(ProductRecipe::class)->refreshCost($product));
 
         return response()->noContent();
     }

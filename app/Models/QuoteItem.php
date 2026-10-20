@@ -10,6 +10,7 @@ class QuoteItem extends Model
     protected $fillable = [
         'quote_id', 'product_id', 'product_variation_id', 'material_id', 'description', 'type',
         'quantity', 'unit_weight', 'unit_price', 'unit_cost', 'amount',
+        'stock_deducted', 'materials_consumed_at',
     ];
 
     protected $casts = [
@@ -18,6 +19,8 @@ class QuoteItem extends Model
         'unit_price' => 'decimal:2',
         'unit_cost' => 'decimal:2',
         'amount' => 'decimal:2',
+        'stock_deducted' => 'boolean',
+        'materials_consumed_at' => 'datetime',
     ];
 
     public function quote(): BelongsTo
