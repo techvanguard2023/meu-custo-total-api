@@ -116,6 +116,7 @@ Route::prefix('v1')->group(function () {
         Route::post('/displays/{display}/reconcile', [DisplayController::class, 'reconcile']);
         Route::post('/displays/{display}/close', [DisplayController::class, 'close']);
         Route::post('/displays/{display}/settle', [DisplayController::class, 'settle']);
+        Route::post('/displays/{display}/partner-link', [DisplayController::class, 'sendPartnerLink']);
         Route::get('/products/generate-sku', [ProductController::class, 'generateSku']);
         Route::post('/products/cost-preview', [ProductController::class, 'costPreview']);
         Route::post('/products/{product}/production', [ProductController::class, 'registerProduction']);

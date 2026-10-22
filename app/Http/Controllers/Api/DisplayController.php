@@ -14,6 +14,7 @@ use App\Models\Quote;
 use App\Models\QuoteItem;
 use App\Services\DisplaySales;
 use App\Services\QuoteCalculatorService;
+use App\Services\WhatsAppMessenger;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -90,6 +91,37 @@ class DisplayController extends Controller
         abort_if($count === 0, 422, 'Não há vendas do parceiro a receber neste expositor.');
 
         return $this->show($request, $display->fresh());
+    }
+
+    /**
+     * Manda o link da área do parceiro pro WhatsApp do parceiro, pelo WhatsApp conectado da loja.
+     * Se não der pra enviar, devolve a mensagem pronta (a tela copia pro lojista mandar por fora).
+     */
+    public function sendPartnerLink(Request $request, Display $display, WhatsAppMessenger $messenger)
+    {
+        $this->requirePro($request, 'Expositores');
+        $this->authorizeCompany($request, $display);
+        abort_if($display->status === Display::STATUS_ENDED, 422, 'Este expositor está encerrado.');
+        abort_unless($display->phone, 422, 'Cadastre o telefone (WhatsApp) do parceiro no expositor antes de enviar o link.');
+
+        $company = $request->user()->company;
+        $first = explode(' ', trim((string) $display->contact_name))[0];
+        $message = implode("\n", [
+            'Olá'.($first !== '' ? ", {$first}" : '')."! Aqui é da {$company->name}.",
+            '',
+            "Pela *área do parceiro* você acompanha a comissão que já ganhou com o expositor ({$display->name}), vê o que está nele e lança as vendas que fizer:",
+            $company->partnerPortalUrl(),
+            '',
+            'Para entrar, use este número de WhatsApp — o código de acesso chega aqui.',
+        ]);
+
+        $delivery = $messenger->deliver($company, $display->phone, $message);
+
+        return response()->json([
+            'message' => $message,
+            'sent' => $delivery['sent'],
+            'reason' => $delivery['reason'],
+        ]);
     }
 
     private function unsettledScope($query)
