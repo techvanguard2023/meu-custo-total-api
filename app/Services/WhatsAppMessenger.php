@@ -46,4 +46,31 @@ class WhatsAppMessenger
             return ['sent' => false, 'reason' => 'failed'];
         }
     }
+
+    /**
+     * Aviso pra própria loja, no número conectado ("mensagem para você") — mesmo jeito do aviso de
+     * atendimento humano. Falha aqui nunca derruba quem chamou.
+     */
+    public function notifyStore(Company $company, string $message): bool
+    {
+        if (! $company->isPro() || ! $company->whatsapp_session_name || ! $this->waha->isConfigured()) {
+            return false;
+        }
+
+        try {
+            $session = $this->waha->getSession($company->whatsapp_session_name);
+            $self = $session['me']['id'] ?? null;
+            if (($session['status'] ?? null) !== 'WORKING' || ! $self) {
+                return false;
+            }
+
+            $this->waha->sendText($company->whatsapp_session_name, $self, $message);
+
+            return true;
+        } catch (\Throwable $e) {
+            Log::warning("Aviso pra loja não enviado (empresa {$company->id}): ".$e->getMessage());
+
+            return false;
+        }
+    }
 }

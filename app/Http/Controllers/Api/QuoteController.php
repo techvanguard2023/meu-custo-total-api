@@ -13,6 +13,7 @@ use App\Models\Product;
 use App\Models\ProductVariation;
 use App\Models\Quote;
 use App\Models\SalesChannel;
+use App\Services\DisplaySales;
 use App\Services\MaterialStock;
 use App\Services\ProductionStageNotifier;
 use App\Services\ProductRecipe;
@@ -611,7 +612,12 @@ class QuoteController extends Controller
         ]);
 
         DB::transaction(function () use ($quote, $data) {
-            $productItems = $quote->items()
+            // Venda de expositor: as unidades saíram do expositor, não do estoque principal — voltam pra lá
+            if ($quote->display_id) {
+                app(DisplaySales::class)->returnToDisplay($quote);
+            }
+
+            $productItems = $quote->display_id ? collect() : $quote->items()
                 ->where('type', 'product')
                 ->whereNotNull('product_id')
                 ->get();

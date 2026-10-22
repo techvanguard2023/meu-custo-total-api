@@ -12,6 +12,7 @@ use App\Models\Product;
 use App\Models\ProductVariation;
 use App\Models\Quote;
 use App\Models\QuoteItem;
+use App\Services\DisplaySales;
 use App\Services\QuoteCalculatorService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -35,8 +36,13 @@ class DisplayController extends Controller
 
         return $request->user()->company->displays()
             ->withCount(['stockLines as products_count' => fn ($q) => $q->where('quantity_current', '>', 0)])
-            ->withSum('quotes', 'final_price')
-            ->withSum('quotes', 'profit_amount')
+            // Só vendas valendo — cancelada (ou desfeita pelo parceiro) não soma
+            ->withSum(['quotes' => fn ($q) => $q->where('status', Quote::STATUS_APPROVED)], 'final_price')
+            ->withSum(['quotes' => fn ($q) => $q->where('status', Quote::STATUS_APPROVED)], 'profit_amount')
+            // Vendas lançadas pelo parceiro ainda não repassadas — o card mostra "a receber"
+            ->withCount(['quotes as unsettled_count' => fn ($q) => $this->unsettledScope($q)])
+            ->withSum(['quotes as unsettled_total' => fn ($q) => $this->unsettledScope($q)], 'final_price')
+            ->withSum(['quotes as unsettled_commission' => fn ($q) => $this->unsettledScope($q)], 'display_commission_amount')
             ->latest()
             ->get();
     }
@@ -48,14 +54,49 @@ class DisplayController extends Controller
 
         $display->load([
             'stockLines' => fn ($q) => $q->where('quantity_current', '>', 0)->with(['product', 'variation']),
-            'quotes' => fn ($q) => $q->latest()->with('items.product'),
+            'quotes' => fn ($q) => $q->where('status', Quote::STATUS_APPROVED)->latest()->with('items.product'),
             'visits' => fn ($q) => $q->latest()->with(['quote.items', 'movements.product', 'movements.variation']),
         ]);
+
+        $unsettled = app(DisplaySales::class)->unsettled($display);
 
         return response()->json([
             ...$display->toArray(),
             ...$this->salesBreakdown($display),
+            'unsettled_count' => $unsettled->count(),
+            'to_settle_amount' => DisplaySales::amountToSettle($unsettled),
+            'partner_portal_url' => $request->user()->company->partnerPortalUrl(),
         ]);
+    }
+
+    /**
+     * "Recebi o repasse": as vendas lançadas pelo parceiro passam a constar como pagas — o
+     * parceiro repassou o valor delas menos a comissão dele.
+     */
+    public function settle(Request $request, Display $display)
+    {
+        $this->requirePro($request, 'Expositores');
+        $this->authorizeCompany($request, $display);
+
+        $count = DB::transaction(function () use ($display) {
+            $quotes = app(DisplaySales::class)->unsettled($display);
+            foreach ($quotes as $quote) {
+                $quote->update(['amount_paid' => $quote->final_price, 'paid_at' => now()]);
+            }
+
+            return $quotes->count();
+        });
+
+        abort_if($count === 0, 422, 'Não há vendas do parceiro a receber neste expositor.');
+
+        return $this->show($request, $display->fresh());
+    }
+
+    private function unsettledScope($query)
+    {
+        return $query->where('display_source', DisplaySales::SOURCE_PARTNER)
+            ->where('status', Quote::STATUS_APPROVED)
+            ->whereNull('paid_at');
     }
 
     public function store(Request $request)
@@ -250,10 +291,9 @@ class DisplayController extends Controller
         ], $this->photoMessages());
 
         $resolved = $this->resolveLines($request, $data['lines']);
-        $setting = $request->user()->company->setting;
         $photoPath = $this->storePhoto($request);
 
-        $quote = DB::transaction(function () use ($display, $resolved, $setting, $request, $photoPath) {
+        $quote = DB::transaction(function () use ($display, $resolved, $photoPath) {
             $productLines = [];
             $soldByLine = [];
 
@@ -286,47 +326,7 @@ class DisplayController extends Controller
 
             abort_if(count($productLines) === 0, 422, 'Nenhum produto vendido nesta conferência — nada a registrar.');
 
-            $breakdown = $this->calculator->calculate(
-                ['quantity' => 1],
-                [],
-                null,
-                $setting,
-                $productLines,
-                null,
-                $display
-            );
-
-            $quote = $request->user()->company->quotes()->create([
-                'name' => "Conferência — {$display->name}",
-                'quantity' => 1,
-                'print_time_minutes' => 0,
-                'material_weight_g' => 0,
-                'extra_costs' => 0,
-                'discount_amount' => 0,
-                'material_cost' => 0,
-                'energy_cost' => 0,
-                'depreciation_cost' => 0,
-                'labor_cost' => 0,
-                'failure_rate_percent' => 0,
-                'failure_cost' => 0,
-                'subtotal_cost' => 0,
-                'markup_percent' => $breakdown['markup_percent'],
-                'final_price' => $breakdown['final_price'],
-                'unit_price' => $breakdown['unit_price'],
-                'profit_amount' => $breakdown['profit_amount'],
-                'display_id' => $display->id,
-                'display_commission_amount' => $breakdown['display_commission_amount'],
-                'status' => Quote::STATUS_APPROVED,
-                'production_status' => Quote::PRODUCTION_DELIVERED,
-                'production_order' => (int) Quote::where('company_id', $request->user()->company_id)
-                    ->where('status', Quote::STATUS_APPROVED)
-                    ->where('production_status', Quote::PRODUCTION_DELIVERED)
-                    ->max('production_order') + 1,
-                'approved_at' => now(),
-                'is_courtesy' => false,
-                'amount_paid' => $breakdown['final_price'],
-                'paid_at' => now(),
-            ]);
+            $quote = app(DisplaySales::class)->createSale($display, $productLines, DisplaySales::SOURCE_RECONCILIATION);
 
             $visit = DisplayVisit::create([
                 'display_id' => $display->id,
@@ -334,19 +334,6 @@ class DisplayController extends Controller
                 'photo_path' => $photoPath,
                 'quote_id' => $quote->id,
             ]);
-
-            foreach ($breakdown['products'] as $productLine) {
-                $quote->items()->create([
-                    'product_id' => $productLine['product_id'],
-                    'product_variation_id' => $productLine['product_variation_id'] ?? null,
-                    'description' => $productLine['name'],
-                    'type' => 'product',
-                    'quantity' => $productLine['quantity'],
-                    'unit_price' => $productLine['unit_price'],
-                    'unit_cost' => $productLine['unit_cost'],
-                    'amount' => $productLine['line_total'],
-                ]);
-            }
 
             foreach ($soldByLine as $key => $line) {
                 $resolvedLine = $resolved[$key];

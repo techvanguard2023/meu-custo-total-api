@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CatalogController;
 use App\Http\Controllers\Api\CustomerController;
 use App\Http\Controllers\Api\CustomerPortalController;
+use App\Http\Controllers\Api\PartnerPortalController;
 use App\Http\Controllers\Api\IntegrationTokenController;
 use App\Http\Controllers\Api\WhatsAppConnectionController;
 use App\Http\Controllers\Api\WhatsAppHandoffController;
@@ -48,6 +49,14 @@ Route::prefix('v1')->group(function () {
     Route::post('/public/catalog/{token}/account/verify', [CustomerPortalController::class, 'verifyCode'])->middleware('throttle:15,1');
     Route::get('/public/catalog/{token}/account/orders', [CustomerPortalController::class, 'orders'])->middleware('throttle:60,1');
     Route::post('/public/catalog/{token}/account/logout', [CustomerPortalController::class, 'logout'])->middleware('throttle:30,1');
+
+    // Área do parceiro (loja com expositor): mesmo login por código no WhatsApp, escopo próprio
+    Route::post('/public/partner/{slug}/code', [PartnerPortalController::class, 'requestCode'])->middleware('throttle:5,1');
+    Route::post('/public/partner/{slug}/verify', [PartnerPortalController::class, 'verifyCode'])->middleware('throttle:15,1');
+    Route::get('/public/partner/{slug}', [PartnerPortalController::class, 'show'])->middleware('throttle:60,1');
+    Route::post('/public/partner/{slug}/displays/{display}/sales', [PartnerPortalController::class, 'storeSale'])->middleware('throttle:30,1');
+    Route::post('/public/partner/{slug}/sales/{quote}/undo', [PartnerPortalController::class, 'undoSale'])->middleware('throttle:30,1');
+    Route::post('/public/partner/{slug}/logout', [PartnerPortalController::class, 'logout'])->middleware('throttle:30,1');
 
     // Domínio próprio: o frontend, aberto num domínio de loja, descobre qual catálogo mostrar
     Route::get('/public/domain/{host}', [PublicCatalogController::class, 'byDomain'])
@@ -106,6 +115,7 @@ Route::prefix('v1')->group(function () {
         Route::post('/displays/{display}/retrieve', [DisplayController::class, 'retrieve']);
         Route::post('/displays/{display}/reconcile', [DisplayController::class, 'reconcile']);
         Route::post('/displays/{display}/close', [DisplayController::class, 'close']);
+        Route::post('/displays/{display}/settle', [DisplayController::class, 'settle']);
         Route::get('/products/generate-sku', [ProductController::class, 'generateSku']);
         Route::post('/products/cost-preview', [ProductController::class, 'costPreview']);
         Route::post('/products/{product}/production', [ProductController::class, 'registerProduction']);

@@ -205,6 +205,11 @@ class ProductRecipe
      */
     public function consumeForQuote(Quote $quote): void
     {
+        // Venda de expositor sai de peças já prontas que estão lá — nunca baixa insumo
+        if ($quote->display_id) {
+            return;
+        }
+
         $items = $quote->items()
             ->where('type', 'product')
             ->whereNotNull('product_id')

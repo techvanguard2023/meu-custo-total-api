@@ -87,6 +87,14 @@ class Company extends Model
             : $this->publicOrigin().'/catalog/'.$this->slug;
     }
 
+    /** Área do parceiro (lojas com expositor): no domínio próprio quando ativo (/parceiro), senão no app. */
+    public function partnerPortalUrl(): string
+    {
+        return $this->hasActiveCustomDomain()
+            ? $this->publicOrigin().'/parceiro'
+            : $this->publicOrigin().'/parceiro/'.$this->slug;
+    }
+
     /** Essencial ou Pro — os dois planos pagos, usado pelos recursos que não são exclusivos do topo. */
     public function hasEssential(): bool
     {

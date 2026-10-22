@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Company;
 use App\Models\Customer;
+use App\Models\Display;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -16,9 +17,15 @@ use Illuminate\Support\Str;
  *  - só envia código pra quem já é cliente da loja; a resposta da tela é sempre a mesma (não revela quem é);
  *  - no máximo 1 código por minuto e 5 por hora por telefone (e limite por IP nas rotas);
  *  - o código vale 10 minutos e aceita 5 tentativas.
+ *
+ * O mesmo login serve à área do parceiro (dono da loja que tem um expositor), com escopo próprio: o
+ * código só vai pro telefone cadastrado num expositor ativo, e a sessão de um escopo não vale no outro.
  */
 class CustomerPortal
 {
+    public const SCOPE_CUSTOMER = 'customer';
+    public const SCOPE_PARTNER = 'partner';
+
     public const CODE_MINUTES = 10;
     public const MAX_ATTEMPTS = 5;
     public const SESSION_DAYS = 30;
@@ -39,18 +46,43 @@ class CustomerPortal
             ->pluck('id');
     }
 
+    /** Expositores (não encerrados) cujo telefone de contato é esse — é o que o parceiro enxerga. */
+    public function partnerDisplays(Company $company, string $phoneKey)
+    {
+        return $company->displays()
+            ->where('status', '!=', Display::STATUS_ENDED)
+            ->whereNotNull('phone')
+            ->orderBy('name')
+            ->get()
+            ->filter(fn (Display $d) => Customer::phoneKey($d->phone) === $phoneKey)
+            ->values();
+    }
+
+    /** Telefone (como está cadastrado) pra onde mandar o código, ou null se o número não tem acesso. */
+    private function recipientPhone(Company $company, string $phoneKey, string $scope): ?string
+    {
+        if ($scope === self::SCOPE_PARTNER) {
+            return $this->partnerDisplays($company, $phoneKey)->first()?->phone;
+        }
+
+        $ids = $this->customerIds($company, $phoneKey);
+
+        return $ids->isEmpty() ? null : $company->customers()->whereIn('id', $ids)->orderBy('id')->value('phone');
+    }
+
     /**
-     * Envia o código. Retorna null quando deu certo OU quando o número não é cliente (mesma resposta pra
+     * Envia o código. Retorna null quando deu certo OU quando o número não tem acesso (mesma resposta pra
      * tela); retorna a mensagem de espera quando o telefone pediu códigos demais.
      */
-    public function requestCode(Company $company, string $phone, ?string $ip): ?string
+    public function requestCode(Company $company, string $phone, ?string $ip, string $scope = self::SCOPE_CUSTOMER): ?string
     {
         $phoneKey = Customer::phoneKey($phone);
-        if ($phoneKey === null || $this->customerIds($company, $phoneKey)->isEmpty()) {
+        $recipient = $phoneKey !== null ? $this->recipientPhone($company, $phoneKey, $scope) : null;
+        if ($recipient === null) {
             return null;
         }
 
-        $recent = DB::table('customer_login_codes')->where('company_id', $company->id)->where('phone_key', $phoneKey);
+        $recent = DB::table('customer_login_codes')->where('company_id', $company->id)->where('scope', $scope)->where('phone_key', $phoneKey);
         $last = (clone $recent)->max('created_at');
         if ($last && Carbon::parse($last)->gt(now()->subMinute())) {
             return 'Aguarde um minuto antes de pedir outro código.';
@@ -62,6 +94,7 @@ class CustomerPortal
         $code = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
         DB::table('customer_login_codes')->insert([
             'company_id' => $company->id,
+            'scope' => $scope,
             'phone_key' => $phoneKey,
             'code_hash' => $this->hashCode($code, $phoneKey),
             'attempts' => 0,
@@ -71,9 +104,9 @@ class CustomerPortal
             'updated_at' => now(),
         ]);
 
-        $customer = $company->customers()->whereIn('id', $this->customerIds($company, $phoneKey))->orderBy('id')->first();
-        $result = $this->messenger->deliver($company, $customer?->phone ?? $phone, implode("\n", [
-            "Seu código de acesso aos seus pedidos na {$company->name}: *{$code}*",
+        $what = $scope === self::SCOPE_PARTNER ? 'à área do parceiro' : 'aos seus pedidos';
+        $result = $this->messenger->deliver($company, $recipient, implode("\n", [
+            "Seu código de acesso {$what} na {$company->name}: *{$code}*",
             '',
             'Ele vale por '.self::CODE_MINUTES.' minutos. Se não foi você que pediu, é só ignorar esta mensagem.',
         ]));
@@ -87,7 +120,7 @@ class CustomerPortal
     }
 
     /** Confere o código; certo = cria a sessão e devolve o token (que só o navegador do cliente guarda). */
-    public function verifyCode(Company $company, string $phone, string $code): ?string
+    public function verifyCode(Company $company, string $phone, string $code, string $scope = self::SCOPE_CUSTOMER): ?string
     {
         $phoneKey = Customer::phoneKey($phone);
         if ($phoneKey === null) {
@@ -96,6 +129,7 @@ class CustomerPortal
 
         $row = DB::table('customer_login_codes')
             ->where('company_id', $company->id)
+            ->where('scope', $scope)
             ->where('phone_key', $phoneKey)
             ->where('expires_at', '>', now())
             ->orderByDesc('id')
@@ -112,11 +146,12 @@ class CustomerPortal
         }
 
         // Código usado: apaga os dessa pessoa (não dá pra reaproveitar)
-        DB::table('customer_login_codes')->where('company_id', $company->id)->where('phone_key', $phoneKey)->delete();
+        DB::table('customer_login_codes')->where('company_id', $company->id)->where('scope', $scope)->where('phone_key', $phoneKey)->delete();
 
         $token = Str::random(64);
         DB::table('customer_portal_sessions')->insert([
             'company_id' => $company->id,
+            'scope' => $scope,
             'phone_key' => $phoneKey,
             'token_hash' => hash('sha256', $token),
             'expires_at' => now()->addDays(self::SESSION_DAYS),
@@ -129,7 +164,7 @@ class CustomerPortal
     }
 
     /** Telefone (chave) da sessão, ou null se o token não vale (expirado, de outra loja, inexistente). */
-    public function phoneKeyForToken(Company $company, ?string $token): ?string
+    public function phoneKeyForToken(Company $company, ?string $token, string $scope = self::SCOPE_CUSTOMER): ?string
     {
         if (! $token) {
             return null;
@@ -137,6 +172,7 @@ class CustomerPortal
 
         $session = DB::table('customer_portal_sessions')
             ->where('company_id', $company->id)
+            ->where('scope', $scope)
             ->where('token_hash', hash('sha256', $token))
             ->where('expires_at', '>', now())
             ->first();
