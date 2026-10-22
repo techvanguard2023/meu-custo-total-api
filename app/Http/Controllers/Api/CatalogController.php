@@ -347,13 +347,50 @@ class CatalogController extends Controller
     }
 
     /* ---------- Domínio próprio (Pro) ---------- */
+    // Dois domínios independentes: o do catálogo (loja.empresa.com.br) e o da área do parceiro
+    // (parceiro.empresa.com.br). Mesma mecânica — cadastro na Vercel + CNAME no provedor do lojista.
 
     public function domainShow(Request $request, VercelDomains $vercel)
     {
-        return response()->json($this->domainPayload($request->user()->company, $vercel, refresh: true));
+        return response()->json($this->domainPayload($request->user()->company, $vercel, 'custom_domain', refresh: true));
     }
 
     public function domainUpdate(Request $request, VercelDomains $vercel)
+    {
+        return $this->saveDomain($request, $vercel, 'custom_domain');
+    }
+
+    public function domainVerify(Request $request, VercelDomains $vercel)
+    {
+        return $this->verifyDomain($request, $vercel, 'custom_domain');
+    }
+
+    public function domainDestroy(Request $request, VercelDomains $vercel)
+    {
+        return $this->destroyDomain($request, $vercel, 'custom_domain');
+    }
+
+    public function partnerDomainShow(Request $request, VercelDomains $vercel)
+    {
+        return response()->json($this->domainPayload($request->user()->company, $vercel, 'partner_domain', refresh: true));
+    }
+
+    public function partnerDomainUpdate(Request $request, VercelDomains $vercel)
+    {
+        return $this->saveDomain($request, $vercel, 'partner_domain');
+    }
+
+    public function partnerDomainVerify(Request $request, VercelDomains $vercel)
+    {
+        return $this->verifyDomain($request, $vercel, 'partner_domain');
+    }
+
+    public function partnerDomainDestroy(Request $request, VercelDomains $vercel)
+    {
+        return $this->destroyDomain($request, $vercel, 'partner_domain');
+    }
+
+    private function saveDomain(Request $request, VercelDomains $vercel, string $column)
     {
         $this->requirePro($request, 'Domínio próprio');
         abort_unless($vercel->isConfigured(), 503, 'Domínio próprio ainda não está disponível. Fale com o suporte.');
@@ -361,61 +398,67 @@ class CatalogController extends Controller
         $company = $request->user()->company;
         $domain = $this->normalizeDomain((string) $request->input('domain'));
 
+        // Um endereço serve a uma coisa só — nem de outra loja, nem o outro domínio desta mesma loja
+        $other = $column === 'custom_domain' ? 'partner_domain' : 'custom_domain';
+        abort_if($company->{$other} === $domain, 422, 'Esse endereço já está em uso no outro domínio da sua loja. Use um diferente.');
         abort_if(
-            Company::where('custom_domain', $domain)->where('id', '!=', $company->id)->exists(),
+            Company::where('id', '!=', $company->id)
+                ->where(fn ($q) => $q->where('custom_domain', $domain)->orWhere('partner_domain', $domain))
+                ->exists(),
             422,
             'Esse domínio já está em uso por outra loja.'
         );
 
-        if ($company->custom_domain && $company->custom_domain !== $domain) {
-            $vercel->remove($company->custom_domain);
+        if ($company->{$column} && $company->{$column} !== $domain) {
+            $vercel->remove($company->{$column});
         }
 
         $result = $vercel->add($domain);
         abort_unless($result['ok'], 422, $result['error']);
 
-        $company->forceFill(['custom_domain' => $domain, 'custom_domain_verified_at' => null])->save();
+        $company->forceFill([$column => $domain, "{$column}_verified_at" => null])->save();
 
-        return response()->json($this->domainPayload($company, $vercel, refresh: true));
+        return response()->json($this->domainPayload($company, $vercel, $column, refresh: true));
     }
 
     /** Reconsulta a Vercel (útil logo depois de configurar o DNS, que pode levar alguns minutos). */
-    public function domainVerify(Request $request, VercelDomains $vercel)
+    private function verifyDomain(Request $request, VercelDomains $vercel, string $column)
     {
         $this->requirePro($request, 'Domínio próprio');
 
         $company = $request->user()->company;
-        abort_unless($company->custom_domain, 422, 'Nenhum domínio cadastrado.');
+        abort_unless($company->{$column}, 422, 'Nenhum domínio cadastrado.');
 
-        $vercel->verify($company->custom_domain);
+        $vercel->verify($company->{$column});
 
-        return response()->json($this->domainPayload($company, $vercel, refresh: true));
+        return response()->json($this->domainPayload($company, $vercel, $column, refresh: true));
     }
 
-    public function domainDestroy(Request $request, VercelDomains $vercel)
+    private function destroyDomain(Request $request, VercelDomains $vercel, string $column)
     {
         $company = $request->user()->company;
 
-        if ($company->custom_domain) {
+        if ($company->{$column}) {
             if ($vercel->isConfigured()) {
-                $vercel->remove($company->custom_domain);
+                $vercel->remove($company->{$column});
             }
-            $company->forceFill(['custom_domain' => null, 'custom_domain_verified_at' => null])->save();
+            $company->forceFill([$column => null, "{$column}_verified_at" => null])->save();
         }
 
-        return response()->json($this->domainPayload($company, $vercel));
+        return response()->json($this->domainPayload($company, $vercel, $column));
     }
 
-    private function domainPayload(Company $company, VercelDomains $vercel, bool $refresh = false): array
+    private function domainPayload(Company $company, VercelDomains $vercel, string $column, bool $refresh = false): array
     {
-        $domain = $company->custom_domain;
+        $domain = $company->{$column};
+        $verifiedColumn = "{$column}_verified_at";
         $status = ['active' => false, 'verified' => false, 'misconfigured' => true, 'cname' => VercelDomains::DEFAULT_CNAME, 'verification' => []];
 
         if ($domain && $refresh && $vercel->isConfigured() && $company->isPro()) {
             try {
                 $status = $vercel->status($domain);
-                if ($status['active'] && ! $company->custom_domain_verified_at) {
-                    $company->forceFill(['custom_domain_verified_at' => now()])->save();
+                if ($status['active'] && ! $company->{$verifiedColumn}) {
+                    $company->forceFill([$verifiedColumn => now()])->save();
                 }
             } catch (\Throwable $e) {
                 // Vercel fora do ar: mostra o que já se sabe, sem quebrar a tela
@@ -427,11 +470,13 @@ class CatalogController extends Controller
         $registrable = count($labels) >= 3 && in_array($labels[count($labels) - 2], self::SECOND_LEVEL_LABELS, true) ? 3 : 2;
         $hostLabel = $domain ? implode('.', array_slice($labels, 0, max(1, count($labels) - $registrable))) : null;
 
+        $active = $column === 'partner_domain' ? $company->hasActivePartnerDomain() : $company->hasActiveCustomDomain();
+
         return [
             'available' => $vercel->isConfigured(),
             'domain' => $domain,
-            'status' => ! $domain ? 'none' : ($company->custom_domain_verified_at ? 'active' : 'pending'),
-            'url' => $company->hasActiveCustomDomain() ? $company->catalogUrl() : null,
+            'status' => ! $domain ? 'none' : ($company->{$verifiedColumn} ? 'active' : 'pending'),
+            'url' => $active ? ($column === 'partner_domain' ? $company->partnerPortalUrl() : $company->catalogUrl()) : null,
             'dns' => $domain ? ['type' => 'CNAME', 'name' => $hostLabel, 'value' => $status['cname']] : null,
             'verification' => $status['verification'],
         ];

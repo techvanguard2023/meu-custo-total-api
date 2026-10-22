@@ -15,14 +15,22 @@ class Company extends Model
     protected static function booted(): void
     {
         // Domínio próprio é do plano Pro: ao sair dele, o domínio é descadastrado da Vercel e o link padrão volta a valer.
+        // Vale pros dois: o do catálogo e o da área do parceiro.
         static::updated(function (Company $company) {
-            if ($company->wasChanged('plan') && $company->plan !== self::PLAN_PRO && $company->custom_domain) {
-                try {
-                    app(\App\Services\VercelDomains::class)->remove($company->custom_domain);
-                } catch (\Throwable $e) {
-                    \Illuminate\Support\Facades\Log::warning("Domínio próprio não removido da Vercel ({$company->custom_domain}): ".$e->getMessage());
+            if (! $company->wasChanged('plan') || $company->plan === self::PLAN_PRO) {
+                return;
+            }
+
+            foreach (['custom_domain', 'partner_domain'] as $column) {
+                if (! $company->{$column}) {
+                    continue;
                 }
-                $company->forceFill(['custom_domain' => null, 'custom_domain_verified_at' => null])->saveQuietly();
+                try {
+                    app(\App\Services\VercelDomains::class)->remove($company->{$column});
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::warning("Domínio próprio não removido da Vercel ({$company->{$column}}): ".$e->getMessage());
+                }
+                $company->forceFill([$column => null, "{$column}_verified_at" => null])->saveQuietly();
             }
         });
     }
@@ -38,6 +46,7 @@ class Company extends Model
         'catalog_tiktok_url', 'catalog_linkedin_url',
         'catalog_about', 'catalog_address', 'catalog_hours', 'catalog_email',
         'catalog_accent_color', 'custom_domain', 'custom_domain_verified_at',
+        'partner_domain', 'partner_domain_verified_at',
         'whatsapp_session_name', 'whatsapp_bot_enabled', 'whatsapp_webhook_url', 'whatsapp_webhook_events',
         'whatsapp_chat_filters', 'whatsapp_status_notifications', 'whatsapp_bot_prompt', 'whatsapp_payment_link', 'whatsapp_pix_key',
     ];
@@ -49,6 +58,7 @@ class Company extends Model
         'whatsapp_chat_filters' => 'array',
         'whatsapp_status_notifications' => 'array',
         'custom_domain_verified_at' => 'datetime',
+        'partner_domain_verified_at' => 'datetime',
     ];
 
     protected $appends = ['logo_url'];
@@ -87,9 +97,22 @@ class Company extends Model
             : $this->publicOrigin().'/catalog/'.$this->slug;
     }
 
-    /** Área do parceiro (lojas com expositor): no domínio próprio quando ativo (/parceiro), senão no app. */
+    /** Domínio próprio da área do parceiro em uso (parceiro.empresa.com.br): Pro, com o DNS já apontando certo. */
+    public function hasActivePartnerDomain(): bool
+    {
+        return $this->isPro() && $this->partner_domain && $this->partner_domain_verified_at !== null;
+    }
+
+    /**
+     * Área do parceiro (lojas com expositor): no domínio próprio dela quando ativo; senão em /parceiro do
+     * domínio do catálogo; senão no app.
+     */
     public function partnerPortalUrl(): string
     {
+        if ($this->hasActivePartnerDomain()) {
+            return 'https://'.$this->partner_domain;
+        }
+
         return $this->hasActiveCustomDomain()
             ? $this->publicOrigin().'/parceiro'
             : $this->publicOrigin().'/parceiro/'.$this->slug;

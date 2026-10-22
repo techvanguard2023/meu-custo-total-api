@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\CatalogVisit;
 use App\Models\Company;
+use App\Services\CustomerPortal;
 use App\Models\Quote;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -23,7 +24,20 @@ class PublicCatalogController extends Controller
      */
     public function byDomain(string $host)
     {
-        $company = Company::where('custom_domain', strtolower($host))->first();
+        $host = strtolower($host);
+
+        // Domínio da área do parceiro (parceiro.empresa.com.br): independe do catálogo estar ligado
+        $partner = Company::where('partner_domain', $host)->first();
+        if ($partner) {
+            abort_unless(CustomerPortal::isAvailable($partner), 404, 'Domínio não encontrado.');
+            if ($partner->partner_domain_verified_at === null) {
+                $partner->forceFill(['partner_domain_verified_at' => now()])->save();
+            }
+
+            return response()->json(['slug' => $partner->slug, 'kind' => 'partner']);
+        }
+
+        $company = Company::where('custom_domain', $host)->first();
 
         abort_unless($company && $company->isPro() && $company->hasCatalogActive(), 404, 'Domínio não encontrado.');
 
@@ -31,7 +45,7 @@ class PublicCatalogController extends Controller
             $company->forceFill(['custom_domain_verified_at' => now()])->save();
         }
 
-        return response()->json(['slug' => $company->slug]);
+        return response()->json(['slug' => $company->slug, 'kind' => 'catalog']);
     }
 
     public function show(Request $request, string $token)
