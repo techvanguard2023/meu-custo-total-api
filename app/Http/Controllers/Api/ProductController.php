@@ -27,7 +27,7 @@ class ProductController extends Controller
     private const SKU_LENGTH = 6;
 
     /** O que a tela de produtos precisa além do padrão — a ficha técnica só aparece aqui, nunca no catálogo público. */
-    private const ADMIN_RELATIONS = ['collections:id,name', 'recipeLines.material.category'];
+    private const ADMIN_RELATIONS = ['collections:id,name', 'recipeLines.material.category', 'activeDisplayLines.display:id,name'];
 
     public function index(Request $request)
     {

@@ -122,6 +122,17 @@ class Product extends Model
         return $this->hasMany(ProductMaterial::class)->orderBy('id');
     }
 
+    /**
+     * Unidades deste produto que estão agora em expositores ativos — o preço delas está na etiqueta
+     * do expositor, então mudar o preço aqui pede atenção (a tela de produtos avisa).
+     */
+    public function activeDisplayLines(): HasMany
+    {
+        return $this->hasMany(DisplayStockLine::class)
+            ->where('quantity_current', '>', 0)
+            ->whereHas('display', fn ($q) => $q->where('status', '!=', Display::STATUS_ENDED));
+    }
+
     public function printer(): BelongsTo
     {
         return $this->belongsTo(Printer::class);
