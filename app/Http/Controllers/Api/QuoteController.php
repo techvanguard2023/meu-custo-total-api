@@ -13,6 +13,7 @@ use App\Models\Product;
 use App\Models\ProductVariation;
 use App\Models\Quote;
 use App\Models\SalesChannel;
+use App\Services\Cashback;
 use App\Services\DisplaySales;
 use App\Services\MaterialStock;
 use App\Services\ProductionStageNotifier;
@@ -51,7 +52,7 @@ class QuoteController extends Controller
 
     public function preview(Request $request)
     {
-        $data = $this->validated($request);
+        $data = $this->withCashback($request, $this->validated($request));
         $materialLines = $this->resolveMaterials($request, $data);
         $printer = $this->resolvePrinter($request, $data);
         $productLines = $this->resolveProducts($request, $data);
@@ -74,7 +75,7 @@ class QuoteController extends Controller
             'orçamentos por mês'
         );
 
-        $data = $this->validated($request);
+        $data = $this->withCashback($request, $this->validated($request));
         $materialLines = $this->resolveMaterials($request, $data);
         $printer = $this->resolvePrinter($request, $data);
         $productLines = $this->resolveProducts($request, $data);
@@ -106,7 +107,7 @@ class QuoteController extends Controller
             'Orçamentos aprovados ou rejeitados não podem ser editados.'
         );
 
-        $data = $this->validated($request);
+        $data = $this->withCashback($request, $this->validated($request));
         $materialLines = $this->resolveMaterials($request, $data);
         $printer = $this->resolvePrinter($request, $data);
         $productLines = $this->resolveProducts($request, $data);
@@ -201,6 +202,7 @@ class QuoteController extends Controller
             'payment_method' => ['nullable', Rule::in(Quote::PAYMENT_METHODS)],
             'is_courtesy' => ['sometimes', 'boolean'],
             'discount_amount' => ['sometimes', 'numeric', 'min:0'],
+            'use_cashback' => ['sometimes', 'boolean'],
             'products' => ['required', 'array', 'min:1'],
             'products.*.product_id' => ['required', 'integer'],
             'products.*.product_variation_id' => ['sometimes', 'nullable', 'integer'],
@@ -209,6 +211,8 @@ class QuoteController extends Controller
 
         $isCourtesy = (bool) ($data['is_courtesy'] ?? false);
         abort_if(! $isCourtesy && empty($data['payment_method']), 422, 'Selecione a forma de pagamento.');
+        abort_if($isCourtesy && ! empty($data['use_cashback']), 422, 'Cortesia não usa cashback.');
+        $data = $this->withCashback($request, $data);
 
         $productLines = $this->resolveProducts($request, $data);
         $setting = $request->user()->company->setting;
@@ -230,7 +234,7 @@ class QuoteController extends Controller
             if ($backorderLines) {
                 // O desconto (se houver) já foi todo aplicado na venda entregue na
                 // hora acima — aqui sai pelo preço cheio, sem descontar de novo.
-                $backorderData = array_diff_key($data, ['discount_amount' => null]);
+                $backorderData = array_diff_key($data, ['discount_amount' => null, 'cashback_amount' => null]);
                 $created[] = $this->createQuickSaleQuote(
                     $request, $backorderData, $backorderLines, $setting, $isCourtesy,
                     Quote::PRODUCTION_PENDING, payFull: false,
@@ -480,6 +484,9 @@ class QuoteController extends Controller
             }
         }
 
+        // Cashback usado no pedido sai do saldo do cliente agora, na aprovação (não na criação do orçamento)
+        app(Cashback::class)->redeem($quote);
+
         $quote->update([
             'status' => Quote::STATUS_APPROVED,
             'production_status' => $productionStatus,
@@ -679,6 +686,9 @@ class QuoteController extends Controller
             // Insumos da ficha técnica baixados quando o pedido entrou em produção
             app(ProductRecipe::class)->restoreForQuote($quote);
 
+            // Devolve o cashback usado e estorna o que a venda gerou
+            app(Cashback::class)->reverseForCancelledQuote($quote);
+
             $quote->update([
                 'status' => Quote::STATUS_CANCELLED,
                 'cancelled_at' => now(),
@@ -804,6 +814,7 @@ class QuoteController extends Controller
             'postprocess_minutes' => (int) ($data['postprocess_minutes'] ?? 0),
             'extra_costs' => $breakdown['extra_costs'],
             'discount_amount' => $breakdown['discount_amount'],
+            'cashback_amount' => $breakdown['cashback_amount'] ?? 0,
             'material_id' => $primaryMaterial['material_id'] ?? null,
             'material_weight_g' => (float) ($primaryMaterial['weight'] ?? 0),
             'material_cost' => $breakdown['material_cost'],
@@ -964,6 +975,8 @@ class QuoteController extends Controller
             'failure_rate_percent' => ['nullable', 'numeric', 'min:0'],
             'markup_percent' => ['nullable', 'numeric', 'min:0'],
             'discount_amount' => ['sometimes', 'numeric', 'min:0'],
+            // Cliente paga parte com o saldo de cashback (Pro) — o valor sai do saldo dele
+            'use_cashback' => ['sometimes', 'boolean'],
             'delivery_days' => ['nullable', 'integer', 'min:1', 'max:365'],
             'model_urls' => ['sometimes', 'nullable', 'array', 'max:10'],
             'model_urls.*' => ['url', 'max:2048'],
@@ -976,6 +989,32 @@ class QuoteController extends Controller
             'products.*.product_variation_id' => ['sometimes', 'nullable', 'integer'],
             'products.*.quantity' => ['required', 'integer', 'min:1'],
         ]);
+    }
+
+    /**
+     * "Usar cashback": troca o pedido do formulário pelo saldo atual do cliente — o cálculo limita ao teto
+     * do pedido (X%, fora itens em promoção). Sem o pedido, o valor é sempre zero (nunca vem do cliente).
+     */
+    private function withCashback(Request $request, array $data): array
+    {
+        $use = (bool) ($data['use_cashback'] ?? false);
+        unset($data['use_cashback']);
+        $data['cashback_amount'] = 0;
+
+        if (! $use) {
+            return $data;
+        }
+
+        $company = $request->user()->company;
+        abort_unless(Cashback::isActive($company), 422, 'O cashback não está ligado (Configurações → Cashback, plano Pro).');
+        abort_if(! empty($data['sales_channel_id']), 422, 'Cashback não vale para vendas em marketplace.');
+
+        $customer = ! empty($data['customer_id']) ? $company->customers()->find($data['customer_id']) : null;
+        abort_unless($customer, 422, 'Escolha o cliente para usar o cashback dele.');
+
+        $data['cashback_amount'] = app(Cashback::class)->balance($customer);
+
+        return $data;
     }
 
     private function authorizeCompany(Request $request, Quote $quote): void

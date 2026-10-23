@@ -64,4 +64,25 @@ class SettingsController extends Controller
 
         return $setting;
     }
+
+    /** Regras do cashback (Pro): % por compra, teto de uso por pedido e validade dos créditos. */
+    public function updateCashback(Request $request)
+    {
+        $data = $request->validate([
+            'cashback_enabled' => ['required', 'boolean'],
+            'cashback_purchase_percent' => ['required', 'numeric', 'min:0', 'max:50'],
+            'cashback_max_redeem_percent' => ['required', 'numeric', 'min:1', 'max:100'],
+            'cashback_validity_months' => ['required', 'integer', 'min:1', 'max:36'],
+        ]);
+
+        // Desligar sempre pode (o saldo dos clientes fica guardado); ligar e mudar as regras é do Pro
+        if ($data['cashback_enabled']) {
+            abort_unless($this->isPro($request), 403, '"Cashback" é um recurso exclusivo do plano Pro. Assine para desbloquear.');
+        }
+
+        $setting = $request->user()->company->setting;
+        $setting->update($data);
+
+        return $setting;
+    }
 }

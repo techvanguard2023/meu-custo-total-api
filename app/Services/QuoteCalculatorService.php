@@ -190,6 +190,26 @@ class QuoteCalculatorService
             $finalPrice = (float) $setting->minimum_order_price;
         }
 
+        // Cashback do cliente (Pro): $data['cashback_amount'] é o saldo que ele quer usar. Cobre até X% do
+        // pedido e não vale para item já com desconto (promoção ou preço por quantidade) — "não soma".
+        // Fora de marketplace e expositor. O saldo em si é conferido por quem chama.
+        $cashbackRequested = max(0, (float) ($data['cashback_amount'] ?? 0));
+        $cashbackApplied = 0.0;
+        $cashbackMax = 0.0;
+        if ($cashbackRequested > 0 && $channel === null && $display === null) {
+            // Itens em promoção ou com desconto por quantidade/pedido não entram na base
+            $discountedLinesTotal = 0.0;
+            foreach ($pricedLines as $i => $l) {
+                if ($l['inPromotion'] || $productLinesOut[$i]['volume_applied']) {
+                    $discountedLinesTotal += $productLinesOut[$i]['line_total'];
+                }
+            }
+            $eligible = max(0, $finalPrice - $discountedLinesTotal);
+            $cashbackMax = round($eligible * (float) ($setting?->cashback_max_redeem_percent ?? 30) / 100, 2);
+            $cashbackApplied = round(min($cashbackRequested, $cashbackMax), 2);
+            $finalPrice = max(0, $finalPrice - $cashbackApplied);
+        }
+
         // Vendendo por um canal (Mercado Livre, Shopee...) que desconta comissão +
         // taxa fixa do valor recebido: o preço de tabela sobe o suficiente pra sobrar,
         // líquido, o mesmo que uma venda direta — a margem não muda, só o preço exibido.
@@ -237,6 +257,9 @@ class QuoteCalculatorService
             'order_discount_amount' => round($orderDiscountAmount, 2),
             'total_cost' => round($grandTotalCost, 2),
             'discount_amount' => round($discount, 2),
+            'cashback_amount' => round($cashbackApplied, 2),
+            // Teto do cashback neste pedido (X% do que não está em promoção) — a tela mostra "até R$ ..."
+            'cashback_max' => round($cashbackMax, 2),
             'markup_percent' => round((float) $markup, 2),
             'final_price' => round($finalPrice, 2),
             'quantity' => $quantity,

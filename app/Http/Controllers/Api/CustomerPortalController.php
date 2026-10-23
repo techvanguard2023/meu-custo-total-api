@@ -3,8 +3,10 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\CashbackEntry;
 use App\Models\Company;
 use App\Models\Quote;
+use App\Services\Cashback;
 use App\Services\CustomerPortal;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -81,7 +83,34 @@ class CustomerPortalController extends Controller
                 'pix_key' => $company->whatsapp_pix_key,
                 'payment_link' => $company->whatsapp_payment_link,
             ]),
+            'cashback' => $this->cashbackPayload($company, $customerIds),
         ]);
+    }
+
+    /** Saldo e extrato do cashback (só quando a loja tem o programa ligado). */
+    private function cashbackPayload(Company $company, Collection $customerIds): ?array
+    {
+        if (! Cashback::isActive($company)) {
+            return null;
+        }
+
+        $setting = $company->setting;
+        $next = CashbackEntry::whereIn('customer_id', $customerIds)
+            ->where('remaining', '>', 0)
+            ->where('expires_at', '>', now())
+            ->orderBy('expires_at')
+            ->first();
+
+        return [
+            'balance' => app(Cashback::class)->balanceForCustomers($customerIds),
+            'purchase_percent' => (float) $setting->cashback_purchase_percent,
+            'max_redeem_percent' => (float) $setting->cashback_max_redeem_percent,
+            'next_expiring' => $next ? ['amount' => (float) $next->remaining, 'expires_at' => $next->expires_at->toIso8601String()] : null,
+            'entries' => CashbackEntry::whereIn('customer_id', $customerIds)
+                ->latest('id')
+                ->limit(20)
+                ->get(['id', 'type', 'amount', 'expires_at', 'quote_id', 'note', 'created_at']),
+        ];
     }
 
     public function logout(Request $request, string $token)

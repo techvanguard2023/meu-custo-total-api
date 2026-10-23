@@ -80,6 +80,8 @@ Route::prefix('v1')->group(function () {
         Route::post('/customers/merge', [CustomerController::class, 'merge']);
         Route::get('/customers/{customer}/profile', [CustomerController::class, 'profile']);
         Route::post('/customers/{customer}/instagram-invite', [CustomerController::class, 'instagramInvite']);
+        Route::get('/customers/{customer}/cashback', [CustomerController::class, 'cashback']);
+        Route::post('/customers/{customer}/cashback/adjust', [CustomerController::class, 'adjustCashback']);
         Route::apiResource('customers', CustomerController::class);
         Route::get('/material-categories', [MaterialCategoryController::class, 'index']);
         Route::post('/material-categories', [MaterialCategoryController::class, 'store']);
@@ -163,6 +165,7 @@ Route::prefix('v1')->group(function () {
 
         Route::get('/settings', [SettingsController::class, 'show']);
         Route::put('/settings', [SettingsController::class, 'update']);
+        Route::put('/settings/cashback', [SettingsController::class, 'updateCashback']);
 
         Route::get('/catalog', [CatalogController::class, 'show']);
         Route::get('/catalog/analytics', [CatalogController::class, 'analytics']);

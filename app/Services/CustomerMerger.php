@@ -43,6 +43,7 @@ class CustomerMerger
                 }
 
                 Quote::where('customer_id', $extra->id)->update(['customer_id' => $keep->id]);
+                \App\Models\CashbackEntry::where('customer_id', $extra->id)->update(['customer_id' => $keep->id]);
                 QuoteRequest::where('customer_id', $extra->id)->update(['customer_id' => $keep->id]);
 
                 // Aproveita e-mail/observações que só o duplicado tinha.

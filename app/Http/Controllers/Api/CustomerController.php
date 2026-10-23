@@ -4,11 +4,13 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Http\Controllers\Controller;
+use App\Models\CashbackEntry;
 use App\Models\Customer;
 use App\Models\Quote;
 use App\Models\QuoteRequest;
 use App\Models\WhatsappHandoff;
 use App\Services\CustomerMerger;
+use App\Services\Cashback;
 use App\Services\WhatsAppMessenger;
 use Illuminate\Http\Request;
 
@@ -148,6 +150,53 @@ class CustomerController extends Controller
             'sent' => $delivery['sent'],
             'reason' => $delivery['reason'],
         ]);
+    }
+
+    /** Saldo e extrato de cashback do cliente (perfil do cliente). */
+    public function cashback(Request $request, Customer $customer, Cashback $cashback)
+    {
+        $this->authorizeCompany($request, $customer);
+
+        return response()->json($this->cashbackSummary($customer, $cashback));
+    }
+
+    /** Crédito ou débito manual (presente, correção). */
+    public function adjustCashback(Request $request, Customer $customer, Cashback $cashback)
+    {
+        $this->authorizeCompany($request, $customer);
+        abort_unless(Cashback::isActive($request->user()->company), 403, 'Ligue o cashback em Configurações (plano Pro) para ajustar o saldo.');
+
+        $data = $request->validate([
+            'amount' => ['required', 'numeric', 'not_in:0', 'min:-100000', 'max:100000'],
+            'note' => ['nullable', 'string', 'max:200'],
+        ]);
+
+        $cashback->adjust($customer, (float) $data['amount'], $data['note'] ?? null, $request->user()->id);
+
+        return response()->json($this->cashbackSummary($customer, $cashback));
+    }
+
+    private function cashbackSummary(Customer $customer, Cashback $cashback): array
+    {
+        $nextExpiring = CashbackEntry::where('customer_id', $customer->id)
+            ->where('remaining', '>', 0)
+            ->where('expires_at', '>', now())
+            ->orderBy('expires_at')
+            ->first();
+
+        return [
+            'active' => Cashback::isActive($customer->company),
+            'balance' => $cashback->balance($customer),
+            'next_expiring' => $nextExpiring ? [
+                'amount' => (float) $nextExpiring->remaining,
+                'expires_at' => $nextExpiring->expires_at->toIso8601String(),
+            ] : null,
+            'entries' => CashbackEntry::where('customer_id', $customer->id)
+                ->with('user:id,name')
+                ->latest('id')
+                ->limit(50)
+                ->get(['id', 'type', 'amount', 'expires_at', 'quote_id', 'user_id', 'note', 'created_at']),
+        ];
     }
 
     /** Grupos de cadastros repetidos da empresa (mesmo telefone em formatos diferentes). */
