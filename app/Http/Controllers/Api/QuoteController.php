@@ -288,6 +288,8 @@ class QuoteController extends Controller
             // às vezes erra o NÚMERO da variação; o nome, que está na conversa, tem prioridade.
             'products.*.variation_label' => ['sometimes', 'nullable', 'string', 'max:100'],
             'products.*.quantity' => ['required', 'integer', 'min:1'],
+            // Cliente pediu pra usar o saldo de cashback (Pro) — sem saldo ou fora do programa, é ignorado
+            'use_cashback' => ['sometimes', 'boolean'],
         ]);
 
         if (! empty($data['external_reference'])) {
@@ -315,19 +317,24 @@ class QuoteController extends Controller
             'sales_channel_id' => $data['sales_channel_id'] ?? null,
         ];
 
-        $quotes = DB::transaction(function () use ($request, $orderData, $setting, $readyLines, $backorderLines) {
+        // Cashback vai todo na primeira parte do pedido (a pronta, quando houver) — o teto de X% vale nela
+        $cashback = ! empty($data['use_cashback']) && empty($data['sales_channel_id']) && Cashback::isActive($request->user()->company)
+            ? app(Cashback::class)->balance($customer)
+            : 0.0;
+
+        $quotes = DB::transaction(function () use ($request, $orderData, $setting, $readyLines, $backorderLines, $cashback) {
             $created = [];
 
             if ($readyLines) {
                 $created[] = $this->createQuickSaleQuote(
-                    $request, $orderData, $readyLines, $setting, isCourtesy: false,
+                    $request, $orderData + ['cashback_amount' => $cashback], $readyLines, $setting, isCourtesy: false,
                     productionStatus: Quote::PRODUCTION_FINISHED, payFull: false,
                 );
             }
 
             if ($backorderLines) {
                 $created[] = $this->createQuickSaleQuote(
-                    $request, $orderData, $backorderLines, $setting, isCourtesy: false,
+                    $request, $orderData + ['cashback_amount' => $readyLines ? 0 : $cashback], $backorderLines, $setting, isCourtesy: false,
                     productionStatus: Quote::PRODUCTION_PENDING, payFull: false,
                 );
             }

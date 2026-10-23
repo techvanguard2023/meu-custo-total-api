@@ -20,11 +20,15 @@ class ReviewRequestNotifier
         $first = explode(' ', trim((string) $quote->customer?->name))[0];
         $store = $quote->company?->name ?: 'loja';
 
-        return implode("\n", [
+        $reward = app(Cashback::class)->reviewReward($quote);
+
+        return implode("\n", array_filter([
             'Olá'.($first !== '' ? ", {$first}" : '')."! Aqui é da {$store}. Gostaríamos de saber se ocorreu tudo certo com seu pedido de impressão 3D?",
             '',
             'Se puder, deixe sua avaliação — leva menos de um minuto e ajuda muito:',
             $url,
-        ]);
+            $reward > 0 ? '' : null,
+            $reward > 0 ? 'Avaliando, você ganha *R$ '.number_format($reward, 2, ',', '.').' de cashback* para a próxima compra 🎁' : null,
+        ], fn ($line) => $line !== null));
     }
 }

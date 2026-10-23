@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ProductReview;
 use App\Models\Quote;
+use App\Services\Cashback;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -49,9 +50,11 @@ class PublicReviewController extends Controller
             ]);
 
             $this->upsertReview($quote, null, $data['store_review']);
+            $earned = app(Cashback::class)->creditReview($quote);
 
             return response()->json([
                 'message' => 'Obrigado pela avaliação!',
+                'cashback_earned' => $earned,
                 ...$this->payload($quote->fresh()),
             ]);
         }
@@ -80,8 +83,11 @@ class PublicReviewController extends Controller
             }
         });
 
+        $earned = $quote->reviews()->exists() ? app(Cashback::class)->creditReview($quote) : 0.0;
+
         return response()->json([
             'message' => 'Obrigado pela avaliação!',
+            'cashback_earned' => $earned,
             ...$this->payload($quote->fresh()),
         ]);
     }
@@ -137,6 +143,8 @@ class PublicReviewController extends Controller
             'company_name' => $quote->company->name,
             'logo_url' => $quote->company->logo_url,
             'customer_name' => $quote->customer?->name,
+            // Quanto o cliente ganha de cashback ao avaliar (0 quando não ganha ou já ganhou)
+            'cashback_reward' => app(Cashback::class)->reviewReward($quote),
         ];
 
         $soldProductIds = $this->soldProductIds($quote);

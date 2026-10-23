@@ -113,6 +113,23 @@ class CustomerPortalController extends Controller
         ];
     }
 
+    /** Saldo de cashback de quem está logado — o carrinho do catálogo oferece usar. */
+    public function cashback(Request $request, string $token)
+    {
+        $company = $this->company($token);
+        $phoneKey = $this->portal->phoneKeyForToken($company, $request->header('X-Customer-Token'));
+        abort_unless($phoneKey, 401, 'Sua sessão expirou. Entre de novo com o código do WhatsApp.');
+
+        if (! Cashback::isActive($company)) {
+            return response()->json(['balance' => 0, 'max_redeem_percent' => 0]);
+        }
+
+        return response()->json([
+            'balance' => app(Cashback::class)->balanceForCustomers($this->portal->customerIds($company, $phoneKey)),
+            'max_redeem_percent' => (float) $company->setting->cashback_max_redeem_percent,
+        ]);
+    }
+
     public function logout(Request $request, string $token)
     {
         $this->portal->logout($this->company($token), $request->header('X-Customer-Token'));

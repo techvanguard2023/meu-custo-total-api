@@ -103,6 +103,45 @@ class Cashback
         });
     }
 
+    /** Quanto o cliente ganha por avaliar esta compra (0 = não ganha: programa desligado, pedido de fora ou já ganhou). */
+    public function reviewReward(Quote $quote): float
+    {
+        $company = $quote->company;
+        if (! $company || ! self::isActive($company)
+            || $quote->status !== Quote::STATUS_APPROVED
+            || ! self::eligibleOrder($quote)
+            || CashbackEntry::where('quote_id', $quote->id)->where('type', CashbackEntry::TYPE_REVIEW)->exists()) {
+            return 0.0;
+        }
+
+        return round((float) $quote->final_price * (float) $company->setting->cashback_review_percent / 100, 2);
+    }
+
+    /**
+     * Cliente avaliou a compra: credita o cashback da avaliação, uma vez por pedido — qualquer que seja a
+     * nota (o prêmio é por avaliar, nunca por elogiar). Devolve quanto creditou.
+     */
+    public function creditReview(Quote $quote): float
+    {
+        $amount = $this->reviewReward($quote);
+        if ($amount <= 0) {
+            return 0.0;
+        }
+
+        CashbackEntry::create([
+            'company_id' => $quote->company_id,
+            'customer_id' => $quote->customer_id,
+            'type' => CashbackEntry::TYPE_REVIEW,
+            'amount' => $amount,
+            'remaining' => $amount,
+            'expires_at' => now()->addMonths(max(1, (int) $quote->company->setting->cashback_validity_months)),
+            'quote_id' => $quote->id,
+            'note' => "Avaliação do pedido #{$quote->id}",
+        ]);
+
+        return $amount;
+    }
+
     /**
      * Venda aprovada com cashback: tira do saldo do cliente, consumindo primeiro o que vence antes.
      * Deve rodar dentro de uma transação.
@@ -177,7 +216,7 @@ class Cashback
         }
 
         $earned = CashbackEntry::where('quote_id', $quote->id)
-            ->where('type', CashbackEntry::TYPE_PURCHASE)
+            ->whereIn('type', [CashbackEntry::TYPE_PURCHASE, CashbackEntry::TYPE_REVIEW])
             ->where('remaining', '>', 0)
             ->lockForUpdate()
             ->get();

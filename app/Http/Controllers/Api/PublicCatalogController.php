@@ -268,6 +268,11 @@ class PublicCatalogController extends Controller
             'products' => $products,
             // "Meus pedidos" (login com código pelo WhatsApp) — só loja Pro com WhatsApp conectado
             'customer_area' => \App\Services\CustomerPortal::isAvailable($company),
+            // Cashback (Pro): o carrinho oferece usar o saldo de quem está logado em "Meus pedidos"
+            'cashback' => \App\Services\Cashback::isActive($company) ? [
+                'purchase_percent' => (float) $company->setting->cashback_purchase_percent,
+                'max_redeem_percent' => (float) $company->setting->cashback_max_redeem_percent,
+            ] : null,
             // Desconto por valor do pedido (Pro): não vale para itens que já estão em promoção
             'order_discount_tiers' => $volumePricing ? array_values($company->setting?->order_discount_tiers ?? []) : [],
             // Coleções de campanha (Natal, Réveillon...) ativas e com pelo menos um

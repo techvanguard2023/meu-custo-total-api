@@ -160,6 +160,34 @@ class CustomerController extends Controller
         return response()->json($this->cashbackSummary($customer, $cashback));
     }
 
+    /**
+     * Saldo de cashback pelo telefone — usado pelo bot do WhatsApp (token de integração) pra responder
+     * "quanto tenho de cashback?". Junta cadastros duplicados do mesmo telefone.
+     */
+    public function cashbackByPhone(Request $request, string $phone, Cashback $cashback)
+    {
+        $company = $request->user()->company;
+        $key = Customer::phoneKey($phone);
+
+        $ids = $key === null ? collect() : $company->customers()->whereNotNull('phone')->get(['id', 'phone'])
+            ->filter(fn (Customer $c) => Customer::phoneKey($c->phone) === $key)
+            ->pluck('id');
+
+        $next = $ids->isEmpty() ? null : CashbackEntry::whereIn('customer_id', $ids)
+            ->where('remaining', '>', 0)
+            ->where('expires_at', '>', now())
+            ->orderBy('expires_at')
+            ->first();
+
+        return response()->json([
+            'active' => Cashback::isActive($company),
+            'is_customer' => $ids->isNotEmpty(),
+            'balance' => $ids->isEmpty() ? 0 : $cashback->balanceForCustomers($ids),
+            'max_redeem_percent' => (float) ($company->setting?->cashback_max_redeem_percent ?? 0),
+            'next_expiring' => $next ? ['amount' => (float) $next->remaining, 'expires_at' => $next->expires_at->toDateString()] : null,
+        ]);
+    }
+
     /** Crédito ou débito manual (presente, correção). */
     public function adjustCashback(Request $request, Customer $customer, Cashback $cashback)
     {

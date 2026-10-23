@@ -71,6 +71,7 @@ class SettingsController extends Controller
         $data = $request->validate([
             'cashback_enabled' => ['required', 'boolean'],
             'cashback_purchase_percent' => ['required', 'numeric', 'min:0', 'max:50'],
+            'cashback_review_percent' => ['sometimes', 'numeric', 'min:0', 'max:50'],
             'cashback_max_redeem_percent' => ['required', 'numeric', 'min:1', 'max:100'],
             'cashback_validity_months' => ['required', 'integer', 'min:1', 'max:36'],
         ]);

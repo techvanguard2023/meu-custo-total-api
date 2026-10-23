@@ -49,6 +49,7 @@ Route::prefix('v1')->group(function () {
     Route::post('/public/catalog/{token}/account/verify', [CustomerPortalController::class, 'verifyCode'])->middleware('throttle:15,1');
     Route::get('/public/catalog/{token}/account/orders', [CustomerPortalController::class, 'orders'])->middleware('throttle:60,1');
     Route::post('/public/catalog/{token}/account/logout', [CustomerPortalController::class, 'logout'])->middleware('throttle:30,1');
+    Route::get('/public/catalog/{token}/account/cashback', [CustomerPortalController::class, 'cashback'])->middleware('throttle:60,1');
 
     // Área do parceiro (loja com expositor): mesmo login por código no WhatsApp, escopo próprio
     Route::post('/public/partner/{slug}/code', [PartnerPortalController::class, 'requestCode'])->middleware('throttle:5,1');
@@ -152,6 +153,8 @@ Route::prefix('v1')->group(function () {
         Route::get('/whatsapp/handoffs', [WhatsAppHandoffController::class, 'index']);
         Route::post('/whatsapp/handoffs', [WhatsAppHandoffController::class, 'store']);
         Route::get('/whatsapp/handoffs/{phone}', [WhatsAppHandoffController::class, 'show']);
+        // Bot: saldo de cashback de quem está conversando
+        Route::get('/whatsapp/cashback/{phone}', [CustomerController::class, 'cashbackByPhone']);
         Route::delete('/whatsapp/handoffs/{phone}', [WhatsAppHandoffController::class, 'destroy']);
         Route::patch('/quotes/{quote}/approve', [QuoteController::class, 'approve']);
         Route::patch('/quotes/{quote}/reject', [QuoteController::class, 'reject']);
