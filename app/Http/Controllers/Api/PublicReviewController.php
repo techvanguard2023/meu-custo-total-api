@@ -145,6 +145,7 @@ class PublicReviewController extends Controller
             'customer_name' => $quote->customer?->name,
             // Quanto o cliente ganha de cashback ao avaliar (0 quando não ganha ou já ganhou)
             'cashback_reward' => app(Cashback::class)->reviewReward($quote),
+            'cashback_terms_url' => Cashback::isActive($quote->company) ? rtrim($quote->company->catalogUrl(), '/').'/regras-cashback' : null,
         ];
 
         $soldProductIds = $this->soldProductIds($quote);
