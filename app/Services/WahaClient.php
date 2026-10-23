@@ -100,6 +100,17 @@ class WahaClient
         ])->throw();
     }
 
+    /** Manda uma imagem (bytes em base64) com legenda — ex: o cartão de cashback. */
+    public function sendImage(string $session, string $chatId, string $bytes, string $mimetype, string $filename, ?string $caption = null): void
+    {
+        $this->http()->timeout(20)->post('/sendImage', [
+            'session' => $session,
+            'chatId' => $chatId,
+            'file' => ['mimetype' => $mimetype, 'filename' => $filename, 'data' => base64_encode($bytes)],
+            'caption' => $caption,
+        ])->throw();
+    }
+
     /** Manda um arquivo (ex: PDF de orçamento) a partir de uma URL pública acessível pela WAHA. */
     public function sendFile(string $session, string $chatId, string $fileUrl, string $filename, ?string $caption = null): void
     {

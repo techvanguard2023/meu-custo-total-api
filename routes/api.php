@@ -174,6 +174,7 @@ Route::prefix('v1')->group(function () {
         Route::get('/settings/cashback/retroactive', [SettingsController::class, 'cashbackRetroactivePreview']);
         Route::post('/settings/cashback/retroactive', [SettingsController::class, 'cashbackRetroactiveApply']);
         Route::get('/settings/cashback/notifications', [SettingsController::class, 'cashbackNotificationsStatus']);
+        Route::get('/settings/cashback/image-preview', [SettingsController::class, 'cashbackImagePreview']);
 
         Route::get('/catalog', [CatalogController::class, 'show']);
         Route::get('/catalog/analytics', [CatalogController::class, 'analytics']);

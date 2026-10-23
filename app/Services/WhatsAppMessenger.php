@@ -48,6 +48,49 @@ class WhatsAppMessenger
     }
 
     /**
+     * Imagem com o texto como legenda. Se a imagem não passar (WAHA sem suporte, arquivo recusado),
+     * manda só o texto — o cliente recebe a mensagem de qualquer jeito.
+     *
+     * @return array{sent: bool, reason: string|null}
+     */
+    public function deliverImage(Company $company, ?string $phone, ?string $jpeg, string $caption): array
+    {
+        if ($jpeg === null) {
+            return $this->deliver($company, $phone, $caption);
+        }
+
+        $digits = preg_replace('/\D/', '', (string) $phone);
+        if ($digits === '') {
+            return ['sent' => false, 'reason' => 'no_phone'];
+        }
+        if (! $company->isPro() || ! $company->whatsapp_session_name || ! $this->waha->isConfigured()) {
+            return ['sent' => false, 'reason' => 'not_connected'];
+        }
+
+        try {
+            $session = $this->waha->getSession($company->whatsapp_session_name);
+            if (($session['status'] ?? null) !== 'WORKING') {
+                return ['sent' => false, 'reason' => 'not_connected'];
+            }
+
+            $this->waha->sendImage(
+                $company->whatsapp_session_name,
+                (strlen($digits) <= 11 ? '55'.$digits : $digits).'@c.us',
+                $jpeg,
+                'image/jpeg',
+                'cashback.jpg',
+                $caption
+            );
+
+            return ['sent' => true, 'reason' => null];
+        } catch (\Throwable $e) {
+            Log::warning("Imagem pelo WhatsApp não enviada, indo só o texto (empresa {$company->id}): ".$e->getMessage());
+
+            return $this->deliver($company, $phone, $caption);
+        }
+    }
+
+    /**
      * Aviso pra própria loja, no número conectado ("mensagem para você") — mesmo jeito do aviso de
      * atendimento humano. Falha aqui nunca derruba quem chamou.
      */

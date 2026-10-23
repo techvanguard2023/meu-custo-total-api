@@ -154,6 +154,8 @@ class CashbackRetroactive
                 'company_id' => $company->id,
                 'customer_id' => $customer->id,
                 'message' => $message,
+                'amount' => $credited[$customer->id],
+                'valid_until' => $expires,
                 'send_after' => $at,
                 'created_at' => now(),
                 'updated_at' => now(),
@@ -195,7 +197,11 @@ class CashbackRetroactive
                 continue;
             }
 
-            $result = $this->messenger->deliver($company, $customer->phone, $row->message);
+            // Com valor: vai o cartão "Você ganhou R$ X de cashback" com o texto de legenda
+            $image = $row->amount !== null
+                ? app(CashbackImage::class)->render($company, $customer->name, (float) $row->amount, \Illuminate\Support\Carbon::parse($row->valid_until ?? now()->addMonths(6))->timezone($company->timezone ?: 'America/Sao_Paulo'))
+                : null;
+            $result = $this->messenger->deliverImage($company, $customer->phone, $image, $row->message);
 
             if ($result['sent']) {
                 DB::table('cashback_notifications')->where('id', $row->id)->update(['sent_at' => now(), 'updated_at' => now()]);

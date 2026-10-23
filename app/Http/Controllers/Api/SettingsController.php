@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Http\Controllers\Controller;
 use App\Services\Cashback;
+use App\Services\CashbackImage;
 use App\Services\CashbackRetroactive;
 use App\Services\ProductRecipe;
 use Illuminate\Http\Request;
@@ -125,5 +126,15 @@ class SettingsController extends Controller
     public function cashbackNotificationsStatus(Request $request, CashbackRetroactive $retroactive)
     {
         return response()->json($retroactive->queueStatus($request->user()->company));
+    }
+
+    /** Prévia da imagem que vai junto do aviso de cashback (com valores de exemplo). */
+    public function cashbackImagePreview(Request $request, CashbackImage $image)
+    {
+        $company = $request->user()->company;
+        $jpeg = $image->render($company, 'Maria', 24.5, now()->addMonths(max(1, (int) $company->setting->cashback_validity_months)));
+        abort_unless($jpeg, 503, 'O servidor não conseguiu gerar a imagem.');
+
+        return response($jpeg, 200, ['Content-Type' => 'image/jpeg', 'Cache-Control' => 'no-store']);
     }
 }
