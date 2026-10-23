@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Http\Controllers\Controller;
+use App\Services\Cashback;
+use App\Services\CashbackRetroactive;
 use App\Services\ProductRecipe;
 use Illuminate\Http\Request;
 
@@ -86,5 +88,42 @@ class SettingsController extends Controller
         $setting->update($data);
 
         return $setting;
+    }
+
+    /** Prévia do cashback retroativo: quem recebe e quanto, sem gravar nada. */
+    public function cashbackRetroactivePreview(Request $request, CashbackRetroactive $retroactive)
+    {
+        $company = $request->user()->company;
+        abort_unless(Cashback::isActive($company), 422, 'Ligue o cashback (plano Pro) antes de creditar os clientes atuais.');
+
+        $data = $request->validate(['months' => ['required', 'integer', 'min:1', 'max:24']]);
+
+        return response()->json([
+            ...$retroactive->preview($company, (int) $data['months']),
+            'queue' => $retroactive->queueStatus($company),
+        ]);
+    }
+
+    /** Credita o cashback retroativo e, se pedido, enfileira os avisos pelo WhatsApp (um por minuto). */
+    public function cashbackRetroactiveApply(Request $request, CashbackRetroactive $retroactive)
+    {
+        $company = $request->user()->company;
+        abort_unless(Cashback::isActive($company), 422, 'Ligue o cashback (plano Pro) antes de creditar os clientes atuais.');
+
+        $data = $request->validate([
+            'months' => ['required', 'integer', 'min:1', 'max:24'],
+            'notify' => ['sometimes', 'boolean'],
+        ]);
+
+        $result = $retroactive->apply($company, (int) $data['months'], (bool) ($data['notify'] ?? false));
+        abort_if($result['customers_count'] === 0, 422, 'Nenhuma compra desse período ainda sem cashback.');
+
+        return response()->json([...$result, 'queue' => $retroactive->queueStatus($company)]);
+    }
+
+    /** Andamento da fila de avisos de cashback. */
+    public function cashbackNotificationsStatus(Request $request, CashbackRetroactive $retroactive)
+    {
+        return response()->json($retroactive->queueStatus($request->user()->company));
     }
 }

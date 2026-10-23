@@ -17,3 +17,6 @@ Schedule::command('plan:sync')->everyFifteenMinutes();
 
 // Cashback: o saldo já ignora crédito vencido; isto só registra o vencimento no extrato do cliente
 Schedule::command('cashback:expire')->dailyAt('03:30');
+
+// Avisos de cashback em massa (crédito retroativo): um por loja a cada minuto, pra não arriscar o WhatsApp
+Schedule::command('cashback:send-notifications')->everyMinute()->withoutOverlapping();

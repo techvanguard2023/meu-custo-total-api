@@ -171,6 +171,9 @@ Route::prefix('v1')->group(function () {
         Route::get('/settings', [SettingsController::class, 'show']);
         Route::put('/settings', [SettingsController::class, 'update']);
         Route::put('/settings/cashback', [SettingsController::class, 'updateCashback']);
+        Route::get('/settings/cashback/retroactive', [SettingsController::class, 'cashbackRetroactivePreview']);
+        Route::post('/settings/cashback/retroactive', [SettingsController::class, 'cashbackRetroactiveApply']);
+        Route::get('/settings/cashback/notifications', [SettingsController::class, 'cashbackNotificationsStatus']);
 
         Route::get('/catalog', [CatalogController::class, 'show']);
         Route::get('/catalog/analytics', [CatalogController::class, 'analytics']);
