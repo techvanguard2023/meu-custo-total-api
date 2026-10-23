@@ -13,6 +13,7 @@ use App\Models\ProductVariation;
 use App\Models\Quote;
 use App\Models\QuoteItem;
 use App\Services\DisplaySales;
+use App\Services\PartnerInviteImage;
 use App\Services\QuoteCalculatorService;
 use App\Services\WhatsAppMessenger;
 use Illuminate\Http\Request;
@@ -115,7 +116,10 @@ class DisplayController extends Controller
             'Para entrar, use este número de WhatsApp — o código de acesso chega aqui.',
         ]);
 
-        $delivery = $messenger->deliver($company, $display->phone, $message);
+        // Vai com o cartão "Sua área de parceiro está pronta!" (com a comissão já ganha, se houver); o texto é a legenda
+        $commission = (float) $display->quotes()->where('status', Quote::STATUS_APPROVED)->sum('display_commission_amount');
+        $image = app(PartnerInviteImage::class)->render($company, (string) $display->contact_name, $display->name, $commission);
+        $delivery = $messenger->deliverImage($company, $display->phone, $image, $message);
 
         return response()->json([
             'message' => $message,
