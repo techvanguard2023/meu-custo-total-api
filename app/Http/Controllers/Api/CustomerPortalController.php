@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\CashbackEntry;
 use App\Models\Company;
+use App\Models\Customer;
 use App\Models\Quote;
 use App\Services\Cashback;
 use App\Services\CustomerPortal;
@@ -101,7 +102,15 @@ class CustomerPortalController extends Controller
             ->orderBy('expires_at')
             ->first();
 
+        // Link de indicação: do cadastro mais antigo desse telefone
+        $owner = $company->customers()->whereIn('id', $customerIds)->orderBy('id')->first();
+
         return [
+            'referral' => $owner ? [
+                'link' => app(Cashback::class)->referralLink($owner),
+                'percent' => (float) $setting->cashback_referral_percent,
+                'rewarded_count' => Customer::whereIn('referred_by_customer_id', $customerIds)->whereNotNull('referral_rewarded_at')->count(),
+            ] : null,
             'balance' => app(Cashback::class)->balanceForCustomers($customerIds),
             'purchase_percent' => (float) $setting->cashback_purchase_percent,
             'max_redeem_percent' => (float) $setting->cashback_max_redeem_percent,
@@ -111,6 +120,22 @@ class CustomerPortalController extends Controller
                 ->limit(20)
                 ->get(['id', 'type', 'amount', 'expires_at', 'quote_id', 'note', 'created_at']),
         ];
+    }
+
+    /** Quem indicou (primeiro nome) — o catálogo mostra "Você foi indicado por ..." ao abrir pelo link. */
+    public function referral(string $token, string $code)
+    {
+        $company = Company::where('slug', $token)->orWhere('catalog_token', $token)->first();
+        abort_unless($company && $company->hasCatalogActive() && Cashback::isActive($company), 404, 'Indicação não encontrada.');
+
+        $referrer = app(Cashback::class)->findReferrer($company, $code);
+        abort_unless($referrer, 404, 'Indicação não encontrada.');
+
+        return response()->json([
+            'code' => $referrer->referral_code,
+            'referrer_name' => explode(' ', trim($referrer->name))[0],
+            'percent' => (float) $company->setting->cashback_referral_percent,
+        ]);
     }
 
     /** Saldo de cashback de quem está logado — o carrinho do catálogo oferece usar. */

@@ -9,6 +9,7 @@ use App\Models\Quote;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 /**
  * Cashback do cliente (Pro): uma parte do que ele paga volta em crédito para a próxima compra.
@@ -93,14 +94,138 @@ class Cashback
             'note' => "Compra #{$quote->id}",
         ]);
 
-        // Avisa o cliente pelo WhatsApp da loja — depois de gravar tudo, e sem nunca derrubar a venda
-        DB::afterCommit(function () use ($company, $quote, $entry) {
+        $referral = $this->rewardReferral($quote);
+
+        // Avisa o cliente (e quem indicou) pelo WhatsApp da loja — depois de gravar tudo, sem nunca derrubar a venda
+        DB::afterCommit(function () use ($company, $quote, $entry, $referral) {
             try {
                 $this->notifyCredit($company, $quote->customer, $entry);
+                if ($referral) {
+                    $this->notifyReferrer($company, $referral, $quote->customer);
+                }
             } catch (\Throwable $e) {
                 Log::warning("Aviso de cashback não enviado (pedido {$quote->id}): ".$e->getMessage());
             }
         });
+    }
+
+    /* ---------- Indicação ---------- */
+
+    /** Código do link de indicação do cliente (gerado na primeira vez). Sem letras/números ambíguos. */
+    public function referralCode(Customer $customer): string
+    {
+        if ($customer->referral_code) {
+            return $customer->referral_code;
+        }
+
+        $first = Str::upper(Str::ascii(explode(' ', trim($customer->name))[0] ?? ''));
+        $prefix = substr(preg_replace('/[^A-Z]/', '', $first), 0, 6) ?: 'AMIGO';
+
+        for ($attempt = 0; $attempt < 20; $attempt++) {
+            $code = $prefix.random_int(10, 99).($attempt > 5 ? random_int(0, 9) : '');
+            if (! Customer::where('company_id', $customer->company_id)->where('referral_code', $code)->exists()) {
+                $customer->forceFill(['referral_code' => $code])->saveQuietly();
+
+                return $code;
+            }
+        }
+
+        throw new \RuntimeException('Não foi possível gerar o código de indicação.');
+    }
+
+    /** Link do catálogo com o código de indicação do cliente. */
+    public function referralLink(Customer $customer): string
+    {
+        return $customer->company->catalogUrl().'?indicacao='.$this->referralCode($customer);
+    }
+
+    public function findReferrer(Company $company, ?string $code): ?Customer
+    {
+        $code = Str::upper(trim((string) $code));
+
+        return $code === '' ? null : $company->customers()->where('referral_code', $code)->first();
+    }
+
+    /** Já comprou de verdade (venda entregue e paga, não cancelada)? Indicação só vale pra cliente novo. */
+    public function hasCompletedPurchase(Customer $customer): bool
+    {
+        return Quote::where('customer_id', $customer->id)
+            ->where('status', Quote::STATUS_APPROVED)
+            ->where('production_status', Quote::PRODUCTION_DELIVERED)
+            ->whereNotNull('paid_at')
+            ->exists();
+    }
+
+    /**
+     * Liga o cliente a quem indicou. Recusa (devolve o motivo) quando: programa desligado, código de
+     * outra pessoa inexistente, o próprio cliente ou o mesmo telefone, já indicado, ou já é cliente
+     * que comprou. Devolve null quando deu certo.
+     */
+    public function attachReferral(Customer $customer, ?Customer $referrer): ?string
+    {
+        if (! self::isActive($customer->company)) {
+            return 'O cashback não está ligado.';
+        }
+        if (! $referrer || $referrer->company_id !== $customer->company_id) {
+            return 'Indicação não encontrada.';
+        }
+        if ($referrer->id === $customer->id || Customer::phoneKey($referrer->phone) === Customer::phoneKey($customer->phone)) {
+            return 'Ninguém pode indicar a si mesmo.';
+        }
+        if ($customer->referred_by_customer_id || $customer->referral_rewarded_at) {
+            return 'Este cliente já tem uma indicação registrada.';
+        }
+        if ($this->hasCompletedPurchase($customer)) {
+            return 'A indicação só vale para quem ainda não comprou na loja.';
+        }
+
+        $customer->forceFill(['referred_by_customer_id' => $referrer->id])->save();
+
+        return null;
+    }
+
+    /**
+     * 1ª compra (entregue e paga) de quem foi indicado: credita quem indicou e dá o bônus de boas-vindas
+     * ao indicado — uma vez só. Devolve o crédito de quem indicou (pra avisar), ou null.
+     */
+    private function rewardReferral(Quote $quote): ?CashbackEntry
+    {
+        $customer = $quote->customer;
+        if (! $customer?->referred_by_customer_id || $customer->referral_rewarded_at) {
+            return null;
+        }
+
+        $referrer = $customer->referrer;
+        $setting = $quote->company->setting;
+        $amount = round((float) $quote->final_price * (float) $setting->cashback_referral_percent / 100, 2);
+        if (! $referrer || $amount <= 0) {
+            return null;
+        }
+
+        $expires = now()->addMonths(max(1, (int) $setting->cashback_validity_months));
+        $customer->forceFill(['referral_rewarded_at' => now()])->save();
+
+        CashbackEntry::create([
+            'company_id' => $quote->company_id,
+            'customer_id' => $customer->id,
+            'type' => CashbackEntry::TYPE_REFERRAL_WELCOME,
+            'amount' => $amount,
+            'remaining' => $amount,
+            'expires_at' => $expires,
+            'quote_id' => $quote->id,
+            'note' => 'Bônus de boas-vindas (indicação de '.explode(' ', trim($referrer->name))[0].')',
+        ]);
+
+        return CashbackEntry::create([
+            'company_id' => $quote->company_id,
+            'customer_id' => $referrer->id,
+            'type' => CashbackEntry::TYPE_REFERRAL,
+            'amount' => $amount,
+            'remaining' => $amount,
+            'expires_at' => $expires,
+            'quote_id' => $quote->id,
+            'note' => 'Indicação: '.explode(' ', trim($customer->name))[0].' fez a primeira compra',
+        ]);
     }
 
     /** Quanto o cliente ganha por avaliar esta compra (0 = não ganha: programa desligado, pedido de fora ou já ganhou). */
@@ -216,10 +341,15 @@ class Cashback
         }
 
         $earned = CashbackEntry::where('quote_id', $quote->id)
-            ->whereIn('type', [CashbackEntry::TYPE_PURCHASE, CashbackEntry::TYPE_REVIEW])
+            ->whereIn('type', [CashbackEntry::TYPE_PURCHASE, CashbackEntry::TYPE_REVIEW, CashbackEntry::TYPE_REFERRAL, CashbackEntry::TYPE_REFERRAL_WELCOME])
             ->where('remaining', '>', 0)
             ->lockForUpdate()
             ->get();
+
+        // A 1ª compra que premiou a indicação foi cancelada: a próxima compra do indicado pode premiar de novo
+        if (CashbackEntry::where('quote_id', $quote->id)->where('type', CashbackEntry::TYPE_REFERRAL)->exists()) {
+            $quote->customer?->forceFill(['referral_rewarded_at' => null])->save();
+        }
 
         foreach ($earned as $credit) {
             $left = (float) $credit->remaining;
@@ -314,6 +444,25 @@ class Cashback
             });
 
         return $count;
+    }
+
+    private function notifyReferrer(Company $company, CashbackEntry $entry, ?Customer $referred): void
+    {
+        $referrer = $entry->customer;
+        if (! $referrer?->phone) {
+            return;
+        }
+
+        $first = explode(' ', trim($referrer->name))[0];
+        $friend = $referred ? explode(' ', trim($referred->name))[0] : 'Sua indicação';
+        $money = fn (float $v) => 'R$ '.number_format($v, 2, ',', '.');
+
+        $this->messenger->deliver($company, $referrer->phone, implode("\n", [
+            'Oi'.($first !== '' ? ", {$first}" : '')."! {$friend} fez a primeira compra na {$company->name} pela sua indicação 🎉",
+            '',
+            "Você ganhou *{$money((float) $entry->amount)} de cashback*. Seu saldo agora é de {$money($this->balance($referrer))}.",
+            'Continue indicando: '.$this->referralLink($referrer),
+        ]));
     }
 
     private function notifyCredit(Company $company, ?Customer $customer, CashbackEntry $entry): void

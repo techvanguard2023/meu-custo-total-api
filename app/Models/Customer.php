@@ -10,6 +10,10 @@ class Customer extends Model
 {
     protected $fillable = ['company_id', 'name', 'phone', 'email', 'notes'];
 
+    protected $casts = [
+        'referral_rewarded_at' => 'datetime',
+    ];
+
     /**
      * Chave pra reconhecer o mesmo telefone escrito de jeitos diferentes:
      * "(21) 97527-8220", "21975278220", "5521975278220" ou o formato antigo do
@@ -35,6 +39,17 @@ class Customer extends Model
     public function company(): BelongsTo
     {
         return $this->belongsTo(Company::class);
+    }
+
+    /** Quem indicou este cliente (link de indicação do catálogo ou marcado pela loja). */
+    public function referrer(): BelongsTo
+    {
+        return $this->belongsTo(Customer::class, 'referred_by_customer_id');
+    }
+
+    public function referrals(): HasMany
+    {
+        return $this->hasMany(Customer::class, 'referred_by_customer_id');
     }
 
     public function quotes(): HasMany

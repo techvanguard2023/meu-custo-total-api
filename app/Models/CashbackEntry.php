@@ -10,6 +10,8 @@ class CashbackEntry extends Model
 {
     public const TYPE_PURCHASE = 'purchase';       // compra entregue e paga
     public const TYPE_REVIEW = 'review';           // avaliou a compra
+    public const TYPE_REFERRAL = 'referral';       // quem indicou: o indicado fez a 1ª compra
+    public const TYPE_REFERRAL_WELCOME = 'referral_welcome'; // o indicado: bônus na 1ª compra
     public const TYPE_REDEEM = 'redeem';           // usado num pedido
     public const TYPE_REDEEM_REFUND = 'redeem_refund'; // pedido em que foi usado foi cancelado
     public const TYPE_REVERSAL = 'reversal';       // compra que gerou o crédito foi cancelada

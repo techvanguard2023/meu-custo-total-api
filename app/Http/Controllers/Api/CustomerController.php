@@ -184,8 +184,32 @@ class CustomerController extends Controller
             'is_customer' => $ids->isNotEmpty(),
             'balance' => $ids->isEmpty() ? 0 : $cashback->balanceForCustomers($ids),
             'max_redeem_percent' => (float) ($company->setting?->cashback_max_redeem_percent ?? 0),
+            // Pro bot mandar quando o cliente perguntar como indicar
+            'referral_link' => $ids->isNotEmpty() && Cashback::isActive($company)
+                ? $cashback->referralLink($company->customers()->whereIn('id', $ids)->orderBy('id')->first())
+                : null,
+            'referral_percent' => (float) ($company->setting?->cashback_referral_percent ?? 0),
             'next_expiring' => $next ? ['amount' => (float) $next->remaining, 'expires_at' => $next->expires_at->toDateString()] : null,
         ]);
+    }
+
+    /** Marca (ou tira) quem indicou o cliente — pra venda no balcão, onde não houve link. */
+    public function setReferrer(Request $request, Customer $customer, Cashback $cashback)
+    {
+        $this->authorizeCompany($request, $customer);
+
+        $data = $request->validate(['referrer_id' => ['nullable', 'integer']]);
+
+        if (empty($data['referrer_id'])) {
+            abort_if($customer->referral_rewarded_at, 422, 'A indicação já foi premiada e não pode ser removida.');
+            $customer->forceFill(['referred_by_customer_id' => null])->save();
+        } else {
+            $referrer = $request->user()->company->customers()->find($data['referrer_id']);
+            $error = $cashback->attachReferral($customer, $referrer);
+            abort_if($error !== null, 422, $error);
+        }
+
+        return response()->json($this->cashbackSummary($customer->fresh(), $cashback));
     }
 
     /** Crédito ou débito manual (presente, correção). */
@@ -212,9 +236,17 @@ class CustomerController extends Controller
             ->orderBy('expires_at')
             ->first();
 
+        $active = Cashback::isActive($customer->company);
+        $customer->loadMissing('referrer:id,name');
+
         return [
-            'active' => Cashback::isActive($customer->company),
+            'active' => $active,
             'balance' => $cashback->balance($customer),
+            // Indicação: link do cliente, quem o indicou e quantas indicações dele já compraram
+            'referral_link' => $active ? $cashback->referralLink($customer) : null,
+            'referred_by' => $customer->referrer ? ['id' => $customer->referrer->id, 'name' => $customer->referrer->name] : null,
+            'referral_rewarded' => $customer->referral_rewarded_at !== null,
+            'referrals_count' => $customer->referrals()->whereNotNull('referral_rewarded_at')->count(),
             'next_expiring' => $nextExpiring ? [
                 'amount' => (float) $nextExpiring->remaining,
                 'expires_at' => $nextExpiring->expires_at->toIso8601String(),

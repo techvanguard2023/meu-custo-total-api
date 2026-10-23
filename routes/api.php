@@ -50,6 +50,7 @@ Route::prefix('v1')->group(function () {
     Route::get('/public/catalog/{token}/account/orders', [CustomerPortalController::class, 'orders'])->middleware('throttle:60,1');
     Route::post('/public/catalog/{token}/account/logout', [CustomerPortalController::class, 'logout'])->middleware('throttle:30,1');
     Route::get('/public/catalog/{token}/account/cashback', [CustomerPortalController::class, 'cashback'])->middleware('throttle:60,1');
+    Route::get('/public/catalog/{token}/referral/{code}', [CustomerPortalController::class, 'referral'])->middleware('throttle:30,1');
 
     // Área do parceiro (loja com expositor): mesmo login por código no WhatsApp, escopo próprio
     Route::post('/public/partner/{slug}/code', [PartnerPortalController::class, 'requestCode'])->middleware('throttle:5,1');
@@ -83,6 +84,7 @@ Route::prefix('v1')->group(function () {
         Route::post('/customers/{customer}/instagram-invite', [CustomerController::class, 'instagramInvite']);
         Route::get('/customers/{customer}/cashback', [CustomerController::class, 'cashback']);
         Route::post('/customers/{customer}/cashback/adjust', [CustomerController::class, 'adjustCashback']);
+        Route::put('/customers/{customer}/referrer', [CustomerController::class, 'setReferrer']);
         Route::apiResource('customers', CustomerController::class);
         Route::get('/material-categories', [MaterialCategoryController::class, 'index']);
         Route::post('/material-categories', [MaterialCategoryController::class, 'store']);

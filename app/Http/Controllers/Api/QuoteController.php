@@ -290,6 +290,8 @@ class QuoteController extends Controller
             'products.*.quantity' => ['required', 'integer', 'min:1'],
             // Cliente pediu pra usar o saldo de cashback (Pro) — sem saldo ou fora do programa, é ignorado
             'use_cashback' => ['sometimes', 'boolean'],
+            // Código de indicação que veio do link do catálogo ("Indicação: CODIGO" na mensagem do carrinho)
+            'referral_code' => ['sometimes', 'nullable', 'string', 'max:20'],
         ]);
 
         if (! empty($data['external_reference'])) {
@@ -304,6 +306,12 @@ class QuoteController extends Controller
         }
 
         $customer = $this->findOrCreateCustomerByPhone($request, $data['customer_name'], $data['customer_phone']);
+
+        // Indicação: liga o cliente novo a quem indicou (as regras recusam sozinhas: já cliente, mesmo telefone...)
+        if (! empty($data['referral_code']) && empty($data['sales_channel_id'])) {
+            $cashbackService = app(Cashback::class);
+            $cashbackService->attachReferral($customer, $cashbackService->findReferrer($request->user()->company, $data['referral_code']));
+        }
 
         $productLines = $this->resolveProducts($request, $data);
         $setting = $request->user()->company->setting;
