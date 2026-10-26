@@ -14,6 +14,11 @@ abstract class WhatsAppCardImage
 {
     protected const SIZE = 1080;
 
+    /** Tamanho da imagem — os cartões de WhatsApp são quadrados; a placa do QR é mais alta. */
+    protected int $width = self::SIZE;
+
+    protected int $height = self::SIZE;
+
     protected const DEFAULT_ACCENT = '#4f46e5';
 
     public static function isAvailable(): bool
@@ -28,15 +33,15 @@ abstract class WhatsAppCardImage
      */
     protected function canvas(Company $company): array
     {
-        $img = imagecreatetruecolor(self::SIZE, self::SIZE);
+        $img = imagecreatetruecolor($this->width, $this->height);
         imagesavealpha($img, true);
         imagealphablending($img, true);
 
         [$r, $g, $b] = $this->hexToRgb($company->catalog_accent_color ?: self::DEFAULT_ACCENT);
 
-        for ($y = 0; $y < self::SIZE; $y++) {
-            $f = 1 - 0.45 * ($y / self::SIZE);
-            imageline($img, 0, $y, self::SIZE, $y, imagecolorallocate($img, (int) ($r * $f), (int) ($g * $f), (int) ($b * $f)));
+        for ($y = 0; $y < $this->height; $y++) {
+            $f = 1 - 0.45 * ($y / $this->height);
+            imageline($img, 0, $y, $this->width, $y, imagecolorallocate($img, (int) ($r * $f), (int) ($g * $f), (int) ($b * $f)));
         }
 
         $glow = imagecolorallocatealpha($img, 255, 255, 255, 112);
@@ -50,8 +55,8 @@ abstract class WhatsAppCardImage
     protected function pill(\GdImage $img, string $text, int $y, int $textColor, int $size = 38): void
     {
         $box = imagettfbbox($size, 0, self::font('SemiBold'), $text);
-        $w = min(self::SIZE - 80, abs($box[2] - $box[0]) + 110);
-        $x = (int) ((self::SIZE - $w) / 2);
+        $w = min($this->width - 80, abs($box[2] - $box[0]) + 110);
+        $x = (int) (($this->width - $w) / 2);
         $this->roundedRect($img, $x, $y, $x + $w, $y + 92, 46, imagecolorallocate($img, 255, 255, 255));
         $this->centered($img, $text, self::font('SemiBold'), $size, $y + 62, $textColor);
     }
@@ -97,7 +102,7 @@ abstract class WhatsAppCardImage
         $w = (int) (imagesx($logo) * $scale);
         $h = (int) (imagesy($logo) * $scale);
         $pad = 26;
-        $x = (int) ((self::SIZE - $w) / 2);
+        $x = (int) (($this->width - $w) / 2);
         $y = 70;
 
         $this->roundedRect($img, $x - $pad, $y - $pad, $x + $w + $pad, $y + $h + $pad, 28, $white);
@@ -124,7 +129,7 @@ abstract class WhatsAppCardImage
     {
         $box = imagettfbbox($size, 0, $font, $text);
         $width = abs($box[2] - $box[0]);
-        imagettftext($img, $size, 0, (int) ((self::SIZE - $width) / 2) + $dx, $baseline, $color, $font, $text);
+        imagettftext($img, $size, 0, (int) (($this->width - $width) / 2) + $dx, $baseline, $color, $font, $text);
     }
 
     /** Maior tamanho de fonte (até $max) em que o texto cabe na largura. */

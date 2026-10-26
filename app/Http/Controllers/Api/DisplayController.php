@@ -12,6 +12,8 @@ use App\Models\Product;
 use App\Models\ProductVariation;
 use App\Models\Quote;
 use App\Models\QuoteItem;
+use App\Services\DisplayQr;
+use App\Services\DisplayQrPlaque;
 use App\Services\DisplaySales;
 use App\Services\PartnerInviteImage;
 use App\Services\QuoteCalculatorService;
@@ -68,6 +70,65 @@ class DisplayController extends Controller
             'unsettled_count' => $unsettled->count(),
             'to_settle_amount' => DisplaySales::amountToSettle($unsettled),
             'partner_portal_url' => $request->user()->company->partnerPortalUrl(),
+            'qr_url' => app(DisplayQr::class)->url($display),
+        ]);
+    }
+
+    /** Métricas do QR Code da placa (escaneamentos, cliques, conversas e pedidos que vieram dele). */
+    public function qrStats(Request $request, Display $display, DisplayQr $qr)
+    {
+        $this->requirePro($request, 'Expositores');
+        $this->authorizeCompany($request, $display);
+
+        $data = $request->validate(['days' => ['sometimes', 'integer', 'in:7,30,90']]);
+
+        return response()->json([
+            'qr_url' => $qr->url($display),
+            ...$qr->stats($display, (int) ($data['days'] ?? 30)),
+        ]);
+    }
+
+    /** Placa pra imprimir (PNG) com o QR Code do expositor. */
+    public function qrPlaque(Request $request, Display $display, DisplayQr $qr, DisplayQrPlaque $plaque)
+    {
+        $this->requirePro($request, 'Expositores');
+        $this->authorizeCompany($request, $display);
+
+        $url = $qr->url($display);
+        abort_unless($url, 422, 'Cadastre o código do expositor (campo "Código") para gerar o QR Code.');
+
+        $png = $plaque->render($display, $url);
+        abort_unless($png, 503, 'O servidor não conseguiu gerar a placa.');
+
+        $filename = 'placa-qr-'.\Illuminate\Support\Str::slug($display->code).'.png';
+
+        return response($png, 200, [
+            'Content-Type' => 'image/png',
+            'Content-Disposition' => "inline; filename=\"{$filename}\"",
+            'Cache-Control' => 'no-store',
+        ]);
+    }
+
+    /**
+     * Bot: a conversa veio do QR de um expositor ("Expositor CODIGO" na mensagem pronta). Registra o
+     * contato e devolve o nome do lugar e o link do catálogo com a origem, pra o bot responder.
+     */
+    public function qrContact(Request $request, DisplayQr $qr)
+    {
+        $data = $request->validate([
+            'code' => ['required', 'string', 'max:60'],
+            'phone' => ['required', 'string', 'max:30'],
+        ]);
+
+        $display = $qr->resolve($request->user()->company, $data['code']);
+        abort_unless($display, 404, 'Expositor não encontrado.');
+
+        $qr->recordContact($display, $data['phone']);
+
+        return response()->json([
+            'display_name' => $display->name,
+            'display_code' => $display->code,
+            'catalog_url' => $request->user()->company->hasCatalogActive() ? $qr->catalogUrl($display) : null,
         ]);
     }
 
@@ -155,7 +216,7 @@ class DisplayController extends Controller
         $this->requirePro($request, 'Expositores');
         $this->authorizeCompany($request, $display);
 
-        $data = $this->validated($request);
+        $data = $this->validated($request, $display);
         // Status "ended" só sai pelo endpoint de fechar (devolve o estoque) —
         // atualizar aqui não pode deixar o expositor "encerrado" com estoque parado.
         $data['status'] = $request->input('status') === Display::STATUS_ENDED
@@ -548,13 +609,16 @@ class DisplayController extends Controller
         })->all();
     }
 
-    private function validated(Request $request): array
+    private function validated(Request $request, ?Display $display = null): array
     {
         return $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            // O código que o lojista já usa pra identificar o móvel fisicamente
-            // (etiqueta no expositor) — livre, sem formato imposto.
-            'code' => ['nullable', 'string', 'max:60'],
+            // O código que o lojista já usa pra identificar o móvel fisicamente (etiqueta no expositor).
+            // Vai no link do QR Code, então não pode repetir na loja nem ter "/" ou espaço.
+            'code' => [
+                'nullable', 'string', 'max:60', 'regex:/^[A-Za-z0-9._-]+$/',
+                Rule::unique('displays', 'code')->where('company_id', $request->user()->company_id)->ignore($display?->id),
+            ],
             'contact_name' => ['nullable', 'string', 'max:255'],
             'phone' => ['nullable', 'string', 'max:30'],
             'address' => ['nullable', 'string', 'max:255'],
@@ -562,6 +626,12 @@ class DisplayController extends Controller
             'status' => ['sometimes', Rule::in([Display::STATUS_TESTING, Display::STATUS_ACTIVE, Display::STATUS_PAUSED])],
             'started_at' => ['nullable', 'date'],
             'notes' => ['nullable', 'string', 'max:2000'],
+            // QR Code da placa: pra onde leva e se mostra a página com os botões
+            'qr_destination' => ['sometimes', Rule::in([Display::QR_WHATSAPP, Display::QR_CATALOG])],
+            'qr_page_enabled' => ['sometimes', 'boolean'],
+        ], [
+            'code.regex' => 'O código do expositor só pode ter letras, números, ponto, hífen e sublinhado (sem espaços).',
+            'code.unique' => 'Já existe outro expositor com esse código.',
         ]);
     }
 

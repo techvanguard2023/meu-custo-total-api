@@ -56,7 +56,7 @@ class Quote extends Model
         'payment_method', 'amount_paid', 'paid_at', 'is_courtesy', 'review_token', 'review_requested_at', 'notified_stages', 'external_reference', 'cancelled_at', 'cancel_reason',
         'model_urls', 'notes', 'paused_at', 'pause_reason',
         'sales_channel_id', 'channel_fee_amount',
-        'display_id', 'display_commission_amount', 'display_source',
+        'display_id', 'display_commission_amount', 'display_source', 'origin_display_id',
     ];
 
     protected $casts = [

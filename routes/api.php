@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\CatalogController;
 use App\Http\Controllers\Api\CustomerController;
 use App\Http\Controllers\Api\CustomerPortalController;
 use App\Http\Controllers\Api\PartnerPortalController;
+use App\Http\Controllers\Api\DisplayQrController;
 use App\Http\Controllers\Api\IntegrationTokenController;
 use App\Http\Controllers\Api\WhatsAppConnectionController;
 use App\Http\Controllers\Api\WhatsAppHandoffController;
@@ -51,6 +52,10 @@ Route::prefix('v1')->group(function () {
     Route::post('/public/catalog/{token}/account/logout', [CustomerPortalController::class, 'logout'])->middleware('throttle:30,1');
     Route::get('/public/catalog/{token}/account/cashback', [CustomerPortalController::class, 'cashback'])->middleware('throttle:60,1');
     Route::get('/public/catalog/{token}/referral/{code}', [CustomerPortalController::class, 'referral'])->middleware('throttle:30,1');
+
+    // QR Code da placa do expositor: registra o escaneamento e diz pra onde levar o cliente
+    Route::get('/public/qr/{slug}/{code}', [DisplayQrController::class, 'show'])->middleware('throttle:60,1');
+    Route::post('/public/qr/{slug}/{code}/click', [DisplayQrController::class, 'click'])->middleware('throttle:60,1');
 
     // Área do parceiro (loja com expositor): mesmo login por código no WhatsApp, escopo próprio
     Route::post('/public/partner/{slug}/code', [PartnerPortalController::class, 'requestCode'])->middleware('throttle:5,1');
@@ -122,6 +127,8 @@ Route::prefix('v1')->group(function () {
         Route::post('/displays/{display}/close', [DisplayController::class, 'close']);
         Route::post('/displays/{display}/settle', [DisplayController::class, 'settle']);
         Route::post('/displays/{display}/partner-link', [DisplayController::class, 'sendPartnerLink']);
+        Route::get('/displays/{display}/qr-stats', [DisplayController::class, 'qrStats']);
+        Route::get('/displays/{display}/qr-plaque', [DisplayController::class, 'qrPlaque']);
         Route::get('/products/generate-sku', [ProductController::class, 'generateSku']);
         Route::post('/products/cost-preview', [ProductController::class, 'costPreview']);
         Route::post('/products/{product}/production', [ProductController::class, 'registerProduction']);
@@ -157,6 +164,8 @@ Route::prefix('v1')->group(function () {
         Route::get('/whatsapp/handoffs/{phone}', [WhatsAppHandoffController::class, 'show']);
         // Bot: saldo de cashback de quem está conversando
         Route::get('/whatsapp/cashback/{phone}', [CustomerController::class, 'cashbackByPhone']);
+        // Bot: conversa que veio do QR de um expositor (mensagem pronta com "Expositor CODIGO")
+        Route::post('/whatsapp/display-contacts', [DisplayController::class, 'qrContact']);
         Route::delete('/whatsapp/handoffs/{phone}', [WhatsAppHandoffController::class, 'destroy']);
         Route::patch('/quotes/{quote}/approve', [QuoteController::class, 'approve']);
         Route::patch('/quotes/{quote}/reject', [QuoteController::class, 'reject']);

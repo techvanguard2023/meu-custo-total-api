@@ -14,6 +14,7 @@ use App\Models\ProductVariation;
 use App\Models\Quote;
 use App\Models\SalesChannel;
 use App\Services\Cashback;
+use App\Services\DisplayQr;
 use App\Services\DisplaySales;
 use App\Services\MaterialStock;
 use App\Services\ProductionStageNotifier;
@@ -292,6 +293,8 @@ class QuoteController extends Controller
             'use_cashback' => ['sometimes', 'boolean'],
             // Código de indicação que veio do link do catálogo ("Indicação: CODIGO" na mensagem do carrinho)
             'referral_code' => ['sometimes', 'nullable', 'string', 'max:20'],
+            // Código do expositor de onde o cliente veio (QR da placa: "Expositor CODIGO" na mensagem)
+            'origin_display_code' => ['sometimes', 'nullable', 'string', 'max:60'],
         ]);
 
         if (! empty($data['external_reference'])) {
@@ -318,11 +321,17 @@ class QuoteController extends Controller
 
         [$readyLines, $backorderLines] = $this->splitByAvailability($productLines);
 
+        // Pedido que veio do QR Code de um expositor: fica ligado a ele (métricas da placa)
+        $originDisplay = ! empty($data['origin_display_code'])
+            ? app(DisplayQr::class)->resolve($request->user()->company, $data['origin_display_code'])
+            : null;
+
         $orderData = [
             'name' => 'Pedido via WhatsApp',
             'customer_id' => $customer->id,
             'external_reference' => $data['external_reference'] ?? null,
             'sales_channel_id' => $data['sales_channel_id'] ?? null,
+            'origin_display_id' => $originDisplay?->id,
         ];
 
         // Cashback vai todo na primeira parte do pedido (a pronta, quando houver) — o teto de X% vale nela

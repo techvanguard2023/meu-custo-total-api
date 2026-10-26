@@ -23,12 +23,17 @@ class Display extends Model
     protected $fillable = [
         'company_id', 'name', 'code', 'contact_name', 'phone', 'address',
         'commission_percent', 'status', 'started_at', 'ended_at', 'notes',
+        'qr_destination', 'qr_page_enabled',
     ];
+
+    public const QR_WHATSAPP = 'whatsapp';
+    public const QR_CATALOG = 'catalog';
 
     protected $casts = [
         'commission_percent' => 'float',
         'started_at' => 'date',
         'ended_at' => 'datetime',
+        'qr_page_enabled' => 'boolean',
     ];
 
     public function company(): BelongsTo
