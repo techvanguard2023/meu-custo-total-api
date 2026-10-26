@@ -13,7 +13,7 @@ use App\Models\ProductVariation;
 use App\Models\Quote;
 use App\Models\QuoteItem;
 use App\Services\DisplayQr;
-use App\Services\DisplayQrPlaque;
+use App\Services\DisplayQrImage;
 use App\Services\DisplaySales;
 use App\Services\PartnerInviteImage;
 use App\Services\QuoteCalculatorService;
@@ -88,8 +88,8 @@ class DisplayController extends Controller
         ]);
     }
 
-    /** Placa pra imprimir (PNG) com o QR Code do expositor. */
-    public function qrPlaque(Request $request, Display $display, DisplayQr $qr, DisplayQrPlaque $plaque)
+    /** QR Code do expositor (PNG) pra colocar na placa. */
+    public function qrImage(Request $request, Display $display, DisplayQr $qr, DisplayQrImage $image)
     {
         $this->requirePro($request, 'Expositores');
         $this->authorizeCompany($request, $display);
@@ -97,10 +97,10 @@ class DisplayController extends Controller
         $url = $qr->url($display);
         abort_unless($url, 422, 'Cadastre o código do expositor (campo "Código") para gerar o QR Code.');
 
-        $png = $plaque->render($display, $url);
-        abort_unless($png, 503, 'O servidor não conseguiu gerar a placa.');
+        $png = $image->render($url);
+        abort_unless($png, 503, 'O servidor não conseguiu gerar o QR Code.');
 
-        $filename = 'placa-qr-'.\Illuminate\Support\Str::slug($display->code).'.png';
+        $filename = 'qrcode-'.\Illuminate\Support\Str::slug($display->code).'.png';
 
         return response($png, 200, [
             'Content-Type' => 'image/png',
