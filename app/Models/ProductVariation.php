@@ -17,13 +17,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class ProductVariation extends Model
 {
     protected $fillable = [
-        'product_id', 'color', 'size', 'weight', 'sku',
+        'product_id', 'color', 'color_hexes', 'size', 'weight', 'sku',
         'sale_price', 'cost', 'print_time_minutes', 'stock_quantity', 'active', 'position',
     ];
 
     protected $casts = [
         'sale_price' => 'decimal:2',
         'cost' => 'decimal:2',
+        'color_hexes' => 'array',
         'print_time_minutes' => 'integer',
         'stock_quantity' => 'integer',
         'active' => 'boolean',

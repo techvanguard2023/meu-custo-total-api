@@ -174,6 +174,8 @@ class ProductController extends Controller
         foreach (array_values($variations) as $position => $row) {
             $payload = [
                 'color' => $row['color'] ?? null,
+                // Maiúsculas, sem repetir; lista vazia vira null
+                'color_hexes' => collect($row['color_hexes'] ?? [])->map(fn ($hex) => strtoupper($hex))->unique()->values()->all() ?: null,
                 'size' => $row['size'] ?? null,
                 'weight' => $row['weight'] ?? null,
                 'sku' => $row['sku'] ?? null,
@@ -431,6 +433,8 @@ class ProductController extends Controller
             // Ao menos um atributo precisa vir preenchido, senão a variação não
             // significa nada pra quem está comprando.
             'variations.*.color' => ['nullable', 'string', 'max:60', 'required_without_all:variations.*.size,variations.*.weight'],
+            'variations.*.color_hexes' => ['sometimes', 'nullable', 'array', 'max:4'],
+            'variations.*.color_hexes.*' => ['string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
             'variations.*.size' => ['nullable', 'string', 'max:60'],
             'variations.*.weight' => ['nullable', 'string', 'max:60'],
             'variations.*.sku' => ['nullable', 'string', 'max:255'],
@@ -445,6 +449,8 @@ class ProductController extends Controller
             'variations.*.recipe.*.quantity' => ['required', 'numeric', 'gt:0', 'max:100000'],
         ], [
             'sku.unique' => 'Este código já está em uso por outro produto.',
+            'variations.*.color_hexes.*.regex' => 'Cor inválida na variação: use o formato #RRGGBB.',
+            'variations.*.color_hexes.max' => 'Cada variação pode ter no máximo 4 cores.',
             'variations.*.color.required_without_all' => 'Informe ao menos cor, tamanho ou peso na variação.',
         ]);
 

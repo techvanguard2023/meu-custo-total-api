@@ -142,6 +142,8 @@ class PublicCatalogController extends Controller
                             'id' => $variation->id,
                             'label' => $variation->display_name,
                             'color' => $variation->color,
+                            // Bolinha da cor no catálogo (uma ou mais cores, em hexadecimal)
+                            'color_hexes' => $variation->color_hexes ?: [],
                             'size' => $variation->size,
                             'weight' => $variation->weight,
                             'price' => $variationPromo ?? $variationPrice,
