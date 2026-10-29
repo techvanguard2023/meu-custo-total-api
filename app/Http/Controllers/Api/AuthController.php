@@ -22,13 +22,16 @@ class AuthController extends Controller
             'name' => ['required', 'string', 'min:3', 'max:255', 'regex:/\p{L}/u'],
             'email' => ['required', 'email', 'unique:users,email'],
             'phone' => ['required', 'string', 'max:20'],
-            'password' => ['required', 'string', 'min:8'],
+            // Mesmas regras de src/lib/passwordRules.ts no frontend
+            'password' => ['required', 'string', 'min:8', 'regex:/\p{Ll}/u', 'regex:/\p{Lu}/u', 'regex:/\p{N}/u', 'regex:/[^\p{L}\p{N}\s]/u'],
             'segment' => ['nullable', Rule::in(Company::SEGMENTS)],
         ], [
             'company_name.min' => 'O nome da empresa deve ter pelo menos 3 caracteres.',
             'company_name.regex' => 'Informe um nome de empresa válido.',
             'name.min' => 'O nome deve ter pelo menos 3 caracteres.',
             'name.regex' => 'Informe um nome válido.',
+            'password.min' => 'A senha deve ter pelo menos 8 caracteres.',
+            'password.regex' => 'A senha precisa ter letra minúscula, letra maiúscula, número e caractere especial.',
         ]);
 
         $company = Company::create([
