@@ -18,7 +18,7 @@ class MaterialCategoryController extends Controller
 {
     public function index(Request $request)
     {
-        return MaterialCategory::visibleTo($request->user()->company_id)
+        return MaterialCategory::listedFor($request->user()->company)
             ->orderBy('name')
             ->get();
     }

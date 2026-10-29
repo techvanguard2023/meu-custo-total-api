@@ -4,11 +4,13 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Http\Controllers\Controller;
+use App\Models\Company;
 use App\Services\Cashback;
 use App\Services\CashbackImage;
 use App\Services\CashbackRetroactive;
 use App\Services\ProductRecipe;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class SettingsController extends Controller
 {
@@ -66,6 +68,19 @@ class SettingsController extends Controller
         }
 
         return $setting;
+    }
+
+    /** Nicho da empresa: só muda nomes nas telas e as categorias padrão sugeridas — nada do que já foi cadastrado. */
+    public function updateSegment(Request $request)
+    {
+        $data = $request->validate([
+            'segment' => ['required', Rule::in(Company::SEGMENTS)],
+        ]);
+
+        $company = $request->user()->company;
+        $company->update($data);
+
+        return response()->json(['segment' => $company->segment]);
     }
 
     /** Regras do cashback (Pro): % por compra, teto de uso por pedido e validade dos créditos. */

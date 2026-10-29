@@ -36,7 +36,7 @@ class QuoteController extends Controller
     public function index(Request $request)
     {
         return $request->user()->company->quotes()
-            ->with(['customer', 'printer', 'material', 'items.product', 'salesChannel:id,name'])
+            ->with(['customer', 'printer', 'material.category', 'items.product', 'salesChannel:id,name'])
             // Só a contagem — pra tela saber se o cliente já respondeu à avaliação
             // sem precisar carregar o conteúdo de cada uma.
             ->withCount('reviews')
@@ -48,7 +48,7 @@ class QuoteController extends Controller
     {
         $this->authorizeCompany($request, $quote);
 
-        return $quote->loadCount('reviews')->load(['customer', 'printer', 'material', 'items.product', 'salesChannel:id,name']);
+        return $quote->loadCount('reviews')->load(['customer', 'printer', 'material.category', 'items.product', 'salesChannel:id,name']);
     }
 
     public function preview(Request $request)
@@ -95,7 +95,7 @@ class QuoteController extends Controller
             return $quote;
         });
 
-        return response()->json($quote->load(['customer', 'printer', 'material', 'items.product', 'salesChannel:id,name']), 201);
+        return response()->json($quote->load(['customer', 'printer', 'material.category', 'items.product', 'salesChannel:id,name']), 201);
     }
 
     public function update(Request $request, Quote $quote)
@@ -123,7 +123,7 @@ class QuoteController extends Controller
             $this->syncMaterialItems($quote, $breakdown);
         });
 
-        return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product', 'salesChannel:id,name']));
+        return response()->json($quote->fresh()->load(['customer', 'printer', 'material.category', 'items.product', 'salesChannel:id,name']));
     }
 
     public function destroy(Request $request, Quote $quote)
@@ -169,7 +169,7 @@ class QuoteController extends Controller
 
         app(ProductionStageNotifier::class)->paymentChanged($quote, $previousPaid);
 
-        return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product', 'salesChannel:id,name']));
+        return response()->json($quote->fresh()->load(['customer', 'printer', 'material.category', 'items.product', 'salesChannel:id,name']));
     }
 
     /**
@@ -576,7 +576,7 @@ class QuoteController extends Controller
 
         app(ProductionStageNotifier::class)->paymentChanged($quote, $previousPaid);
 
-        return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product', 'salesChannel:id,name']));
+        return response()->json($quote->fresh()->load(['customer', 'printer', 'material.category', 'items.product', 'salesChannel:id,name']));
     }
 
     public function reject(Request $request, Quote $quote)
@@ -602,7 +602,7 @@ class QuoteController extends Controller
             'pause_reason' => $data['reason'] ?? null,
         ]);
 
-        return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product', 'salesChannel:id,name']));
+        return response()->json($quote->fresh()->load(['customer', 'printer', 'material.category', 'items.product', 'salesChannel:id,name']));
     }
 
     /** Retoma a produção — estende o prazo automaticamente pelos dias que ficou pausada. */
@@ -624,7 +624,7 @@ class QuoteController extends Controller
             'pause_reason' => null,
         ]);
 
-        return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product', 'salesChannel:id,name']));
+        return response()->json($quote->fresh()->load(['customer', 'printer', 'material.category', 'items.product', 'salesChannel:id,name']));
     }
 
     /**
@@ -720,7 +720,7 @@ class QuoteController extends Controller
             ]);
         });
 
-        return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product', 'salesChannel:id,name']));
+        return response()->json($quote->fresh()->load(['customer', 'printer', 'material.category', 'items.product', 'salesChannel:id,name']));
     }
 
     public function updateProductionStatus(Request $request, Quote $quote)
@@ -751,7 +751,7 @@ class QuoteController extends Controller
 
         app(ProductionStageNotifier::class)->stageChanged($quote, $previousStatus);
 
-        return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product', 'salesChannel:id,name']));
+        return response()->json($quote->fresh()->load(['customer', 'printer', 'material.category', 'items.product', 'salesChannel:id,name']));
     }
 
     /**
@@ -821,7 +821,7 @@ class QuoteController extends Controller
 
         $quote->update(['status' => $status]);
 
-        return response()->json($quote->fresh()->load(['customer', 'printer', 'material', 'items.product', 'salesChannel:id,name']));
+        return response()->json($quote->fresh()->load(['customer', 'printer', 'material.category', 'items.product', 'salesChannel:id,name']));
     }
 
     private function quoteAttributes(array $data, array $breakdown, string $status): array

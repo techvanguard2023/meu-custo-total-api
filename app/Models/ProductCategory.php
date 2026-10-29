@@ -37,6 +37,20 @@ class ProductCategory extends Model
         return $this->hasMany(self::class, 'parent_id');
     }
 
+    /**
+     * Pra listar: as padrão do nicho da empresa (e as que servem pra todos), as criadas por ela e
+     * as padrão de outro nicho que ela já usa (ex.: trocou de nicho com cadastro feito).
+     */
+    public function scopeListedFor(Builder $query, Company $company): Builder
+    {
+        return $query->visibleTo($company->id)->where(fn ($q) => $q
+            ->whereNotNull('company_id')
+            ->orWhereNull('segment')
+            ->orWhere('segment', $company->segment ?: Company::SEGMENT_3D)
+            ->orWhereHas('products', fn ($used) => $used->where('company_id', $company->id))
+            ->orWhereHas('children', fn ($child) => $child->where('company_id', $company->id)));
+    }
+
     public function company(): BelongsTo
     {
         return $this->belongsTo(Company::class);

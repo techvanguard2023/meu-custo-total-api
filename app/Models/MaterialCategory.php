@@ -12,7 +12,7 @@ class MaterialCategory extends Model
     public const PRICING_WEIGHT = 'weight';
     public const PRICING_UNIT = 'unit';
 
-    protected $fillable = ['company_id', 'name', 'pricing_unit'];
+    protected $fillable = ['company_id', 'segment', 'name', 'pricing_unit'];
 
     protected $appends = ['is_default'];
 
@@ -28,6 +28,19 @@ class MaterialCategory extends Model
         return $query->where(
             fn ($q) => $q->whereNull('company_id')->orWhere('company_id', $companyId)
         );
+    }
+
+    /**
+     * Pra listar: as padrão do nicho da empresa (e as que servem pra todos), as criadas por ela e
+     * as padrão de outro nicho que ela já usa (ex.: trocou de nicho com cadastro feito).
+     */
+    public function scopeListedFor(Builder $query, Company $company): Builder
+    {
+        return $query->visibleTo($company->id)->where(fn ($q) => $q
+            ->whereNotNull('company_id')
+            ->orWhereNull('segment')
+            ->orWhere('segment', $company->segment ?: Company::SEGMENT_3D)
+            ->orWhereHas('materials', fn ($used) => $used->where('company_id', $company->id)));
     }
 
     public function company(): BelongsTo

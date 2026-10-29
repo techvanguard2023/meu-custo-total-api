@@ -21,7 +21,7 @@ class ProductCategoryController extends Controller
 {
     public function index(Request $request)
     {
-        return ProductCategory::visibleTo($request->user()->company_id)
+        return ProductCategory::listedFor($request->user()->company)
             ->orderBy('name')
             ->get();
     }

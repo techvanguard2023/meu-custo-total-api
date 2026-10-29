@@ -23,7 +23,7 @@ class ReviewRequestNotifier
         $reward = app(Cashback::class)->reviewReward($quote);
 
         return implode("\n", array_filter([
-            'Olá'.($first !== '' ? ", {$first}" : '')."! Aqui é da {$store}. Gostaríamos de saber se ocorreu tudo certo com seu pedido de impressão 3D?",
+            'Olá'.($first !== '' ? ", {$first}" : '')."! Aqui é da {$store}. Gostaríamos de saber se ocorreu tudo certo com seu pedido?",
             '',
             'Se puder, deixe sua avaliação — leva menos de um minuto e ajuda muito:',
             $url,

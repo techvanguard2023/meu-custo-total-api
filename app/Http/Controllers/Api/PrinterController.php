@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Http\Controllers\Controller;
+use App\Models\Company;
 use App\Models\Printer;
 use App\Services\ProductRecipe;
 use Illuminate\Http\Request;
@@ -19,7 +20,8 @@ class PrinterController extends Controller
 
     public function store(Request $request)
     {
-        $this->enforceFreeLimit($request, 'printers', $request->user()->company->printers()->count(), 'impressora');
+        $company = $request->user()->company;
+        $this->enforceFreeLimit($request, 'printers', $company->printers()->count(), $company->segment === Company::SEGMENT_3D ? 'impressora' : 'equipamento');
 
         $data = $this->validated($request);
         $printer = $request->user()->company->printers()->create($data);

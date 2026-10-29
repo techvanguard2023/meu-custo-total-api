@@ -35,12 +35,16 @@ class Company extends Model
         });
     }
 
+    /** Nicho da empresa: muda o vocabulário das telas e as categorias padrão. */
+    public const SEGMENT_3D = '3d_printing';
+    public const SEGMENTS = [self::SEGMENT_3D, 'crafts', 'stationery', 'bakery', 'other'];
+
     public const PLAN_FREE = 'free';
     public const PLAN_ESSENTIAL = 'essential';
     public const PLAN_PRO = 'pro';
 
     protected $fillable = [
-        'name', 'slug', 'plan', 'email', 'phone', 'currency', 'timezone',
+        'name', 'slug', 'plan', 'segment', 'email', 'phone', 'currency', 'timezone',
         'catalog_token', 'catalog_enabled', 'catalog_whatsapp', 'catalog_disclaimer', 'logo_path',
         'catalog_instagram_url', 'catalog_facebook_url', 'catalog_youtube_url',
         'catalog_tiktok_url', 'catalog_linkedin_url',

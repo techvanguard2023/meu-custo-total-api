@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
@@ -22,6 +23,7 @@ class AuthController extends Controller
             'email' => ['required', 'email', 'unique:users,email'],
             'phone' => ['required', 'string', 'max:20'],
             'password' => ['required', 'string', 'min:8'],
+            'segment' => ['nullable', Rule::in(Company::SEGMENTS)],
         ], [
             'company_name.min' => 'O nome da empresa deve ter pelo menos 3 caracteres.',
             'company_name.regex' => 'Informe um nome de empresa válido.',
@@ -32,6 +34,7 @@ class AuthController extends Controller
         $company = Company::create([
             'name' => $data['company_name'],
             'slug' => Str::slug($data['company_name']).'-'.Str::random(6),
+            'segment' => $data['segment'] ?? Company::SEGMENT_3D,
         ]);
 
         Setting::create(['company_id' => $company->id]);
