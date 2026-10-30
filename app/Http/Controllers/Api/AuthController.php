@@ -23,8 +23,7 @@ class AuthController extends Controller
             'name' => ['required', 'string', 'min:3', 'max:255', 'regex:/\p{L}/u'],
             'email' => ['required', 'email', 'unique:users,email'],
             'phone' => ['required', 'string', 'max:20'],
-            // Mesmas regras de src/lib/passwordRules.ts no frontend
-            'password' => ['required', 'string', 'min:8', 'regex:/\p{Ll}/u', 'regex:/\p{Lu}/u', 'regex:/\p{N}/u', 'regex:/[^\p{L}\p{N}\s]/u'],
+            'password' => User::STRONG_PASSWORD,
             'segment' => ['nullable', Rule::in(Company::SEGMENTS)],
             'accept_terms' => ['accepted'],
         ], [
@@ -33,8 +32,7 @@ class AuthController extends Controller
             'company_name.regex' => 'Informe um nome de empresa válido.',
             'name.min' => 'O nome deve ter pelo menos 3 caracteres.',
             'name.regex' => 'Informe um nome válido.',
-            'password.min' => 'A senha deve ter pelo menos 8 caracteres.',
-            'password.regex' => 'A senha precisa ter letra minúscula, letra maiúscula, número e caractere especial.',
+            ...User::STRONG_PASSWORD_MESSAGES,
         ]);
 
         $user = DB::transaction(function () use ($data, $request) {

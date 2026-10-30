@@ -8,6 +8,9 @@ use App\Http\Controllers\Api\CustomerPortalController;
 use App\Http\Controllers\Api\PartnerPortalController;
 use App\Http\Controllers\Api\DisplayQrController;
 use App\Http\Controllers\Api\IntegrationTokenController;
+use App\Http\Controllers\Api\InvitationController;
+use App\Http\Controllers\Api\OnboardingController;
+use App\Http\Controllers\Api\TeamController;
 use App\Http\Controllers\Api\WhatsAppConnectionController;
 use App\Http\Controllers\Api\WhatsAppHandoffController;
 use App\Http\Controllers\Api\MaterialController;
@@ -29,6 +32,7 @@ use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\SalesChannelController;
 use App\Http\Controllers\Api\DisplayController;
 use App\Http\Controllers\Api\SettingsController;
+use App\Http\Middleware\EnforceTeamAccess;
 use App\Http\Middleware\EnsureAccountActive;
 use Illuminate\Support\Facades\Route;
 
@@ -42,6 +46,10 @@ Route::prefix('v1')->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
     Route::post('/forgot-password', [PasswordResetController::class, 'forgot']);
     Route::post('/reset-password', [PasswordResetController::class, 'reset']);
+
+    // Convite da equipe: a pessoa convidada confere o convite e cria a senha
+    Route::get('/invitation', [InvitationController::class, 'show'])->middleware('throttle:30,1');
+    Route::post('/invitation/accept', [InvitationController::class, 'accept'])->middleware('throttle:10,1');
 
     // Catálogo público — sem autenticação, acessado por clientes finais via link compartilhado.
     Route::get('/public/catalog/{token}', [PublicCatalogController::class, 'show'])
@@ -78,7 +86,8 @@ Route::prefix('v1')->group(function () {
     Route::post('/public/review/{token}', [PublicReviewController::class, 'store'])
         ->middleware('throttle:10,1');
 
-    Route::middleware('auth:sanctum')->group(function () {
+    // EnforceTeamAccess: o que cada perfil da equipe acessa e vê (App\Services\TeamAccess)
+    Route::middleware(['auth:sanctum', EnforceTeamAccess::class])->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::get('/me', [AuthController::class, 'me']);
 
@@ -230,6 +239,16 @@ Route::prefix('v1')->group(function () {
 
             Route::put('/profile', [ProfileController::class, 'update']);
             Route::put('/profile/password', [ProfileController::class, 'updatePassword']);
+
+            // Primeiros passos do Dashboard (só o dono)
+            Route::get('/onboarding', [OnboardingController::class, 'show']);
+
+            // Equipe (só o dono)
+            Route::get('/team', [TeamController::class, 'index']);
+            Route::post('/team', [TeamController::class, 'store'])->middleware('throttle:20,1');
+            Route::put('/team/{user}', [TeamController::class, 'update']);
+            Route::delete('/team/{user}', [TeamController::class, 'destroy']);
+            Route::post('/team/{user}/resend', [TeamController::class, 'resend'])->middleware('throttle:10,1');
         });
     });
 });

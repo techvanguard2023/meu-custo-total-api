@@ -53,7 +53,11 @@ class QuoteController extends Controller
 
     public function preview(Request $request)
     {
-        $data = $this->withCashback($request, $this->validated($request));
+        // Editando um orçamento: a prévia da equipe usa a margem/falha/custo extra dele, como o salvamento
+        $editing = $request->filled('quote_id')
+            ? Quote::where('company_id', $request->user()->company_id)->find($request->integer('quote_id'))
+            : null;
+        $data = $this->withCashback($request, $this->validated($request, $editing));
         $materialLines = $this->resolveMaterials($request, $data);
         $printer = $this->resolvePrinter($request, $data);
         $productLines = $this->resolveProducts($request, $data);
@@ -108,7 +112,7 @@ class QuoteController extends Controller
             'Orçamentos aprovados ou rejeitados não podem ser editados.'
         );
 
-        $data = $this->withCashback($request, $this->validated($request));
+        $data = $this->withCashback($request, $this->validated($request, $quote));
         $materialLines = $this->resolveMaterials($request, $data);
         $printer = $this->resolvePrinter($request, $data);
         $productLines = $this->resolveProducts($request, $data);
@@ -984,7 +988,27 @@ class QuoteController extends Controller
         })->all();
     }
 
-    private function validated(Request $request): array
+    /**
+     * Margem, taxa de falha e custo extra são do dono: quem é da equipe não vê nem mexe — vale o padrão
+     * das configurações (orçamento novo) ou o que o orçamento já tinha (edição).
+     */
+    private function validated(Request $request, ?Quote $quote = null): array
+    {
+        $data = $this->validatedInput($request);
+
+        if (! $request->user()->seesCosts()) {
+            foreach (['markup_percent', 'failure_rate_percent', 'extra_costs'] as $field) {
+                unset($data[$field]);
+                if ($quote) {
+                    $data[$field] = $quote->{$field};
+                }
+            }
+        }
+
+        return $data;
+    }
+
+    private function validatedInput(Request $request): array
     {
         return $request->validate([
             'name' => ['required', 'string', 'max:255'],

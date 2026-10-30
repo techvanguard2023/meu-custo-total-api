@@ -69,6 +69,18 @@ class Company extends Model
 
     protected $appends = ['logo_url'];
 
+    /** Quantas pessoas (contando o dono) o plano comporta. */
+    public const USER_LIMITS = [
+        self::PLAN_FREE => 1,
+        self::PLAN_ESSENTIAL => 2,
+        self::PLAN_PRO => 5,
+    ];
+
+    public function userLimit(): int
+    {
+        return self::USER_LIMITS[$this->plan] ?? 1;
+    }
+
     /** Exclusão da conta pedida e ainda no prazo de desistência: painel, catálogo e bot ficam fora do ar. */
     public function isPendingDeletion(): bool
     {
