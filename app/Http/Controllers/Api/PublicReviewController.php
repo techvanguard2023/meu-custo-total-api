@@ -203,6 +203,7 @@ class PublicReviewController extends Controller
     {
         $quote = Quote::where('review_token', $token)
             ->where('status', Quote::STATUS_APPROVED)
+            ->whereHas('company', fn ($q) => $q->active())
             ->with(['company', 'customer'])
             ->first();
 

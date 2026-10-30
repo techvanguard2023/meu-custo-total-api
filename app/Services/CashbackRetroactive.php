@@ -193,7 +193,8 @@ class CashbackRetroactive
 
             $company = Company::find($companyId);
             $customer = Customer::find($row?->customer_id);
-            if (! $row || ! $company || ! $customer) {
+            // Conta com exclusão agendada: a fila espera (se desfizer, os avisos saem; senão, somem com a conta)
+            if (! $row || ! $company || ! $customer || $company->isPendingDeletion()) {
                 continue;
             }
 

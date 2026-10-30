@@ -63,9 +63,23 @@ class Company extends Model
         'whatsapp_status_notifications' => 'array',
         'custom_domain_verified_at' => 'datetime',
         'partner_domain_verified_at' => 'datetime',
+        'deletion_scheduled_for' => 'datetime',
+        'deletion_paused_subscription' => 'boolean',
     ];
 
     protected $appends = ['logo_url'];
+
+    /** Exclusão da conta pedida e ainda no prazo de desistência: painel, catálogo e bot ficam fora do ar. */
+    public function isPendingDeletion(): bool
+    {
+        return $this->deletion_scheduled_for !== null;
+    }
+
+    /** Só lojas ativas — catálogo, área do parceiro, QR e "Meus pedidos" somem durante o prazo de exclusão. */
+    public function scopeActive($query)
+    {
+        return $query->whereNull('deletion_scheduled_for');
+    }
 
     protected function logoUrl(): Attribute
     {

@@ -27,7 +27,7 @@ class PublicCatalogController extends Controller
         $host = strtolower($host);
 
         // Domínio da área do parceiro (parceiro.empresa.com.br): independe do catálogo estar ligado
-        $partner = Company::where('partner_domain', $host)->first();
+        $partner = Company::active()->where('partner_domain', $host)->first();
         if ($partner) {
             abort_unless(CustomerPortal::isAvailable($partner), 404, 'Domínio não encontrado.');
             if ($partner->partner_domain_verified_at === null) {
@@ -37,7 +37,7 @@ class PublicCatalogController extends Controller
             return response()->json(['slug' => $partner->slug, 'kind' => 'partner']);
         }
 
-        $company = Company::where('custom_domain', $host)->first();
+        $company = Company::active()->where('custom_domain', $host)->first();
 
         abort_unless($company && $company->isPro() && $company->hasCatalogActive(), 404, 'Domínio não encontrado.');
 
@@ -52,7 +52,7 @@ class PublicCatalogController extends Controller
     {
         // Aceita tanto o slug da empresa (link novo, legível — ex: minha-empresa-a1b2c3)
         // quanto o token aleatório antigo (mantido pra não quebrar links já compartilhados).
-        $company = Company::where('slug', $token)->orWhere('catalog_token', $token)->first();
+        $company = Company::active()->where(fn ($q) => $q->where('slug', $token)->orWhere('catalog_token', $token))->first();
 
         // 404 tanto pra identificador inexistente quanto pra catálogo desligado/empresa
         // não-Pro — não dá pra distinguir os casos de fora.

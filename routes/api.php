@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\AccountController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CatalogController;
 use App\Http\Controllers\Api\CustomerController;
@@ -28,6 +29,7 @@ use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\SalesChannelController;
 use App\Http\Controllers\Api\DisplayController;
 use App\Http\Controllers\Api\SettingsController;
+use App\Http\Middleware\EnsureAccountActive;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -80,144 +82,154 @@ Route::prefix('v1')->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::get('/me', [AuthController::class, 'me']);
 
-        Route::get('/materials/{material}/movements', [MaterialController::class, 'movements']);
-        Route::apiResource('materials', MaterialController::class);
-        Route::apiResource('printers', PrinterController::class);
-        Route::get('/customers/duplicates', [CustomerController::class, 'duplicates']);
-        Route::post('/customers/merge', [CustomerController::class, 'merge']);
-        Route::get('/customers/{customer}/profile', [CustomerController::class, 'profile']);
-        Route::post('/customers/{customer}/instagram-invite', [CustomerController::class, 'instagramInvite']);
-        Route::get('/customers/{customer}/cashback', [CustomerController::class, 'cashback']);
-        Route::post('/customers/{customer}/cashback/adjust', [CustomerController::class, 'adjustCashback']);
-        Route::put('/customers/{customer}/referrer', [CustomerController::class, 'setReferrer']);
-        Route::apiResource('customers', CustomerController::class);
-        Route::get('/material-categories', [MaterialCategoryController::class, 'index']);
-        Route::post('/material-categories', [MaterialCategoryController::class, 'store']);
-        Route::put('/material-categories/{materialCategory}', [MaterialCategoryController::class, 'update']);
-        Route::delete('/material-categories/{materialCategory}', [MaterialCategoryController::class, 'destroy']);
+        // LGPD — liberadas mesmo com a exclusão da conta agendada (baixar os dados, desfazer a exclusão)
+        Route::post('/account/accept-terms', [AccountController::class, 'acceptTerms']);
+        Route::get('/account/export', [AccountController::class, 'export'])->middleware('throttle:5,10');
+        Route::delete('/account/deletion', [AccountController::class, 'cancelDeletion']);
 
-        Route::get('/product-categories', [ProductCategoryController::class, 'index']);
-        Route::post('/product-categories', [ProductCategoryController::class, 'store']);
-        Route::put('/product-categories/{productCategory}', [ProductCategoryController::class, 'update']);
-        Route::delete('/product-categories/{productCategory}', [ProductCategoryController::class, 'destroy']);
-        Route::get('/product-reviews', [ProductReviewController::class, 'index']);
-        Route::patch('/product-reviews/{productReview}/moderate', [ProductReviewController::class, 'moderate']);
-        Route::delete('/product-reviews/{productReview}', [ProductReviewController::class, 'destroy']);
-        Route::post('/quotes/{quote}/review-link', [ProductReviewController::class, 'link']);
-        Route::get('/product-collections', [ProductCollectionController::class, 'index']);
-        Route::post('/product-collections', [ProductCollectionController::class, 'store']);
-        Route::put('/product-collections/{productCollection}', [ProductCollectionController::class, 'update']);
-        Route::delete('/product-collections/{productCollection}', [ProductCollectionController::class, 'destroy']);
-        Route::post('/product-collections/{productCollection}/banner', [ProductCollectionController::class, 'uploadBanner']);
-        Route::delete('/product-collections/{productCollection}/banner', [ProductCollectionController::class, 'destroyBanner']);
+        // Todo o resto fica parado enquanto a exclusão estiver agendada (inclui o bot, que usa token de integração)
+        Route::middleware(EnsureAccountActive::class)->group(function () {
+            Route::post('/account/deletion', [AccountController::class, 'requestDeletion'])->middleware('throttle:5,1');
 
-        Route::get('/sales-channels', [SalesChannelController::class, 'index']);
-        Route::post('/sales-channels', [SalesChannelController::class, 'store']);
-        Route::put('/sales-channels/{salesChannel}', [SalesChannelController::class, 'update']);
-        Route::delete('/sales-channels/{salesChannel}', [SalesChannelController::class, 'destroy']);
+            Route::get('/materials/{material}/movements', [MaterialController::class, 'movements']);
+            Route::apiResource('materials', MaterialController::class);
+            Route::apiResource('printers', PrinterController::class);
+            Route::get('/customers/duplicates', [CustomerController::class, 'duplicates']);
+            Route::post('/customers/merge', [CustomerController::class, 'merge']);
+            Route::get('/customers/{customer}/profile', [CustomerController::class, 'profile']);
+            Route::post('/customers/{customer}/instagram-invite', [CustomerController::class, 'instagramInvite']);
+            Route::get('/customers/{customer}/cashback', [CustomerController::class, 'cashback']);
+            Route::post('/customers/{customer}/cashback/adjust', [CustomerController::class, 'adjustCashback']);
+            Route::put('/customers/{customer}/referrer', [CustomerController::class, 'setReferrer']);
+            Route::apiResource('customers', CustomerController::class);
+            Route::get('/material-categories', [MaterialCategoryController::class, 'index']);
+            Route::post('/material-categories', [MaterialCategoryController::class, 'store']);
+            Route::put('/material-categories/{materialCategory}', [MaterialCategoryController::class, 'update']);
+            Route::delete('/material-categories/{materialCategory}', [MaterialCategoryController::class, 'destroy']);
 
-        Route::get('/displays', [DisplayController::class, 'index']);
-        Route::post('/displays', [DisplayController::class, 'store']);
-        Route::get('/displays/{display}', [DisplayController::class, 'show']);
-        Route::put('/displays/{display}', [DisplayController::class, 'update']);
-        Route::delete('/displays/{display}', [DisplayController::class, 'destroy']);
-        Route::post('/displays/{display}/restock', [DisplayController::class, 'restock']);
-        Route::post('/displays/{display}/retrieve', [DisplayController::class, 'retrieve']);
-        Route::post('/displays/{display}/reconcile', [DisplayController::class, 'reconcile']);
-        Route::post('/displays/{display}/close', [DisplayController::class, 'close']);
-        Route::post('/displays/{display}/settle', [DisplayController::class, 'settle']);
-        Route::post('/displays/{display}/partner-link', [DisplayController::class, 'sendPartnerLink']);
-        Route::get('/displays/{display}/qr-stats', [DisplayController::class, 'qrStats']);
-        Route::get('/displays/{display}/qr-code', [DisplayController::class, 'qrImage']);
-        Route::get('/products/generate-sku', [ProductController::class, 'generateSku']);
-        Route::post('/products/cost-preview', [ProductController::class, 'costPreview']);
-        Route::post('/products/{product}/production', [ProductController::class, 'registerProduction']);
-        Route::post('/products/{product}/images', [ProductController::class, 'uploadImages']);
-        Route::delete('/products/{product}/images/{image}', [ProductController::class, 'destroyImage']);
-        Route::patch('/products/{product}/images/reorder', [ProductController::class, 'reorderImages']);
-        Route::apiResource('products', ProductController::class);
+            Route::get('/product-categories', [ProductCategoryController::class, 'index']);
+            Route::post('/product-categories', [ProductCategoryController::class, 'store']);
+            Route::put('/product-categories/{productCategory}', [ProductCategoryController::class, 'update']);
+            Route::delete('/product-categories/{productCategory}', [ProductCategoryController::class, 'destroy']);
+            Route::get('/product-reviews', [ProductReviewController::class, 'index']);
+            Route::patch('/product-reviews/{productReview}/moderate', [ProductReviewController::class, 'moderate']);
+            Route::delete('/product-reviews/{productReview}', [ProductReviewController::class, 'destroy']);
+            Route::post('/quotes/{quote}/review-link', [ProductReviewController::class, 'link']);
+            Route::get('/product-collections', [ProductCollectionController::class, 'index']);
+            Route::post('/product-collections', [ProductCollectionController::class, 'store']);
+            Route::put('/product-collections/{productCollection}', [ProductCollectionController::class, 'update']);
+            Route::delete('/product-collections/{productCollection}', [ProductCollectionController::class, 'destroy']);
+            Route::post('/product-collections/{productCollection}/banner', [ProductCollectionController::class, 'uploadBanner']);
+            Route::delete('/product-collections/{productCollection}/banner', [ProductCollectionController::class, 'destroyBanner']);
 
-        Route::post('/quotes/preview', [QuoteController::class, 'preview']);
-        Route::post('/quotes/quick-sale', [QuoteController::class, 'quickSale']);
-        Route::post('/quotes/external-order', [QuoteController::class, 'externalOrder']);
-        Route::post('/quotes/external-quote-request', [QuoteRequestController::class, 'externalStore']);
-        Route::get('/quotes/{quote}/pdf', [QuoteController::class, 'pdf']);
+            Route::get('/sales-channels', [SalesChannelController::class, 'index']);
+            Route::post('/sales-channels', [SalesChannelController::class, 'store']);
+            Route::put('/sales-channels/{salesChannel}', [SalesChannelController::class, 'update']);
+            Route::delete('/sales-channels/{salesChannel}', [SalesChannelController::class, 'destroy']);
 
-        Route::get('/quote-requests', [QuoteRequestController::class, 'index']);
-        Route::get('/quote-requests/{quoteRequest}', [QuoteRequestController::class, 'show']);
-        Route::patch('/quote-requests/{quoteRequest}', [QuoteRequestController::class, 'update']);
-        Route::delete('/quote-requests/{quoteRequest}', [QuoteRequestController::class, 'destroy']);
-        Route::post('/quote-requests/{quoteRequest}/link-quote', [QuoteRequestController::class, 'linkQuote']);
+            Route::get('/displays', [DisplayController::class, 'index']);
+            Route::post('/displays', [DisplayController::class, 'store']);
+            Route::get('/displays/{display}', [DisplayController::class, 'show']);
+            Route::put('/displays/{display}', [DisplayController::class, 'update']);
+            Route::delete('/displays/{display}', [DisplayController::class, 'destroy']);
+            Route::post('/displays/{display}/restock', [DisplayController::class, 'restock']);
+            Route::post('/displays/{display}/retrieve', [DisplayController::class, 'retrieve']);
+            Route::post('/displays/{display}/reconcile', [DisplayController::class, 'reconcile']);
+            Route::post('/displays/{display}/close', [DisplayController::class, 'close']);
+            Route::post('/displays/{display}/settle', [DisplayController::class, 'settle']);
+            Route::post('/displays/{display}/partner-link', [DisplayController::class, 'sendPartnerLink']);
+            Route::get('/displays/{display}/qr-stats', [DisplayController::class, 'qrStats']);
+            Route::get('/displays/{display}/qr-code', [DisplayController::class, 'qrImage']);
+            Route::get('/products/generate-sku', [ProductController::class, 'generateSku']);
+            Route::post('/products/cost-preview', [ProductController::class, 'costPreview']);
+            Route::post('/products/{product}/production', [ProductController::class, 'registerProduction']);
+            Route::post('/products/{product}/images', [ProductController::class, 'uploadImages']);
+            Route::delete('/products/{product}/images/{image}', [ProductController::class, 'destroyImage']);
+            Route::patch('/products/{product}/images/reorder', [ProductController::class, 'reorderImages']);
+            Route::apiResource('products', ProductController::class);
 
-        Route::get('/integration-tokens', [IntegrationTokenController::class, 'index']);
-        Route::post('/integration-tokens', [IntegrationTokenController::class, 'store']);
-        Route::delete('/integration-tokens/{integrationToken}', [IntegrationTokenController::class, 'destroy']);
+            Route::post('/quotes/preview', [QuoteController::class, 'preview']);
+            Route::post('/quotes/quick-sale', [QuoteController::class, 'quickSale']);
+            Route::post('/quotes/external-order', [QuoteController::class, 'externalOrder']);
+            Route::post('/quotes/external-quote-request', [QuoteRequestController::class, 'externalStore']);
+            Route::get('/quotes/{quote}/pdf', [QuoteController::class, 'pdf']);
 
-        Route::get('/whatsapp', [WhatsAppConnectionController::class, 'show']);
-        Route::get('/whatsapp/settings', [WhatsAppConnectionController::class, 'settings']);
-        Route::put('/whatsapp/settings', [WhatsAppConnectionController::class, 'updateSettings']);
-        Route::post('/whatsapp/connect', [WhatsAppConnectionController::class, 'connect']);
-        Route::post('/whatsapp/disconnect', [WhatsAppConnectionController::class, 'disconnect']);
-        Route::patch('/whatsapp/bot-status', [WhatsAppConnectionController::class, 'toggleBot']);
-        Route::get('/whatsapp/handoffs', [WhatsAppHandoffController::class, 'index']);
-        Route::post('/whatsapp/handoffs', [WhatsAppHandoffController::class, 'store']);
-        Route::get('/whatsapp/handoffs/{phone}', [WhatsAppHandoffController::class, 'show']);
-        // Bot: saldo de cashback de quem está conversando
-        Route::get('/whatsapp/cashback/{phone}', [CustomerController::class, 'cashbackByPhone']);
-        // Bot: conversa que veio do QR de um expositor (mensagem pronta com "Expositor CODIGO")
-        Route::post('/whatsapp/display-contacts', [DisplayController::class, 'qrContact']);
-        Route::delete('/whatsapp/handoffs/{phone}', [WhatsAppHandoffController::class, 'destroy']);
-        Route::patch('/quotes/{quote}/approve', [QuoteController::class, 'approve']);
-        Route::patch('/quotes/{quote}/reject', [QuoteController::class, 'reject']);
-        Route::patch('/quotes/{quote}/cancel', [QuoteController::class, 'cancel']);
-        Route::patch('/quotes/{quote}/payment', [QuoteController::class, 'updatePayment']);
-        Route::patch('/quotes/{quote}/pause', [QuoteController::class, 'pause']);
-        Route::patch('/quotes/{quote}/resume', [QuoteController::class, 'resume']);
-        Route::patch('/quotes/{quote}/production-status', [QuoteController::class, 'updateProductionStatus']);
-        Route::patch('/quotes/production-order', [QuoteController::class, 'reorderProduction']);
-        Route::apiResource('quotes', QuoteController::class)->only(['index', 'show', 'store', 'update', 'destroy']);
+            Route::get('/quote-requests', [QuoteRequestController::class, 'index']);
+            Route::get('/quote-requests/{quoteRequest}', [QuoteRequestController::class, 'show']);
+            Route::patch('/quote-requests/{quoteRequest}', [QuoteRequestController::class, 'update']);
+            Route::delete('/quote-requests/{quoteRequest}', [QuoteRequestController::class, 'destroy']);
+            Route::post('/quote-requests/{quoteRequest}/link-quote', [QuoteRequestController::class, 'linkQuote']);
 
-        Route::get('/settings', [SettingsController::class, 'show']);
-        Route::put('/settings', [SettingsController::class, 'update']);
-        Route::put('/settings/segment', [SettingsController::class, 'updateSegment']);
-        Route::put('/settings/cashback', [SettingsController::class, 'updateCashback']);
-        Route::get('/settings/cashback/retroactive', [SettingsController::class, 'cashbackRetroactivePreview']);
-        Route::post('/settings/cashback/retroactive', [SettingsController::class, 'cashbackRetroactiveApply']);
-        Route::get('/settings/cashback/notifications', [SettingsController::class, 'cashbackNotificationsStatus']);
-        Route::get('/settings/cashback/image-preview', [SettingsController::class, 'cashbackImagePreview']);
+            Route::get('/integration-tokens', [IntegrationTokenController::class, 'index']);
+            Route::post('/integration-tokens', [IntegrationTokenController::class, 'store']);
+            Route::delete('/integration-tokens/{integrationToken}', [IntegrationTokenController::class, 'destroy']);
 
-        Route::get('/catalog', [CatalogController::class, 'show']);
-        Route::get('/catalog/analytics', [CatalogController::class, 'analytics']);
-        Route::patch('/catalog', [CatalogController::class, 'update']);
-        Route::post('/catalog/regenerate', [CatalogController::class, 'regenerate']);
-        Route::patch('/catalog/slug', [CatalogController::class, 'updateSlug']);
-        Route::post('/catalog/logo', [CatalogController::class, 'uploadLogo']);
-        Route::delete('/catalog/logo', [CatalogController::class, 'destroyLogo']);
-        Route::get('/catalog/domain', [CatalogController::class, 'domainShow']);
-        Route::put('/catalog/domain', [CatalogController::class, 'domainUpdate']);
-        Route::post('/catalog/domain/verify', [CatalogController::class, 'domainVerify']);
-        Route::delete('/catalog/domain', [CatalogController::class, 'domainDestroy']);
-        // Domínio próprio da área do parceiro (parceiro.empresa.com.br)
-        Route::get('/catalog/partner-domain', [CatalogController::class, 'partnerDomainShow']);
-        Route::put('/catalog/partner-domain', [CatalogController::class, 'partnerDomainUpdate']);
-        Route::post('/catalog/partner-domain/verify', [CatalogController::class, 'partnerDomainVerify']);
-        Route::delete('/catalog/partner-domain', [CatalogController::class, 'partnerDomainDestroy']);
-        Route::post('/catalog/banners', [CatalogController::class, 'uploadBanner']);
-        Route::patch('/catalog/banners/reorder', [CatalogController::class, 'reorderBanners']);
-        Route::patch('/catalog/banners/{banner}', [CatalogController::class, 'updateBanner']);
-        Route::delete('/catalog/banners/{banner}', [CatalogController::class, 'destroyBanner']);
+            Route::get('/whatsapp', [WhatsAppConnectionController::class, 'show']);
+            Route::get('/whatsapp/settings', [WhatsAppConnectionController::class, 'settings']);
+            Route::put('/whatsapp/settings', [WhatsAppConnectionController::class, 'updateSettings']);
+            Route::post('/whatsapp/connect', [WhatsAppConnectionController::class, 'connect']);
+            Route::post('/whatsapp/disconnect', [WhatsAppConnectionController::class, 'disconnect']);
+            Route::patch('/whatsapp/bot-status', [WhatsAppConnectionController::class, 'toggleBot']);
+            Route::get('/whatsapp/handoffs', [WhatsAppHandoffController::class, 'index']);
+            Route::post('/whatsapp/handoffs', [WhatsAppHandoffController::class, 'store']);
+            Route::get('/whatsapp/handoffs/{phone}', [WhatsAppHandoffController::class, 'show']);
+            // Bot: saldo de cashback de quem está conversando
+            Route::get('/whatsapp/cashback/{phone}', [CustomerController::class, 'cashbackByPhone']);
+            // Bot: conversa que veio do QR de um expositor (mensagem pronta com "Expositor CODIGO")
+            Route::post('/whatsapp/display-contacts', [DisplayController::class, 'qrContact']);
+            Route::delete('/whatsapp/handoffs/{phone}', [WhatsAppHandoffController::class, 'destroy']);
+            Route::patch('/quotes/{quote}/approve', [QuoteController::class, 'approve']);
+            Route::patch('/quotes/{quote}/reject', [QuoteController::class, 'reject']);
+            Route::patch('/quotes/{quote}/cancel', [QuoteController::class, 'cancel']);
+            Route::patch('/quotes/{quote}/payment', [QuoteController::class, 'updatePayment']);
+            Route::patch('/quotes/{quote}/pause', [QuoteController::class, 'pause']);
+            Route::patch('/quotes/{quote}/resume', [QuoteController::class, 'resume']);
+            Route::patch('/quotes/{quote}/production-status', [QuoteController::class, 'updateProductionStatus']);
+            Route::patch('/quotes/production-order', [QuoteController::class, 'reorderProduction']);
+            Route::apiResource('quotes', QuoteController::class)->only(['index', 'show', 'store', 'update', 'destroy']);
 
-        Route::get('/reports', [ReportController::class, 'show']);
+            Route::get('/settings', [SettingsController::class, 'show']);
+            Route::put('/settings', [SettingsController::class, 'update']);
+            Route::put('/settings/segment', [SettingsController::class, 'updateSegment']);
+            Route::put('/settings/cashback', [SettingsController::class, 'updateCashback']);
+            Route::get('/settings/cashback/retroactive', [SettingsController::class, 'cashbackRetroactivePreview']);
+            Route::post('/settings/cashback/retroactive', [SettingsController::class, 'cashbackRetroactiveApply']);
+            Route::get('/settings/cashback/notifications', [SettingsController::class, 'cashbackNotificationsStatus']);
+            Route::get('/settings/cashback/image-preview', [SettingsController::class, 'cashbackImagePreview']);
 
-        Route::get('/plan', [PlanController::class, 'show']);
-        Route::post('/plan/checkout', [PlanController::class, 'checkout']);
-        Route::post('/plan/portal', [PlanController::class, 'portal']);
+            Route::get('/catalog', [CatalogController::class, 'show']);
+            Route::get('/catalog/analytics', [CatalogController::class, 'analytics']);
+            Route::patch('/catalog', [CatalogController::class, 'update']);
+            Route::post('/catalog/regenerate', [CatalogController::class, 'regenerate']);
+            Route::patch('/catalog/slug', [CatalogController::class, 'updateSlug']);
+            Route::post('/catalog/logo', [CatalogController::class, 'uploadLogo']);
+            Route::delete('/catalog/logo', [CatalogController::class, 'destroyLogo']);
+            Route::get('/catalog/domain', [CatalogController::class, 'domainShow']);
+            Route::put('/catalog/domain', [CatalogController::class, 'domainUpdate']);
+            Route::post('/catalog/domain/verify', [CatalogController::class, 'domainVerify']);
+            Route::delete('/catalog/domain', [CatalogController::class, 'domainDestroy']);
+            // Domínio próprio da área do parceiro (parceiro.empresa.com.br)
+            Route::get('/catalog/partner-domain', [CatalogController::class, 'partnerDomainShow']);
+            Route::put('/catalog/partner-domain', [CatalogController::class, 'partnerDomainUpdate']);
+            Route::post('/catalog/partner-domain/verify', [CatalogController::class, 'partnerDomainVerify']);
+            Route::delete('/catalog/partner-domain', [CatalogController::class, 'partnerDomainDestroy']);
+            Route::post('/catalog/banners', [CatalogController::class, 'uploadBanner']);
+            Route::patch('/catalog/banners/reorder', [CatalogController::class, 'reorderBanners']);
+            Route::patch('/catalog/banners/{banner}', [CatalogController::class, 'updateBanner']);
+            Route::delete('/catalog/banners/{banner}', [CatalogController::class, 'destroyBanner']);
 
-        Route::get('/subscription', [SubscriptionController::class, 'show']);
-        Route::post('/subscription/cancel', [SubscriptionController::class, 'cancel']);
-        Route::post('/subscription/resume', [SubscriptionController::class, 'resume']);
+            Route::get('/reports', [ReportController::class, 'show']);
 
-        Route::put('/profile', [ProfileController::class, 'update']);
-        Route::put('/profile/password', [ProfileController::class, 'updatePassword']);
+            Route::get('/plan', [PlanController::class, 'show']);
+            Route::post('/plan/checkout', [PlanController::class, 'checkout']);
+            Route::post('/plan/portal', [PlanController::class, 'portal']);
+
+            Route::get('/subscription', [SubscriptionController::class, 'show']);
+            Route::post('/subscription/cancel', [SubscriptionController::class, 'cancel']);
+            Route::post('/subscription/resume', [SubscriptionController::class, 'resume']);
+
+            Route::put('/profile', [ProfileController::class, 'update']);
+            Route::put('/profile/password', [ProfileController::class, 'updatePassword']);
+        });
     });
 });

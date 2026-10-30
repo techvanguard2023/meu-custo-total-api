@@ -287,7 +287,7 @@ class PartnerPortalController extends Controller
 
     private function company(string $slug): Company
     {
-        $company = Company::where('slug', $slug)->first();
+        $company = Company::active()->where('slug', $slug)->first();
         abort_unless($company && CustomerPortal::isAvailable($company), 404, 'Área do parceiro indisponível.');
 
         return $company;

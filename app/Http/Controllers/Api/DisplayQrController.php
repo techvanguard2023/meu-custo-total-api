@@ -56,7 +56,7 @@ class DisplayQrController extends Controller
     /** @return array{0: Company, 1: Display} */
     private function resolve(string $slug, string $code): array
     {
-        $company = Company::where('slug', $slug)->first();
+        $company = Company::active()->where('slug', $slug)->first();
         abort_unless($company && $company->isPro(), 404, 'QR Code não encontrado.');
 
         $display = $this->qr->resolve($company, $code);

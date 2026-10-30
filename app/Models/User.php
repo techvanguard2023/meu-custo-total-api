@@ -13,14 +13,17 @@ use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 
 #[Fillable(['name', 'email', 'phone', 'password', 'company_id'])]
-#[Hidden(['password', 'remember_token'])]
+#[Hidden(['password', 'remember_token', 'terms_accepted_ip'])]
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
     use HasApiTokens, HasFactory, Notifiable;
 
-    /** Vai junto no JSON do usuário: o frontend mostra as configurações técnicas só pra quem é da plataforma. */
-    protected $appends = ['is_platform_admin'];
+    /**
+     * Vai junto no JSON do usuário: o frontend mostra as configurações técnicas só pra quem é da plataforma,
+     * e pede o aceite dos termos quando a versão aceita não é a vigente.
+     */
+    protected $appends = ['is_platform_admin', 'needs_terms_acceptance'];
 
     public function company(): BelongsTo
     {
@@ -38,6 +41,21 @@ class User extends Authenticatable
         return $this->isPlatformAdmin();
     }
 
+    protected function getNeedsTermsAcceptanceAttribute(): bool
+    {
+        return $this->terms_version !== config('legal.terms_version');
+    }
+
+    /** Registra o aceite da versão vigente dos Termos de Uso e da Política de Privacidade. */
+    public function acceptTerms(?string $ip): void
+    {
+        $this->forceFill([
+            'terms_accepted_at' => now(),
+            'terms_version' => config('legal.terms_version'),
+            'terms_accepted_ip' => $ip,
+        ])->save();
+    }
+
     /**
      * Get the attributes that should be cast.
      *
@@ -47,6 +65,7 @@ class User extends Authenticatable
     {
         return [
             'email_verified_at' => 'datetime',
+            'terms_accepted_at' => 'datetime',
             'password' => 'hashed',
         ];
     }

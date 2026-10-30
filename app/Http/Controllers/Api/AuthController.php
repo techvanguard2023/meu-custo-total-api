@@ -8,6 +8,7 @@ use App\Models\Setting;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -25,7 +26,9 @@ class AuthController extends Controller
             // Mesmas regras de src/lib/passwordRules.ts no frontend
             'password' => ['required', 'string', 'min:8', 'regex:/\p{Ll}/u', 'regex:/\p{Lu}/u', 'regex:/\p{N}/u', 'regex:/[^\p{L}\p{N}\s]/u'],
             'segment' => ['nullable', Rule::in(Company::SEGMENTS)],
+            'accept_terms' => ['accepted'],
         ], [
+            'accept_terms.accepted' => 'Para criar a conta, aceite os Termos de Uso e a Política de Privacidade.',
             'company_name.min' => 'O nome da empresa deve ter pelo menos 3 caracteres.',
             'company_name.regex' => 'Informe um nome de empresa válido.',
             'name.min' => 'O nome deve ter pelo menos 3 caracteres.',
@@ -34,21 +37,26 @@ class AuthController extends Controller
             'password.regex' => 'A senha precisa ter letra minúscula, letra maiúscula, número e caractere especial.',
         ]);
 
-        $company = Company::create([
-            'name' => $data['company_name'],
-            'slug' => Str::slug($data['company_name']).'-'.Str::random(6),
-            'segment' => $data['segment'] ?? Company::SEGMENT_3D,
-        ]);
+        $user = DB::transaction(function () use ($data, $request) {
+            $company = Company::create([
+                'name' => $data['company_name'],
+                'slug' => Str::slug($data['company_name']).'-'.Str::random(6),
+                'segment' => $data['segment'] ?? Company::SEGMENT_3D,
+            ]);
 
-        Setting::create(['company_id' => $company->id]);
+            Setting::create(['company_id' => $company->id]);
 
-        $user = User::create([
-            'company_id' => $company->id,
-            'name' => $data['name'],
-            'email' => $data['email'],
-            'phone' => $data['phone'],
-            'password' => Hash::make($data['password']),
-        ]);
+            $user = User::create([
+                'company_id' => $company->id,
+                'name' => $data['name'],
+                'email' => $data['email'],
+                'phone' => $data['phone'],
+                'password' => Hash::make($data['password']),
+            ]);
+            $user->acceptTerms($request->ip());
+
+            return $user;
+        });
 
         $token = $user->createToken('api')->plainTextToken;
 

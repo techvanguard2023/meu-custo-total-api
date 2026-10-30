@@ -125,7 +125,7 @@ class CustomerPortalController extends Controller
     /** Quem indicou (primeiro nome) — o catálogo mostra "Você foi indicado por ..." ao abrir pelo link. */
     public function referral(string $token, string $code)
     {
-        $company = Company::where('slug', $token)->orWhere('catalog_token', $token)->first();
+        $company = Company::active()->where(fn ($q) => $q->where('slug', $token)->orWhere('catalog_token', $token))->first();
         abort_unless($company && $company->hasCatalogActive() && Cashback::isActive($company), 404, 'Indicação não encontrada.');
 
         $referrer = app(Cashback::class)->findReferrer($company, $code);
@@ -226,7 +226,7 @@ class CustomerPortalController extends Controller
     /** Mesma regra do catálogo público (slug ou token antigo, catálogo ligado) + área disponível (Pro com WhatsApp). */
     private function company(string $token): Company
     {
-        $company = Company::where('slug', $token)->orWhere('catalog_token', $token)->first();
+        $company = Company::active()->where(fn ($q) => $q->where('slug', $token)->orWhere('catalog_token', $token))->first();
         abort_unless($company && $company->hasCatalogActive() && CustomerPortal::isAvailable($company), 404, 'Área do cliente indisponível.');
 
         return $company;
