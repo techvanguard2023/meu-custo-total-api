@@ -43,6 +43,16 @@ return [
     'waha' => [
         'url' => env('WAHA_URL'),
         'api_key' => env('WAHA_API_KEY'),
+        // Webhook do fluxo do bot (n8n) aplicado em toda sessão nova — o lojista não vê nem edita
+        'default_webhook_url' => env('WAHA_DEFAULT_WEBHOOK_URL'),
+    ],
+
+    // Contas da plataforma (separadas por vírgula) que veem as configurações técnicas: webhook, tokens, endpoints
+    'platform' => [
+        'admin_emails' => array_values(array_filter(array_map(
+            fn ($email) => strtolower(trim($email)),
+            explode(',', (string) env('PLATFORM_ADMIN_EMAILS', ''))
+        ))),
     ],
 
     // Domínio próprio do catálogo (Pro): cadastra o domínio do lojista no projeto do frontend na Vercel

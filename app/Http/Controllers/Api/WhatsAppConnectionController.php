@@ -51,7 +51,7 @@ class WhatsAppConnectionController extends Controller
     {
         $this->requirePro($request, 'Conexão com WhatsApp');
 
-        return response()->json($this->settingsPayload($request->user()->company));
+        return response()->json($this->settingsPayload($request->user()->company, $request->user()->isPlatformAdmin()));
     }
 
     public function updateSettings(Request $request)
@@ -73,15 +73,21 @@ class WhatsAppConnectionController extends Controller
         ]);
 
         $company = $request->user()->company;
+        // Webhook é por onde as mensagens chegam no fluxo do bot: só a equipe da plataforma
+        // mexe. Pro lojista o campo nem aparece, e o que vier na requisição é ignorado.
+        $isAdmin = $request->user()->isPlatformAdmin();
 
-        $configChanged = $request->hasAny(['webhook_url', 'webhook_events', 'chat_filters']);
+        $configChanged = $request->has('chat_filters') || ($isAdmin && $request->hasAny(['webhook_url', 'webhook_events']));
 
-        $company->update([
+        $webhook = $isAdmin ? [
             'whatsapp_webhook_url' => $data['webhook_url'] ?? null,
             // Com URL e nenhum evento marcado, cai no padrão: só mensagens recebidas.
             'whatsapp_webhook_events' => ! empty($data['webhook_url'])
                 ? (array_values($data['webhook_events'] ?? []) ?: ['message'])
                 : null,
+        ] : [];
+
+        $company->update($webhook + [
             'whatsapp_chat_filters' => $this->normalizeChatFilters($data['chat_filters'] ?? []),
             'whatsapp_status_notifications' => $this->normalizeStatusNotifications($data['status_notifications'] ?? []),
             'whatsapp_bot_prompt' => $data['bot_prompt'] ?? null,
@@ -99,17 +105,22 @@ class WhatsAppConnectionController extends Controller
             }
         }
 
-        return response()->json($this->settingsPayload($company->fresh()));
+        return response()->json($this->settingsPayload($company->fresh(), $isAdmin));
     }
 
-    private function settingsPayload(Company $company): array
+    private function settingsPayload(Company $company, bool $isAdmin = false): array
     {
-        return [
+        // Webhook só vai pra equipe da plataforma (ver updateSettings)
+        $webhook = $isAdmin ? [
             'webhook_url' => $company->whatsapp_webhook_url,
             'webhook_events' => $company->whatsapp_webhook_events ?? [],
+            'default_webhook_url' => config('services.waha.default_webhook_url'),
             'available_events' => collect(self::WEBHOOK_EVENTS)
                 ->map(fn ($label, $key) => ['key' => $key, 'label' => $label])
                 ->values(),
+        ] : [];
+
+        return $webhook + [
             'chat_filters' => $this->receiveFlags($company),
             'available_chat_filters' => collect(self::CHAT_FILTERS)
                 ->map(fn ($label, $key) => ['key' => $key, 'label' => $label])
@@ -180,15 +191,21 @@ class WhatsAppConnectionController extends Controller
         ];
     }
 
-    /** Formato que a WAHA espera; vazio quando o lojista não configurou webhook. */
+    /**
+     * Formato que a WAHA espera. Sem URL própria da empresa (definida pela equipe da
+     * plataforma), usa o webhook padrão do bot (WAHA_DEFAULT_WEBHOOK_URL); sem nenhum
+     * dos dois, fica vazio.
+     */
     private function webhooksFor(Company $company): array
     {
-        if (! $company->whatsapp_webhook_url) {
+        $url = $company->whatsapp_webhook_url ?: config('services.waha.default_webhook_url');
+
+        if (! $url) {
             return [];
         }
 
         return [[
-            'url' => $company->whatsapp_webhook_url,
+            'url' => $url,
             'events' => $company->whatsapp_webhook_events ?: ['message'],
         ]];
     }
