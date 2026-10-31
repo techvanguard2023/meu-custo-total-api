@@ -162,15 +162,14 @@ class ProductionStageNotifier
             return false;
         }
 
-        $this->waha->sendText($company->whatsapp_session_name, $this->chatId($digits), $this->render($config['message'], $quote, $company));
+        $chatId = $this->waha->chatIdFor($company->whatsapp_session_name, $digits);
+        if ($chatId === null) {
+            return false;
+        }
+
+        $this->waha->sendText($company->whatsapp_session_name, $chatId, $this->render($config['message'], $quote, $company));
 
         return true;
-    }
-
-    /** Telefone só com dígitos → id de conversa do WhatsApp (assume DDI 55 quando vem sem). */
-    private function chatId(string $digits): string
-    {
-        return (strlen($digits) <= 11 ? '55'.$digits : $digits).'@c.us';
     }
 
     private function brl(mixed $value): string

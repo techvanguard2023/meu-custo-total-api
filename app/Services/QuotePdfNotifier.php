@@ -45,12 +45,17 @@ class QuotePdfNotifier
                 return;
             }
 
+            $chatId = $this->waha->chatIdFor($company->whatsapp_session_name, $digits);
+            if ($chatId === null) {
+                return;
+            }
+
             $path = $this->store($quote);
             $url = Storage::disk('public')->url($path);
 
             $this->waha->sendFile(
                 $company->whatsapp_session_name,
-                $this->chatId($digits),
+                $chatId,
                 $url,
                 "orcamento-{$quote->id}.pdf",
                 "Olá, {$this->firstName($quote)}! Segue o orçamento *#{$quote->id}* da {$company->name}. Qualquer dúvida, estamos por aqui."
@@ -73,11 +78,6 @@ class QuotePdfNotifier
     public function render(Quote $quote)
     {
         return Pdf::loadView('pdf.quote', ['quote' => $quote])->setPaper('a4');
-    }
-
-    private function chatId(string $digits): string
-    {
-        return (strlen($digits) <= 11 ? '55'.$digits : $digits).'@c.us';
     }
 
     private function firstName(Quote $quote): string

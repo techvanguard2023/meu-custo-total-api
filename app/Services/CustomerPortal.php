@@ -79,6 +79,9 @@ class CustomerPortal
         $phoneKey = Customer::phoneKey($phone);
         $recipient = $phoneKey !== null ? $this->recipientPhone($company, $phoneKey, $scope) : null;
         if ($recipient === null) {
+            // Mesma resposta na tela; o log ajuda a entender "o código não chegou" (número não cadastrado)
+            Log::info("Código de acesso não enviado (empresa {$company->id}): número final ".substr((string) $phoneKey, -4)." não está cadastrado".($scope === self::SCOPE_PARTNER ? ' em nenhum expositor ativo' : ' como cliente'));
+
             return null;
         }
 

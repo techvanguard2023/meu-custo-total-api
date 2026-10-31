@@ -3,7 +3,9 @@
 namespace App\Services;
 
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Cliente HTTP fino pro WAHA (WhatsApp HTTP API) — uma sessão por empresa,
@@ -12,6 +14,9 @@ use Illuminate\Support\Facades\Http;
  */
 class WahaClient
 {
+    /** Marca no cache de chatIdFor: "esse número não tem WhatsApp" (null no cache vira "não consultado"). */
+    private const NOT_ON_WHATSAPP = 'none';
+
     public function isConfigured(): bool
     {
         return ! empty(config('services.waha.url')) && ! empty(config('services.waha.api_key'));
@@ -89,6 +94,63 @@ class WahaClient
         $data = $response->json();
 
         return isset($data['data'], $data['mimetype']) ? "data:{$data['mimetype']};base64,{$data['data']}" : null;
+    }
+
+    /**
+     * Conversa certa pra um telefone cadastrado. No Brasil muitas contas de WhatsApp estão registradas sem
+     * o 9º dígito: mandar pro número como está no cadastro "dá certo" na WAHA, mas a mensagem nunca chega.
+     * A WAHA pergunta ao WhatsApp e devolve o id real. null = o número não tem WhatsApp.
+     * Se a consulta falhar, usa o formato antigo (55 + número) pra não deixar de tentar.
+     */
+    public function chatIdFor(string $session, string $phone): ?string
+    {
+        $digits = preg_replace('/\D/', '', $phone);
+        if ($digits === '') {
+            return null;
+        }
+
+        $number = strlen($digits) <= 11 ? '55'.$digits : $digits;
+        $cacheKey = "waha-chat-id:{$session}:{$number}";
+
+        $cached = Cache::get($cacheKey);
+        if ($cached !== null) {
+            return $cached === self::NOT_ON_WHATSAPP ? null : $cached;
+        }
+
+        // Celular brasileiro com o 9: se não achar assim, tenta sem ele (conta antiga)
+        $candidates = [$number];
+        if (strlen($number) === 13 && str_starts_with($number, '55') && $number[4] === '9') {
+            $candidates[] = substr($number, 0, 4).substr($number, 5);
+        }
+
+        try {
+            foreach ($candidates as $candidate) {
+                $response = $this->http()->timeout(8)->get('/contacts/check-exists', ['phone' => $candidate, 'session' => $session])->throw();
+
+                if ($response->json('numberExists') === true) {
+                    $chatId = (string) ($response->json('chatId') ?: $candidate.'@c.us');
+                    Cache::put($cacheKey, $chatId, now()->addDays(30));
+
+                    return $chatId;
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning("WAHA: não foi possível conferir o WhatsApp de {$this->maskPhone($number)}: {$e->getMessage()}");
+
+            return $number.'@c.us';
+        }
+
+        // Sem WhatsApp: guarda por pouco tempo (a pessoa pode criar a conta depois)
+        Cache::put($cacheKey, self::NOT_ON_WHATSAPP, now()->addHour());
+        Log::info("WAHA: {$this->maskPhone($number)} não tem WhatsApp — mensagem não enviada.");
+
+        return null;
+    }
+
+    /** Telefone com só os 4 últimos dígitos, pro log. */
+    private function maskPhone(string $number): string
+    {
+        return '***'.substr($number, -4);
     }
 
     public function sendText(string $session, string $chatId, string $text): void

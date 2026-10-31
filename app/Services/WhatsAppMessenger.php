@@ -14,7 +14,7 @@ class WhatsAppMessenger
 {
     public function __construct(private WahaClient $waha) {}
 
-    /** @return array{sent: bool, reason: string|null}  reason: no_phone | not_connected | failed */
+    /** @return array{sent: bool, reason: string|null}  reason: no_phone | not_connected | not_on_whatsapp | failed */
     public function deliver(Company $company, ?string $phone, string $message): array
     {
         $digits = preg_replace('/\D/', '', (string) $phone);
@@ -33,11 +33,12 @@ class WhatsAppMessenger
                 return ['sent' => false, 'reason' => 'not_connected'];
             }
 
-            $this->waha->sendText(
-                $company->whatsapp_session_name,
-                (strlen($digits) <= 11 ? '55'.$digits : $digits).'@c.us',
-                $message
-            );
+            $chatId = $this->waha->chatIdFor($company->whatsapp_session_name, $digits);
+            if ($chatId === null) {
+                return ['sent' => false, 'reason' => 'not_on_whatsapp'];
+            }
+
+            $this->waha->sendText($company->whatsapp_session_name, $chatId, $message);
 
             return ['sent' => true, 'reason' => null];
         } catch (\Throwable $e) {
@@ -73,9 +74,14 @@ class WhatsAppMessenger
                 return ['sent' => false, 'reason' => 'not_connected'];
             }
 
+            $chatId = $this->waha->chatIdFor($company->whatsapp_session_name, $digits);
+            if ($chatId === null) {
+                return ['sent' => false, 'reason' => 'not_on_whatsapp'];
+            }
+
             $this->waha->sendImage(
                 $company->whatsapp_session_name,
-                (strlen($digits) <= 11 ? '55'.$digits : $digits).'@c.us',
+                $chatId,
                 $jpeg,
                 'image/jpeg',
                 'cashback.jpg',

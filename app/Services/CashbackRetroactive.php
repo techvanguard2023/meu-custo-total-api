@@ -220,7 +220,7 @@ class CashbackRetroactive
 
             // Sem telefone não tem como mandar; falha de envio tenta de novo em 10 min, até 3 vezes
             $attempts = $row->attempts + 1;
-            $giveUp = $result['reason'] === 'no_phone' || $attempts >= 3;
+            $giveUp = in_array($result['reason'], ['no_phone', 'not_on_whatsapp'], true) || $attempts >= 3;
             DB::table('cashback_notifications')->where('id', $row->id)->update([
                 'attempts' => $attempts,
                 'error' => $result['reason'],
