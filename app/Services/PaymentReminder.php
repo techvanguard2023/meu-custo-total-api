@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Company;
 use App\Models\Quote;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
 
 /**
  * Cobrança de venda entregue que ainda não foi paga: monta a mensagem com o valor em aberto e a forma de
@@ -35,6 +36,7 @@ class PaymentReminder
             ->where('production_status', Quote::PRODUCTION_DELIVERED)
             ->where('is_courtesy', false)
             ->whereColumn('final_price', '>', 'amount_paid')
+            ->with('items')
             ->orderBy('id')
             ->get();
     }
@@ -55,12 +57,12 @@ class PaymentReminder
 
         if ($quotes->count() === 1) {
             $quote = $quotes->first();
-            $lines[] = "Passando para lembrar do pagamento do seu pedido *#{$quote->id}* ({$this->label($quote)}): *{$this->brl($quote->amount_due)}*"
+            $lines[] = "Passando para lembrar do pagamento do seu pedido *#{$quote->id}* (".self::itemsLabel($quote)."): *{$this->brl($quote->amount_due)}*"
                 .((float) $quote->amount_paid > 0 ? " — valor que falta, já recebemos {$this->brl($quote->amount_paid)}." : '.');
         } else {
             $lines[] = 'Passando para lembrar do pagamento dos seus pedidos:';
             foreach ($quotes as $quote) {
-                $lines[] = "• #{$quote->id} — {$this->label($quote)}: {$this->brl($quote->amount_due)}"
+                $lines[] = "• #{$quote->id} — ".self::itemsLabel($quote).": {$this->brl($quote->amount_due)}"
                     .((float) $quote->amount_paid > 0 ? ' (valor que falta)' : '');
             }
             $lines[] = "Total: *{$this->brl($total)}*";
@@ -113,10 +115,17 @@ class PaymentReminder
         return $result;
     }
 
-    /** Nome do pedido como o cliente reconhece (sem o JSON interno que alguns pedidos guardam no nome). */
-    private function label(Quote $quote): string
+    /**
+     * O que foi comprado, pra identificar a cobrança (ex: "2× Chaveiro gato, Vaso Zen"). Pedido do bot
+     * tem nome genérico ("Pedido via WhatsApp"): os itens dizem muito mais. Sem produtos, vale o nome.
+     */
+    public static function itemsLabel(Quote $quote): string
     {
-        return trim(explode('|__JSON__|', (string) $quote->name)[0]) ?: "Pedido #{$quote->id}";
+        $text = collect($quote->soldLines())
+            ->map(fn (array $line) => ($line['quantity'] > 1 ? "{$line['quantity']}× " : '').$line['description'])
+            ->implode(', ');
+
+        return Str::limit($text ?: "Pedido #{$quote->id}", 90);
     }
 
     private function isPixCopyPaste(string $pix): bool

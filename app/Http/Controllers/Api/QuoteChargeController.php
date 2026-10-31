@@ -29,7 +29,7 @@ class QuoteChargeController extends Controller
             ] : null,
             'open' => $this->reminder->openCharges($quote)->map(fn (Quote $q) => [
                 'id' => $q->id,
-                'name' => trim(explode('|__JSON__|', (string) $q->name)[0]),
+                'name' => PaymentReminder::itemsLabel($q),
                 'final_price' => (float) $q->final_price,
                 'amount_paid' => (float) $q->amount_paid,
                 'amount_due' => $q->amount_due,
@@ -55,7 +55,7 @@ class QuoteChargeController extends Controller
         ]);
 
         $company = $request->user()->company;
-        $quotes = Quote::where('company_id', $company->id)->whereIn('id', $data['quote_ids'])->with('customer')->orderBy('id')->get();
+        $quotes = Quote::where('company_id', $company->id)->whereIn('id', $data['quote_ids'])->with(['customer', 'items'])->orderBy('id')->get();
 
         abort_unless($quotes->count() === count($data['quote_ids']), 404, 'Venda não encontrada.');
         abort_unless($quotes->every(fn (Quote $q) => PaymentReminder::isChargeable($q)), 422, 'Só dá pra cobrar venda entregue que ainda tem valor a receber.');
