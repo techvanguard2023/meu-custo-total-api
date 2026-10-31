@@ -111,6 +111,7 @@ class CustomerController extends Controller
                 'production_status' => $q->production_status,
                 'is_courtesy' => (bool) $q->is_courtesy,
                 'review_requested_at' => $q->review_requested_at?->toIso8601String(),
+                'charge_requested_at' => $q->charge_requested_at?->toIso8601String(),
                 'reviews_count' => (int) $q->reviews_count,
                 'items' => $q->soldLines(),
             ]),

@@ -26,6 +26,7 @@ use App\Http\Controllers\Api\PrinterController;
 use App\Http\Controllers\Api\ProductCategoryController;
 use App\Http\Controllers\Api\ProductCollectionController;
 use App\Http\Controllers\Api\ProductController;
+use App\Http\Controllers\Api\QuoteChargeController;
 use App\Http\Controllers\Api\QuoteController;
 use App\Http\Controllers\Api\QuoteRequestController;
 use App\Http\Controllers\Api\ReportController;
@@ -162,6 +163,9 @@ Route::prefix('v1')->group(function () {
             Route::post('/quotes/external-order', [QuoteController::class, 'externalOrder']);
             Route::post('/quotes/external-quote-request', [QuoteRequestController::class, 'externalStore']);
             Route::get('/quotes/{quote}/pdf', [QuoteController::class, 'pdf']);
+            // Cobrança de venda entregue a receber (junta as do mesmo cliente)
+            Route::get('/quotes/{quote}/charge', [QuoteChargeController::class, 'show']);
+            Route::post('/quotes/charge', [QuoteChargeController::class, 'send'])->middleware('throttle:30,1');
 
             Route::get('/quote-requests', [QuoteRequestController::class, 'index']);
             Route::get('/quote-requests/{quoteRequest}', [QuoteRequestController::class, 'show']);

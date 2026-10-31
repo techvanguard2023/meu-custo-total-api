@@ -83,6 +83,7 @@ class Quote extends Model
         'approved_at' => 'datetime',
         'paid_at' => 'datetime',
         'review_requested_at' => 'datetime',
+        'charge_requested_at' => 'datetime',
         'notified_stages' => 'array',
         'cancelled_at' => 'datetime',
         'paused_at' => 'datetime',
