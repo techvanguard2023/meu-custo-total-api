@@ -251,6 +251,8 @@ Route::prefix('v1')->group(function () {
             // Grupos e canais de ofertas no WhatsApp (Pro, só o dono)
             Route::get('/offers', [OfferController::class, 'index']);
             Route::get('/offers/channels', [OfferController::class, 'channels']);
+            Route::get('/offers/schedule', [OfferController::class, 'schedule']);
+            Route::put('/offers/schedule', [OfferController::class, 'updateSchedule']);
             Route::post('/offers', [OfferController::class, 'store'])->middleware('throttle:10,1');
             Route::post('/offers/post', [OfferController::class, 'post'])->middleware('throttle:30,1');
             Route::put('/offers/{series}', [OfferController::class, 'update']);

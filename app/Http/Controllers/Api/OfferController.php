@@ -10,6 +10,7 @@ use App\Models\OfferPost;
 use App\Models\OfferSeries;
 use App\Models\Product;
 use App\Services\OfferPublisher;
+use App\Services\OfferScheduler;
 use App\Services\OfferSeriesManager;
 use App\Services\WahaClient;
 use Illuminate\Http\Request;
@@ -155,6 +156,71 @@ class OfferController extends Controller
         $product->forceFill(['share_in_offers' => $data['share']])->saveQuietly();
 
         return response()->json(['share_in_offers' => $product->share_in_offers]);
+    }
+
+    /** Agenda do envio automático, com o próximo horário e os produtos que vão nele. */
+    public function schedule(Request $request, OfferScheduler $scheduler)
+    {
+        $this->requirePro($request, 'Grupos de ofertas');
+
+        return response()->json($this->schedulePayload($request->user()->company, $scheduler));
+    }
+
+    public function updateSchedule(Request $request, OfferScheduler $scheduler)
+    {
+        $this->requirePro($request, 'Grupos de ofertas');
+
+        $data = $request->validate([
+            'enabled' => ['required', 'boolean'],
+            'days' => ['required', 'array', 'min:1', 'max:7'],
+            'days.*' => ['integer', 'between:1,7', 'distinct'],
+            'times' => ['required', 'array', 'min:1', 'max:6'],
+            'times.*' => ['string', 'date_format:H:i', 'distinct'],
+            'products_per_run' => ['required', 'integer', 'min:1', 'max:10'],
+            'only_in_stock' => ['required', 'boolean'],
+        ], [
+            'days.min' => 'Escolha pelo menos um dia.',
+            'times.min' => 'Informe pelo menos um horário.',
+            'times.max' => 'No máximo 6 horários por dia.',
+            'times.*.distinct' => 'Há horários repetidos.',
+        ]);
+
+        $company = $request->user()->company;
+        $schedule = $scheduler->forCompany($company);
+
+        $data['days'] = collect($data['days'])->map(fn ($d) => (int) $d)->sort()->values()->all();
+        $data['times'] = collect($data['times'])->sort()->values()->all();
+        $schedule->fill($data);
+
+        // Salvar a agenda nunca dispara um horário que acabou de passar (só os próximos)
+        $schedule->last_slot = $scheduler->dueSlot($schedule, now($company->timezone ?: 'America/Sao_Paulo')) ?? $schedule->last_slot;
+
+        $schedule->save();
+
+        return response()->json($this->schedulePayload($company, $scheduler));
+    }
+
+    private function schedulePayload(Company $company, OfferScheduler $scheduler): array
+    {
+        $schedule = $scheduler->forCompany($company);
+        $eligible = $scheduler->eligibleProducts($company, $schedule);
+        $next = $scheduler->nextRun($schedule, now($company->timezone ?: 'America/Sao_Paulo'));
+
+        return [
+            'enabled' => $schedule->enabled,
+            'days' => $schedule->days,
+            'times' => $schedule->times,
+            'products_per_run' => $schedule->products_per_run,
+            'only_in_stock' => $schedule->only_in_stock,
+            'next_run_at' => $next?->toIso8601String(),
+            'eligible_count' => $eligible->count(),
+            // Quem vai no próximo envio (rodízio: nunca divulgados primeiro, depois os mais antigos)
+            'next_products' => $eligible->take($schedule->products_per_run)->map(fn (Product $p) => [
+                'id' => $p->id,
+                'name' => $p->name,
+                'last_sent_at' => $p->offers_last_sent_at?->toIso8601String(),
+            ])->values(),
+        ];
     }
 
     /** Link fixo público (/ofertas/{slug}): leva ao grupo com vaga, ou ao canal. */
