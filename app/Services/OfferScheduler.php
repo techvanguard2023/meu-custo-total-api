@@ -9,6 +9,7 @@ use App\Models\Product;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * Envio automático das ofertas. Nos dias e horários da agenda, os N produtos marcados que estão há mais
@@ -96,20 +97,27 @@ class OfferScheduler
             return 0;
         }
 
-        // Marca o horário antes de tudo: dando certo ou não, ele não é tentado de novo
-        $schedule->update(['last_slot' => $slot]);
-
         if (! OfferSeries::where('company_id', $company->id)->where('active', true)->exists()) {
+            $schedule->update(['last_slot' => $slot]);
+
             return 0;
         }
 
+        // WhatsApp fora (ou o WAHA sem responder) não perde o horário: tenta de novo a cada minuto, dentro da tolerância
         $session = $company->whatsapp_session_name;
-        $connected = $session && $this->waha->isConfigured() && (($this->waha->getSession($session)['status'] ?? null) === 'WORKING');
+        try {
+            $connected = $session && $this->waha->isConfigured() && (($this->waha->getSession($session)['status'] ?? null) === 'WORKING');
+        } catch (Throwable $e) {
+            $connected = false;
+        }
         if (! $connected) {
-            Log::info("Ofertas: horário {$slot} da empresa {$company->id} pulado — WhatsApp desconectado.");
+            Log::info("Ofertas: horário {$slot} da empresa {$company->id} aguardando — WhatsApp desconectado.");
 
             return 0;
         }
+
+        // Marca o horário antes de enfileirar: daqui em diante ele não é tentado de novo (nada sai em dobro)
+        $schedule->update(['last_slot' => $slot]);
 
         $products = $this->eligibleProducts($company, $schedule)->take($schedule->products_per_run);
         foreach ($products as $product) {

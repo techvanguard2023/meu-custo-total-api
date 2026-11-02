@@ -21,11 +21,14 @@ Schedule::command('cashback:expire')->dailyAt('03:30');
 // LGPD: apaga de vez as contas com exclusão pedida cujo prazo pra desistir já passou
 Schedule::command('account:purge-deleted')->dailyAt('04:00');
 
+// A trava do withoutOverlapping fica no cache (banco) e sobrevive a um deploy: se o container cai no meio de um
+// comando, ela segura o comando por 24h (padrão). Nos comandos de minuto, a trava vence em poucos minutos.
+
 // Avisos de cashback em massa (crédito retroativo): um por loja a cada minuto, pra não arriscar o WhatsApp
-Schedule::command('cashback:send-notifications')->everyMinute()->withoutOverlapping();
+Schedule::command('cashback:send-notifications')->everyMinute()->withoutOverlapping(5);
 
 // Ofertas (Pro): a agenda põe os produtos do rodízio na fila; o envio sai uma entrega por loja por minuto;
 // e a cada 15 min abre o próximo grupo quando o atual lota
-Schedule::command('offers:schedule')->everyMinute()->withoutOverlapping();
-Schedule::command('offers:send')->everyMinute()->withoutOverlapping();
-Schedule::command('offers:check-groups')->everyFifteenMinutes()->withoutOverlapping();
+Schedule::command('offers:schedule')->everyMinute()->withoutOverlapping(5);
+Schedule::command('offers:send')->everyMinute()->withoutOverlapping(5);
+Schedule::command('offers:check-groups')->everyFifteenMinutes()->withoutOverlapping(14);

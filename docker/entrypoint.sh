@@ -15,4 +15,7 @@ if [ "${AUTO_MIGRATE:-true}" = "true" ]; then
     php artisan migrate --force || echo "[entrypoint] migrate falhou — verifique a conexão com o banco"
 fi
 
+# Travas do agendador presas por um container derrubado no meio de um comando (ficam no cache do banco)
+php artisan schedule:clear-cache || true
+
 exec supervisord -c /etc/supervisord.conf
