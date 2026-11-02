@@ -41,7 +41,7 @@ class OfferSeriesManager
             'kind' => $data['kind'],
             'name' => $data['name'],
             'description' => $data['description'] ?? null,
-            'slug' => Str::slug($data['name']).'-'.Str::lower(Str::random(5)),
+            'slug' => $this->freeSlug($data['name']),
             'capacity' => $data['capacity'] ?? 900,
             'backup_admin_phone' => $data['backup_admin_phone'] ?? null,
         ]);
@@ -150,6 +150,18 @@ class OfferSeriesManager
         } catch (Throwable $e) {
             Log::warning("Ofertas: segundo admin não adicionado ao grupo {$group->jid}: {$e->getMessage()}");
         }
+    }
+
+    /** Nome do link a partir do nome da série ("ofertas-3d"); se já existir, ganha um final aleatório. */
+    private function freeSlug(string $name): string
+    {
+        $base = Str::limit(Str::slug($name), 50, '') ?: 'ofertas';
+        $slug = $base;
+        while (OfferSeries::where('slug', $slug)->exists()) {
+            $slug = $base.'-'.Str::lower(Str::random(4));
+        }
+
+        return $slug;
     }
 
     /** @return array{id: string, invite: string|null} */

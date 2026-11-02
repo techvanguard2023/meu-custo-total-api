@@ -390,6 +390,27 @@ class CatalogController extends Controller
         return $this->destroyDomain($request, $vercel, 'partner_domain');
     }
 
+    // Domínio próprio dos links de ofertas (grupo.empresa.com.br/ofertas/...)
+    public function offersDomainShow(Request $request, VercelDomains $vercel)
+    {
+        return response()->json($this->domainPayload($request->user()->company, $vercel, 'offers_domain', refresh: true));
+    }
+
+    public function offersDomainUpdate(Request $request, VercelDomains $vercel)
+    {
+        return $this->saveDomain($request, $vercel, 'offers_domain');
+    }
+
+    public function offersDomainVerify(Request $request, VercelDomains $vercel)
+    {
+        return $this->verifyDomain($request, $vercel, 'offers_domain');
+    }
+
+    public function offersDomainDestroy(Request $request, VercelDomains $vercel)
+    {
+        return $this->destroyDomain($request, $vercel, 'offers_domain');
+    }
+
     private function saveDomain(Request $request, VercelDomains $vercel, string $column)
     {
         $this->requirePro($request, 'Domínio próprio');
@@ -398,12 +419,13 @@ class CatalogController extends Controller
         $company = $request->user()->company;
         $domain = $this->normalizeDomain((string) $request->input('domain'));
 
-        // Um endereço serve a uma coisa só — nem de outra loja, nem o outro domínio desta mesma loja
-        $other = $column === 'custom_domain' ? 'partner_domain' : 'custom_domain';
-        abort_if($company->{$other} === $domain, 422, 'Esse endereço já está em uso no outro domínio da sua loja. Use um diferente.');
+        // Um endereço serve a uma coisa só — nem de outra loja, nem outro domínio desta mesma loja
+        foreach (array_diff(Company::DOMAIN_COLUMNS, [$column]) as $other) {
+            abort_if($company->{$other} === $domain, 422, 'Esse endereço já está em uso em outro domínio da sua loja. Use um diferente.');
+        }
         abort_if(
             Company::where('id', '!=', $company->id)
-                ->where(fn ($q) => $q->where('custom_domain', $domain)->orWhere('partner_domain', $domain))
+                ->where(fn ($q) => collect(Company::DOMAIN_COLUMNS)->each(fn ($c) => $q->orWhere($c, $domain)))
                 ->exists(),
             422,
             'Esse domínio já está em uso por outra loja.'
@@ -470,13 +492,17 @@ class CatalogController extends Controller
         $registrable = count($labels) >= 3 && in_array($labels[count($labels) - 2], self::SECOND_LEVEL_LABELS, true) ? 3 : 2;
         $hostLabel = $domain ? implode('.', array_slice($labels, 0, max(1, count($labels) - $registrable))) : null;
 
-        $active = $column === 'partner_domain' ? $company->hasActivePartnerDomain() : $company->hasActiveCustomDomain();
+        [$active, $url] = match ($column) {
+            'partner_domain' => [$company->hasActivePartnerDomain(), $company->partnerPortalUrl()],
+            'offers_domain' => [$company->hasActiveOffersDomain(), $company->offersOrigin()],
+            default => [$company->hasActiveCustomDomain(), $company->catalogUrl()],
+        };
 
         return [
             'available' => $vercel->isConfigured(),
             'domain' => $domain,
             'status' => ! $domain ? 'none' : ($company->{$verifiedColumn} ? 'active' : 'pending'),
-            'url' => $active ? ($column === 'partner_domain' ? $company->partnerPortalUrl() : $company->catalogUrl()) : null,
+            'url' => $active ? $url : null,
             'dns' => $domain ? ['type' => 'CNAME', 'name' => $hostLabel, 'value' => $status['cname']] : null,
             'verification' => $status['verification'],
         ];

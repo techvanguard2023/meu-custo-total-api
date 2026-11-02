@@ -34,7 +34,7 @@ class OfferController extends Controller
         $numbers = $metrics->forPosts($company, $posts);
 
         return response()->json([
-            'series' => OfferSeries::where('company_id', $company->id)->with('groups')->latest('id')->get()
+            'series' => OfferSeries::where('company_id', $company->id)->with(['groups', 'company'])->latest('id')->get()
                 ->map(fn (OfferSeries $s) => $this->seriesPayload($s))->values(),
             'shared_products' => $company->products()->where('share_in_offers', true)->count(),
             'ai_enabled' => app(OfferTextAi::class)->isConfigured(),
@@ -93,9 +93,14 @@ class OfferController extends Controller
         $this->authorizeSeries($request, $series);
 
         $data = $request->validate([
+            // Nome do link (/ofertas/{slug}): letras minúsculas, números e hífens
+            'slug' => ['sometimes', 'string', 'min:3', 'max:60', 'regex:/^[a-z0-9]+(-[a-z0-9]+)*$/', Rule::unique('offer_series', 'slug')->ignore($series->id)],
             'capacity' => ['sometimes', 'integer', 'min:50', 'max:1000'],
             'backup_admin_phone' => ['sometimes', 'nullable', 'string', 'max:30', 'regex:/^[\d\s()+\-]{10,}$/'],
             'active' => ['sometimes', 'boolean'],
+        ], [
+            'slug.regex' => 'Use só letras minúsculas, números e hífens (ex: grupo-ofertas).',
+            'slug.unique' => 'Esse endereço já está em uso. Escolha outro.',
         ]);
 
         $series->update($data);
@@ -285,12 +290,18 @@ class OfferController extends Controller
     }
 
     /** Link fixo público (/ofertas/{slug}): leva ao grupo com vaga, ou ao canal. */
-    public function publicShow(string $slug)
+    public function publicShow(Request $request, string $slug)
     {
         $series = OfferSeries::where('slug', $slug)->where('active', true)
             ->whereHas('company', fn ($q) => $q->active()->where('plan', Company::PLAN_PRO))
             ->with('company')
             ->first();
+
+        // Aberto num domínio de loja: a série tem de ser dessa loja (um domínio não abre ofertas de outra)
+        $host = strtolower((string) $request->query('host'));
+        if ($series && $host !== '') {
+            $series = in_array($host, [$series->company->offers_domain, $series->company->custom_domain], true) ? $series : null;
+        }
         abort_unless($series, 404, 'Este link de ofertas não está mais disponível.');
 
         return response()->json([
@@ -312,7 +323,9 @@ class OfferController extends Controller
             'capacity' => $series->capacity,
             'backup_admin_phone' => $series->backup_admin_phone,
             'active' => $series->active,
-            'public_url' => rtrim(config('services.frontend_url'), '/').'/ofertas/'.$series->slug,
+            'slug' => $series->slug,
+            // Domínio das ofertas → do catálogo → do app (ver Company::offersOrigin)
+            'public_url' => $series->company->offersOrigin().'/ofertas/'.$series->slug,
             'channel_invite' => $series->channel_invite,
             'groups' => $series->groups->map(fn (OfferGroup $g) => [
                 'id' => $g->id,

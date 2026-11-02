@@ -232,6 +232,11 @@ Route::prefix('v1')->group(function () {
             Route::put('/catalog/partner-domain', [CatalogController::class, 'partnerDomainUpdate']);
             Route::post('/catalog/partner-domain/verify', [CatalogController::class, 'partnerDomainVerify']);
             Route::delete('/catalog/partner-domain', [CatalogController::class, 'partnerDomainDestroy']);
+            // Domínio próprio dos links de ofertas (grupo.empresa.com.br/ofertas/...)
+            Route::get('/catalog/offers-domain', [CatalogController::class, 'offersDomainShow']);
+            Route::put('/catalog/offers-domain', [CatalogController::class, 'offersDomainUpdate']);
+            Route::post('/catalog/offers-domain/verify', [CatalogController::class, 'offersDomainVerify']);
+            Route::delete('/catalog/offers-domain', [CatalogController::class, 'offersDomainDestroy']);
             Route::post('/catalog/banners', [CatalogController::class, 'uploadBanner']);
             Route::patch('/catalog/banners/reorder', [CatalogController::class, 'reorderBanners']);
             Route::patch('/catalog/banners/{banner}', [CatalogController::class, 'updateBanner']);

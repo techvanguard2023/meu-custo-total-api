@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\CatalogVisit;
 use App\Models\Company;
+use App\Models\OfferSeries;
 use App\Services\CustomerPortal;
 use App\Models\Quote;
 use Illuminate\Http\Request;
@@ -35,6 +36,21 @@ class PublicCatalogController extends Controller
             }
 
             return response()->json(['slug' => $partner->slug, 'kind' => 'partner']);
+        }
+
+        // Domínio dos links de ofertas (grupo.empresa.com.br): a raiz leva à série de ofertas mais recente
+        $offers = Company::active()->where('offers_domain', $host)->first();
+        if ($offers) {
+            abort_unless($offers->isPro(), 404, 'Domínio não encontrado.');
+            if ($offers->offers_domain_verified_at === null) {
+                $offers->forceFill(['offers_domain_verified_at' => now()])->save();
+            }
+
+            return response()->json([
+                'slug' => $offers->slug,
+                'kind' => 'offers',
+                'offer' => OfferSeries::where('company_id', $offers->id)->where('active', true)->latest('id')->value('slug'),
+            ]);
         }
 
         $company = Company::active()->where('custom_domain', $host)->first();

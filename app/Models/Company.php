@@ -15,13 +15,13 @@ class Company extends Model
     protected static function booted(): void
     {
         // Domínio próprio é do plano Pro: ao sair dele, o domínio é descadastrado da Vercel e o link padrão volta a valer.
-        // Vale pros dois: o do catálogo e o da área do parceiro.
+        // Vale pros três: o do catálogo, o da área do parceiro e o das ofertas.
         static::updated(function (Company $company) {
             if (! $company->wasChanged('plan') || $company->plan === self::PLAN_PRO) {
                 return;
             }
 
-            foreach (['custom_domain', 'partner_domain'] as $column) {
+            foreach (self::DOMAIN_COLUMNS as $column) {
                 if (! $company->{$column}) {
                     continue;
                 }
@@ -50,7 +50,7 @@ class Company extends Model
         'catalog_tiktok_url', 'catalog_linkedin_url',
         'catalog_about', 'catalog_address', 'catalog_hours', 'catalog_email',
         'catalog_accent_color', 'custom_domain', 'custom_domain_verified_at',
-        'partner_domain', 'partner_domain_verified_at',
+        'partner_domain', 'partner_domain_verified_at', 'offers_domain', 'offers_domain_verified_at',
         'whatsapp_session_name', 'whatsapp_bot_enabled', 'whatsapp_webhook_url', 'whatsapp_webhook_events',
         'whatsapp_chat_filters', 'whatsapp_status_notifications', 'whatsapp_bot_prompt', 'whatsapp_payment_link', 'whatsapp_pix_key',
     ];
@@ -63,6 +63,7 @@ class Company extends Model
         'whatsapp_status_notifications' => 'array',
         'custom_domain_verified_at' => 'datetime',
         'partner_domain_verified_at' => 'datetime',
+        'offers_domain_verified_at' => 'datetime',
         'deletion_scheduled_for' => 'datetime',
         'deletion_paused_subscription' => 'boolean',
     ];
@@ -146,6 +147,23 @@ class Company extends Model
         return $this->hasActiveCustomDomain()
             ? $this->publicOrigin().'/parceiro'
             : $this->publicOrigin().'/parceiro/'.$this->slug;
+    }
+
+    /** Domínios próprios da loja (cada um com a coluna "{coluna}_verified_at"). Um endereço serve a uma coisa só. */
+    public const DOMAIN_COLUMNS = ['custom_domain', 'partner_domain', 'offers_domain'];
+
+    public function hasActiveOffersDomain(): bool
+    {
+        return $this->isPro() && $this->offers_domain && $this->offers_domain_verified_at !== null;
+    }
+
+    /**
+     * Onde ficam os links fixos das ofertas (/ofertas/{slug}): no domínio próprio das ofertas quando ativo;
+     * senão no domínio do catálogo; senão no app.
+     */
+    public function offersOrigin(): string
+    {
+        return $this->hasActiveOffersDomain() ? 'https://'.$this->offers_domain : $this->publicOrigin();
     }
 
     /** Essencial ou Pro — os dois planos pagos, usado pelos recursos que não são exclusivos do topo. */
