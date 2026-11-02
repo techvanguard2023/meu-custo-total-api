@@ -23,3 +23,7 @@ Schedule::command('account:purge-deleted')->dailyAt('04:00');
 
 // Avisos de cashback em massa (crédito retroativo): um por loja a cada minuto, pra não arriscar o WhatsApp
 Schedule::command('cashback:send-notifications')->everyMinute()->withoutOverlapping();
+
+// Ofertas (Pro): uma entrega por loja por minuto; e a cada 15 min, abre o próximo grupo quando o atual lota
+Schedule::command('offers:send')->everyMinute()->withoutOverlapping();
+Schedule::command('offers:check-groups')->everyFifteenMinutes()->withoutOverlapping();

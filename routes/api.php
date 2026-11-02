@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\PartnerPortalController;
 use App\Http\Controllers\Api\DisplayQrController;
 use App\Http\Controllers\Api\IntegrationTokenController;
 use App\Http\Controllers\Api\InvitationController;
+use App\Http\Controllers\Api\OfferController;
 use App\Http\Controllers\Api\OnboardingController;
 use App\Http\Controllers\Api\TeamController;
 use App\Http\Controllers\Api\WhatsAppConnectionController;
@@ -82,6 +83,9 @@ Route::prefix('v1')->group(function () {
 
     // Avaliação do cliente final — sem autenticação, só com o link recebido.
     // O POST tem limite mais apertado que a leitura: é escrita vinda de fora.
+    // Link fixo dos grupos/canal de ofertas: leva ao grupo com vaga
+    Route::get('/public/offers/{slug}', [OfferController::class, 'publicShow'])->middleware('throttle:60,1');
+
     Route::get('/public/review/{token}', [PublicReviewController::class, 'show'])
         ->middleware('throttle:60,1');
     Route::post('/public/review/{token}', [PublicReviewController::class, 'store'])
@@ -243,6 +247,16 @@ Route::prefix('v1')->group(function () {
 
             Route::put('/profile', [ProfileController::class, 'update']);
             Route::put('/profile/password', [ProfileController::class, 'updatePassword']);
+
+            // Grupos e canais de ofertas no WhatsApp (Pro, só o dono)
+            Route::get('/offers', [OfferController::class, 'index']);
+            Route::get('/offers/channels', [OfferController::class, 'channels']);
+            Route::post('/offers', [OfferController::class, 'store'])->middleware('throttle:10,1');
+            Route::post('/offers/post', [OfferController::class, 'post'])->middleware('throttle:30,1');
+            Route::put('/offers/{series}', [OfferController::class, 'update']);
+            Route::delete('/offers/{series}', [OfferController::class, 'destroy']);
+            Route::post('/offers/{series}/check', [OfferController::class, 'check'])->middleware('throttle:10,1');
+            Route::patch('/products/{product}/offers', [OfferController::class, 'toggleProduct']);
 
             // Primeiros passos do Dashboard (só o dono)
             Route::get('/onboarding', [OnboardingController::class, 'show']);

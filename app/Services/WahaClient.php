@@ -153,13 +153,98 @@ class WahaClient
         return '***'.substr($number, -4);
     }
 
-    public function sendText(string $session, string $chatId, string $text): void
+    public function sendText(string $session, string $chatId, string $text, bool $linkPreview = false): void
     {
-        $this->http()->timeout(8)->post('/sendText', [
+        $this->http()->timeout(8)->post('/sendText', array_filter([
             'session' => $session,
             'chatId' => $chatId,
             'text' => $text,
-        ])->throw();
+            // Prévia do link (foto e título do produto, vindos do catálogo) — usada nas ofertas
+            'linkPreview' => $linkPreview ?: null,
+        ], fn ($value) => $value !== null))->throw();
+    }
+
+    // ---- Grupos e canais de ofertas (validado no GOWS em 2026-11-02: criar, link, só admins,
+    // descrição, postar texto/imagem; a contagem de membros só aparece depois do refresh;
+    // apagar canal não é suportado pelo GOWS) ----
+
+    /** Cria um grupo só com o número da loja e devolve o id (…@g.us). */
+    public function createGroup(string $session, string $name): string
+    {
+        $group = $this->http()->timeout(30)->post("/{$session}/groups", ['name' => $name, 'participants' => []])->throw()->json();
+
+        return (string) ($group['JID'] ?? $group['id'] ?? throw new \RuntimeException('A WAHA não devolveu o id do grupo.'));
+    }
+
+    /** Grupo de avisos: só administradores postam e mudam nome/foto/descrição. */
+    public function setupAnnouncementGroup(string $session, string $groupId, ?string $description): void
+    {
+        $id = rawurlencode($groupId);
+        $this->http()->put("/{$session}/groups/{$id}/settings/security/messages-admin-only", ['adminsOnly' => true])->throw();
+        $this->http()->put("/{$session}/groups/{$id}/settings/security/info-admin-only", ['adminsOnly' => true])->throw();
+        if ($description) {
+            $this->http()->put("/{$session}/groups/{$id}/description", ['description' => $description])->throw();
+        }
+    }
+
+    public function groupInviteUrl(string $session, string $groupId): string
+    {
+        $code = trim($this->http()->get("/{$session}/groups/".rawurlencode($groupId).'/invite-code')->throw()->body(), "\" \n");
+
+        return str_starts_with($code, 'http') ? $code : "https://chat.whatsapp.com/{$code}";
+    }
+
+    /** Põe alguém no grupo e torna administrador (segundo admin da loja). */
+    public function addGroupAdmin(string $session, string $groupId, string $chatId): void
+    {
+        $id = rawurlencode($groupId);
+        $participants = ['participants' => [['id' => $chatId]]];
+        $this->http()->post("/{$session}/groups/{$id}/participants/add", $participants)->throw();
+        $this->http()->post("/{$session}/groups/{$id}/admin/promote", $participants)->throw();
+    }
+
+    /**
+     * Quantas pessoas cada grupo tem (id => total). Atualiza a lista na WAHA antes: sem isso, grupo
+     * recém-criado não aparece e a contagem fica velha.
+     *
+     * @return array<string, int>
+     */
+    public function groupParticipantCounts(string $session): array
+    {
+        $this->http()->timeout(40)->post("/{$session}/groups/refresh")->throw();
+        $groups = $this->http()->timeout(40)->get("/{$session}/groups")->throw()->json() ?? [];
+
+        $counts = [];
+        foreach ($groups as $key => $group) {
+            $jid = $group['JID'] ?? $group['id'] ?? (is_string($key) ? $key : null);
+            if ($jid) {
+                $counts[$jid] = count($group['Participants'] ?? $group['participants'] ?? []);
+            }
+        }
+
+        return $counts;
+    }
+
+    /** Canais em que a loja é dona ou admin (dá pra postar). @return array<int, array{id: string, name: string, invite: string|null}> */
+    public function listOwnChannels(string $session): array
+    {
+        return collect($this->http()->get("/{$session}/channels")->throw()->json() ?? [])
+            ->filter(fn ($c) => in_array($c['role'] ?? null, ['OWNER', 'ADMIN'], true))
+            ->map(fn ($c) => ['id' => $c['id'], 'name' => $c['name'] ?? '', 'invite' => $c['invite'] ?? null])
+            ->values()
+            ->all();
+    }
+
+    /** @return array{id: string, invite: string|null} */
+    public function createChannel(string $session, string $name, ?string $description): array
+    {
+        $channel = $this->http()->timeout(30)->post("/{$session}/channels", [
+            'name' => $name,
+            'description' => $description ?? '',
+            'type' => 'BROADCAST',
+        ])->throw()->json();
+
+        return ['id' => $channel['id'], 'invite' => $channel['invite'] ?? null];
     }
 
     /** Manda uma imagem (bytes em base64) com legenda — ex: o cartão de cashback. */

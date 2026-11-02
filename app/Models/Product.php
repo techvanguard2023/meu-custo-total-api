@@ -21,6 +21,8 @@ class Product extends Model
     protected $casts = [
         'active' => 'boolean',
         'show_in_catalog' => 'boolean',
+        'share_in_offers' => 'boolean',
+        'offers_last_sent_at' => 'datetime',
         'made_to_order' => 'boolean',
         'featured' => 'boolean',
         'auto_cost' => 'boolean',
