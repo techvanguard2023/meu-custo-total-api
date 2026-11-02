@@ -85,6 +85,8 @@ Route::prefix('v1')->group(function () {
     // O POST tem limite mais apertado que a leitura: é escrita vinda de fora.
     // Link fixo dos grupos/canal de ofertas: leva ao grupo com vaga
     Route::get('/public/offers/{slug}', [OfferController::class, 'publicShow'])->middleware('throttle:60,1');
+    // Catálogo aberto pelo link de uma oferta (?o=CODIGO): conta o clique
+    Route::post('/public/offer-clicks/{code}', [OfferController::class, 'publicClick'])->middleware('throttle:60,1');
 
     Route::get('/public/review/{token}', [PublicReviewController::class, 'show'])
         ->middleware('throttle:60,1');
@@ -255,6 +257,9 @@ Route::prefix('v1')->group(function () {
             Route::put('/offers/schedule', [OfferController::class, 'updateSchedule']);
             Route::post('/offers', [OfferController::class, 'store'])->middleware('throttle:10,1');
             Route::post('/offers/post', [OfferController::class, 'post'])->middleware('throttle:30,1');
+            Route::post('/offers/preview', [OfferController::class, 'preview']);
+            Route::post('/offers/ai-text', [OfferController::class, 'aiText'])->middleware('throttle:20,1');
+            Route::put('/products/{product}/offer-text', [OfferController::class, 'updateProductText']);
             Route::put('/offers/{series}', [OfferController::class, 'update']);
             Route::delete('/offers/{series}', [OfferController::class, 'destroy']);
             Route::post('/offers/{series}/check', [OfferController::class, 'check'])->middleware('throttle:10,1');

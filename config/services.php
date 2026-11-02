@@ -47,6 +47,13 @@ return [
         'default_webhook_url' => env('WAHA_DEFAULT_WEBHOOK_URL'),
     ],
 
+    // Fluxos do n8n chamados pelo backend. Texto de oferta por IA: webhook do fluxo "Texto de oferta (IA)";
+    // o segredo vai no header X-Webhook-Secret e o fluxo recusa chamada sem ele.
+    'n8n' => [
+        'offer_text_webhook' => env('N8N_OFFER_TEXT_WEBHOOK_URL'),
+        'webhook_secret' => env('N8N_WEBHOOK_SECRET'),
+    ],
+
     // Contas da plataforma (separadas por vírgula) que veem as configurações técnicas: webhook, tokens, endpoints
     'platform' => [
         'admin_emails' => array_values(array_filter(array_map(

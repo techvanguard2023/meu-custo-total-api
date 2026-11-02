@@ -38,6 +38,7 @@ class OfferPublisher
             'product_id' => $product->id,
             'product_name' => $product->name,
             'origin' => $origin,
+            'code' => $this->uniqueCode(),
         ]);
 
         foreach ($targets as $target) {
@@ -89,7 +90,7 @@ class OfferPublisher
         }
 
         try {
-            $caption = $this->message($company, $product);
+            $caption = $this->message($company, $product, $delivery->post->code);
             $image = $this->imageBytes($product);
 
             if ($image) {
@@ -107,8 +108,12 @@ class OfferPublisher
         return $delivery;
     }
 
-    /** Texto da oferta: nome, preço (com o "de/por" da promoção) e o link do produto no catálogo. */
-    public function message(Company $company, Product $product): string
+    /**
+     * Texto da oferta: nome, preço (com o "de/por" da promoção), o texto da oferta (o próprio do produto,
+     * ou um trecho da descrição) e o link do produto no catálogo — com o código da oferta (?o=), que o
+     * catálogo usa pra contar o clique. Preço e link sempre montados aqui, nunca pela IA.
+     */
+    public function message(Company $company, Product $product, ?string $code = null, ?string $textOverride = null): string
     {
         [$regular, $promo, $from] = $this->prices($company, $product);
         $money = fn (float $v) => 'R$ '.number_format($v, 2, ',', '.');
@@ -119,14 +124,18 @@ class OfferPublisher
             ? "De ~{$money($regular)}~ por *{$prefix}{$money($promo)}*"
             : "*{$prefix}{$money($regular)}*";
 
+        $custom = trim((string) ($textOverride ?? $product->offer_text));
         $description = trim(preg_replace('/\s+/', ' ', strip_tags((string) $product->description)));
-        if ($description !== '') {
+        if ($custom !== '') {
+            $lines[] = '';
+            $lines[] = $custom;
+        } elseif ($description !== '') {
             $lines[] = '';
             $lines[] = Str::limit($description, 160);
         }
 
         $lines[] = '';
-        $lines[] = "👉 Veja e peça: {$this->productUrl($company, $product)}";
+        $lines[] = "👉 Veja e peça: {$this->productUrl($company, $product)}".($code ? "?o={$code}" : '');
 
         return implode("\n", $lines);
     }
@@ -137,7 +146,7 @@ class OfferPublisher
      *
      * @return array{0: float, 1: float|null, 2: bool}  [preço cheio, preço promocional, "a partir de"]
      */
-    private function prices(Company $company, Product $product): array
+    public function prices(Company $company, Product $product): array
     {
         $markup = (float) ($company->setting?->default_markup ?? 0);
         $auto = fn ($cost) => round((float) $cost * (1 + $markup / 100), 2);
@@ -156,6 +165,15 @@ class OfferPublisher
         $promo = $product->discount_percent !== null ? round($regular * (1 - (float) $product->discount_percent / 100), 2) : null;
 
         return [$regular, $promo, $from];
+    }
+
+    private function uniqueCode(): string
+    {
+        do {
+            $code = Str::lower(Str::random(8));
+        } while (OfferPost::where('code', $code)->exists());
+
+        return $code;
     }
 
     /** Mesmo endereço que o catálogo monta pro produto (categoria/subcategoria/slug). */

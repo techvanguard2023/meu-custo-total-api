@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 /** Uma oferta divulgada (um produto), com uma entrega por grupo/canal. */
 class OfferPost extends Model
 {
-    protected $fillable = ['company_id', 'product_id', 'product_name', 'origin'];
+    protected $fillable = ['company_id', 'product_id', 'product_name', 'origin', 'code'];
 
     public function deliveries(): HasMany
     {

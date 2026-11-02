@@ -9,7 +9,9 @@ use App\Models\OfferGroup;
 use App\Models\OfferPost;
 use App\Models\OfferSeries;
 use App\Models\Product;
+use App\Services\OfferMetrics;
 use App\Services\OfferPublisher;
+use App\Services\OfferTextAi;
 use App\Services\OfferScheduler;
 use App\Services\OfferSeriesManager;
 use App\Services\WahaClient;
@@ -23,20 +25,27 @@ class OfferController extends Controller
 
     public function __construct(private OfferSeriesManager $manager, private OfferPublisher $publisher) {}
 
-    public function index(Request $request)
+    public function index(Request $request, OfferMetrics $metrics)
     {
         $this->requirePro($request, 'Grupos de ofertas');
         $company = $request->user()->company;
+
+        $posts = OfferPost::where('company_id', $company->id)->with('deliveries')->latest('id')->limit(20)->get();
+        $numbers = $metrics->forPosts($company, $posts);
 
         return response()->json([
             'series' => OfferSeries::where('company_id', $company->id)->with('groups')->latest('id')->get()
                 ->map(fn (OfferSeries $s) => $this->seriesPayload($s))->values(),
             'shared_products' => $company->products()->where('share_in_offers', true)->count(),
-            'posts' => OfferPost::where('company_id', $company->id)->with('deliveries')->latest('id')->limit(20)->get()
-                ->map(fn (OfferPost $p) => [
+            'ai_enabled' => app(OfferTextAi::class)->isConfigured(),
+            'summary' => $metrics->summary($company),
+            'sales_window_hours' => OfferMetrics::SALES_WINDOW_HOURS,
+            'posts' => $posts->map(fn (OfferPost $p) => [
                     'id' => $p->id,
                     'product_name' => $p->product_name,
+                    'origin' => $p->origin,
                     'created_at' => $p->created_at?->toIso8601String(),
+                    'metrics' => $numbers[$p->id] ?? null,
                     'deliveries' => $p->deliveries->map(fn ($d) => [
                         'target' => $d->target_label,
                         'status' => $d->status,
@@ -156,6 +165,58 @@ class OfferController extends Controller
         $product->forceFill(['share_in_offers' => $data['share']])->saveQuietly();
 
         return response()->json(['share_in_offers' => $product->share_in_offers]);
+    }
+
+    /** Texto próprio da oferta do produto (em branco = usa um trecho da descrição). */
+    public function updateProductText(Request $request, Product $product)
+    {
+        $this->requirePro($request, 'Grupos de ofertas');
+        abort_unless($product->company_id === $request->user()->company_id, 404);
+        $data = $request->validate(['offer_text' => ['nullable', 'string', 'max:700']]);
+
+        $product->forceFill(['offer_text' => trim((string) ($data['offer_text'] ?? '')) ?: null])->saveQuietly();
+
+        return response()->json(['offer_text' => $product->offer_text]);
+    }
+
+    /** Como a oferta vai sair no WhatsApp (com o texto ainda não salvo, pra revisar). */
+    public function preview(Request $request)
+    {
+        $this->requirePro($request, 'Grupos de ofertas');
+        $data = $request->validate([
+            'product_id' => ['required', 'integer'],
+            'offer_text' => ['nullable', 'string', 'max:700'],
+        ]);
+        $company = $request->user()->company;
+        $product = $company->products()->findOrFail($data['product_id']);
+
+        return response()->json([
+            'message' => $this->publisher->message($company, $product, null, array_key_exists('offer_text', $data) ? (string) $data['offer_text'] : null),
+        ]);
+    }
+
+    /** Gera um texto de oferta pela IA (n8n). Não salva: o lojista revisa e salva. */
+    public function aiText(Request $request, OfferTextAi $ai)
+    {
+        $this->requirePro($request, 'Grupos de ofertas');
+        $data = $request->validate([
+            'product_id' => ['required', 'integer'],
+            'instructions' => ['nullable', 'string', 'max:300'],
+        ]);
+        $company = $request->user()->company;
+        $product = $company->products()->findOrFail($data['product_id']);
+
+        return response()->json(['text' => $ai->generate($company, $product, $data['instructions'] ?? null)]);
+    }
+
+    /** O catálogo aberto pelo link de uma oferta (?o=CODIGO) avisa o clique. */
+    public function publicClick(Request $request, string $code, OfferMetrics $metrics)
+    {
+        if (! $request->header('X-No-Track')) {
+            $metrics->recordClick($code, $request);
+        }
+
+        return response()->noContent();
     }
 
     /** Agenda do envio automático, com o próximo horário e os produtos que vão nele. */
