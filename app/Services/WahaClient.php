@@ -203,6 +203,26 @@ class WahaClient
         $this->http()->post("/{$session}/groups/{$id}/admin/promote", $participants)->throw();
     }
 
+    /** Foto do grupo (JPEG). Quem tem o número da loja como admin pode trocar. */
+    public function setGroupPicture(string $session, string $groupId, string $jpeg): void
+    {
+        $id = rawurlencode($groupId);
+        $this->http()->timeout(40)->put("/{$session}/groups/{$id}/picture", [
+            'file' => ['mimetype' => 'image/jpeg', 'filename' => 'grupo.jpg', 'data' => base64_encode($jpeg)],
+        ])->throw();
+    }
+
+    public function deleteGroupPicture(string $session, string $groupId): void
+    {
+        $this->http()->timeout(30)->delete("/{$session}/groups/".rawurlencode($groupId).'/picture')->throw();
+    }
+
+    /** Nome do grupo. */
+    public function setGroupSubject(string $session, string $groupId, string $subject): void
+    {
+        $this->http()->timeout(30)->put("/{$session}/groups/".rawurlencode($groupId).'/subject', ['subject' => $subject])->throw();
+    }
+
     /**
      * Quantas pessoas cada grupo tem (id => total). Atualiza a lista na WAHA antes: sem isso, grupo
      * recém-criado não aparece e a contagem fica velha.

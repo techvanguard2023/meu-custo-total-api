@@ -1,0 +1,111 @@
+{
+  "name": "Texto de oferta (IA)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "texto-oferta-ia",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "6f1c2a10-0001-4a00-9000-000000000001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "texto-oferta-ia"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Monta o pedido pra OpenAI com os dados do produto que o Meu Custo Total manda\nconst b = $json.body || {};\nconst p = b.product || {};\nconst money = (v) => (v == null ? '' : 'R$ ' + Number(v).toFixed(2).replace('.', ','));\n\nconst facts = [\n  `Loja: ${b.store || ''}`,\n  b.segment ? `Ramo: ${b.segment}` : null,\n  `Produto: ${p.name || ''}`,\n  p.category ? `Categoria: ${p.category}` : null,\n  p.description ? `Descrição: ${String(p.description).slice(0, 1200)}` : null,\n  p.original_price ? `Está em promoção (de ${money(p.original_price)} por ${money(p.price)})` : null,\n  p.made_to_order ? 'Feito sob encomenda' : null,\n].filter(Boolean).join('\\n');\n\nconst system = [\n  'Você escreve textos curtos de oferta para grupos de WhatsApp de pequenas lojas brasileiras.',\n  'Regras:',\n  '- Português do Brasil, tom animado e próximo, sem exagero.',\n  '- No máximo 3 frases curtas (até 350 caracteres no total).',\n  '- Pode usar até 2 emojis e *negrito* do WhatsApp em no máximo 2 palavras.',\n  '- NÃO escreva preço, valores, links, hashtags, nome da loja nem \"clique no link\": o sistema já coloca preço e link.',\n  '- Use só características que estão na descrição; não invente medidas, materiais nem prazos.',\n  '- Responda só com o texto, sem aspas.',\n].join('\\n');\n\nconst user = facts + (b.instructions ? `\\n\\nPedido do lojista: ${String(b.instructions).slice(0, 300)}` : '');\n\nreturn [{\n  json: {\n    body: {\n      model: 'gpt-4o-mini',\n      temperature: 0.8,\n      max_tokens: 220,\n      messages: [\n        { role: 'system', content: system },\n        { role: 'user', content: user },\n      ],\n    },\n  },\n}];\n"
+      },
+      "id": "6f1c2a10-0002-4a00-9000-000000000002",
+      "name": "Montar pedido para a IA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 40000
+        }
+      },
+      "id": "6f1c2a10-0003-4a00-9000-000000000003",
+      "name": "OpenAI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ text: String($json.choices?.[0]?.message?.content ?? '').trim().replace(/^\"+|\"+$/g, '') }) }}",
+        "options": {}
+      },
+      "id": "6f1c2a10-0004-4a00-9000-000000000004",
+      "name": "Responder",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Montar pedido para a IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar pedido para a IA": {
+      "main": [
+        [
+          {
+            "node": "OpenAI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI": {
+      "main": [
+        [
+          {
+            "node": "Responder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

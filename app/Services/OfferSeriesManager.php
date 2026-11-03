@@ -5,7 +5,9 @@ namespace App\Services;
 use App\Models\Company;
 use App\Models\OfferGroup;
 use App\Models\OfferSeries;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Throwable;
@@ -19,14 +21,14 @@ class OfferSeriesManager
 {
     public function __construct(private WahaClient $waha) {}
 
-    /** O WhatsApp da loja precisa estar conectado — é ele que cria os grupos e posta. */
+    /** O WhatsApp da loja precisa estar conectado — é ele que cria, renomeia e troca a foto dos grupos e posta. */
     public function ensureConnected(Company $company): string
     {
         $session = $company->whatsapp_session_name;
         $status = $session && $this->waha->isConfigured() ? ($this->waha->getSession($session)['status'] ?? null) : null;
 
         if ($status !== 'WORKING') {
-            throw ValidationException::withMessages(['whatsapp' => 'Conecte o WhatsApp da loja em Integrações antes de criar grupos ou canais de ofertas.']);
+            throw ValidationException::withMessages(['whatsapp' => 'Conecte o WhatsApp da loja em Integrações para mexer nos grupos e canais de ofertas.']);
         }
 
         return $session;
@@ -115,7 +117,124 @@ class OfferSeriesManager
 
         $this->addBackupAdmin($series, $session, $group);
 
+        // Foto padrão de todos os grupos: o novo #N já nasce com ela
+        if ($series->image_path && $series->image_all_groups) {
+            $this->setPicture($series, $session, $group);
+        }
+
         return $group;
+    }
+
+    /**
+     * Guarda a foto dos grupos: recorta o centro em quadrado e salva em JPEG 640×640 (o WhatsApp mostra a
+     * foto do grupo redonda, e só aceita JPEG). Troca a anterior.
+     */
+    public function storePicture(OfferSeries $series, UploadedFile $file): void
+    {
+        $source = @imagecreatefromstring((string) file_get_contents($file->getRealPath()));
+        if (! $source) {
+            throw ValidationException::withMessages(['image' => 'Não foi possível ler a imagem. Use JPG, PNG ou WEBP.']);
+        }
+
+        $side = min(imagesx($source), imagesy($source));
+        $canvas = imagecreatetruecolor(640, 640);
+        imagefill($canvas, 0, 0, imagecolorallocate($canvas, 255, 255, 255)); // PNG transparente fica com fundo branco
+        imagecopyresampled($canvas, $source, 0, 0, intdiv(imagesx($source) - $side, 2), intdiv(imagesy($source) - $side, 2), 640, 640, $side, $side);
+        ob_start();
+        imagejpeg($canvas, null, 88);
+        $jpeg = (string) ob_get_clean();
+
+        $path = "offers/{$series->company_id}/series-{$series->id}-".Str::lower(Str::random(6)).'.jpg';
+        Storage::disk('public')->put($path, $jpeg);
+        if ($series->image_path) {
+            Storage::disk('public')->delete($series->image_path);
+        }
+        $series->update(['image_path' => $path]);
+    }
+
+    /**
+     * Coloca a foto nos grupos: em todos (atuais e, depois, os próximos) quando é a padrão; senão só no
+     * grupo atual. Devolve [quantos receberam, quantos falharam].
+     *
+     * @return array{0: int, 1: int}
+     */
+    public function applyPicture(OfferSeries $series): array
+    {
+        if ($series->isChannel() || ! $series->image_path) {
+            return [0, 0];
+        }
+
+        $session = $this->ensureConnected($series->company);
+        $targets = $series->image_all_groups ? $series->groups : collect([$series->currentGroup()])->filter();
+
+        $ok = 0;
+        foreach ($targets as $group) {
+            $ok += $this->setPicture($series, $session, $group) ? 1 : 0;
+        }
+
+        return [$ok, $targets->count() - $ok];
+    }
+
+    /** Tira a foto dos grupos que estavam com ela e apaga o arquivo. */
+    public function removePicture(OfferSeries $series): void
+    {
+        $session = $this->ensureConnected($series->company);
+
+        foreach ($series->groups()->where('has_picture', true)->get() as $group) {
+            try {
+                $this->waha->deleteGroupPicture($session, $group->jid);
+                $group->update(['has_picture' => false]);
+            } catch (Throwable $e) {
+                Log::warning("Ofertas: foto não removida do grupo {$group->jid}: {$e->getMessage()}");
+            }
+        }
+
+        if ($series->image_path) {
+            Storage::disk('public')->delete($series->image_path);
+        }
+        $series->update(['image_path' => null]);
+    }
+
+    /**
+     * Novo nome da série: os grupos viram "Novo nome #1", "#2"... no WhatsApp. Canal só muda no sistema (o
+     * nome do canal se troca pelo celular). Devolve [grupos renomeados, falhas].
+     *
+     * @return array{0: int, 1: int}
+     */
+    public function rename(OfferSeries $series, string $name): array
+    {
+        $session = $series->isChannel() ? null : $this->ensureConnected($series->company);
+        $series->update(['name' => $name]);
+
+        if (! $session) {
+            return [0, 0];
+        }
+
+        $ok = 0;
+        foreach ($series->groups as $group) {
+            try {
+                $this->waha->setGroupSubject($session, $group->jid, $series->groupName($group->number));
+                $ok++;
+            } catch (Throwable $e) {
+                Log::warning("Ofertas: grupo {$group->jid} não renomeado: {$e->getMessage()}");
+            }
+        }
+
+        return [$ok, $series->groups->count() - $ok];
+    }
+
+    private function setPicture(OfferSeries $series, string $session, OfferGroup $group): bool
+    {
+        try {
+            $this->waha->setGroupPicture($session, $group->jid, (string) Storage::disk('public')->get($series->image_path));
+            $group->update(['has_picture' => true]);
+
+            return true;
+        } catch (Throwable $e) {
+            Log::warning("Ofertas: foto não aplicada no grupo {$group->jid}: {$e->getMessage()}");
+
+            return false;
+        }
     }
 
     /** Segundo admin informado (ou trocado) depois: entra nos grupos que ainda estão sem ele. */

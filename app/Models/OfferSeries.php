@@ -14,11 +14,12 @@ class OfferSeries extends Model
 
     protected $table = 'offer_series';
 
-    protected $fillable = ['company_id', 'kind', 'name', 'description', 'slug', 'capacity', 'backup_admin_phone', 'channel_jid', 'channel_invite', 'active', 'coupon_id'];
+    protected $fillable = ['company_id', 'kind', 'name', 'description', 'image_path', 'image_all_groups', 'slug', 'capacity', 'backup_admin_phone', 'channel_jid', 'channel_invite', 'active', 'coupon_id'];
 
     protected $casts = [
         'active' => 'boolean',
         'capacity' => 'integer',
+        'image_all_groups' => 'boolean',
     ];
 
     public function company(): BelongsTo

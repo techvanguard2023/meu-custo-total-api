@@ -17,6 +17,7 @@ use App\Services\OfferScheduler;
 use App\Services\OfferSeriesManager;
 use App\Services\WahaClient;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 
 /** Grupos e canais de ofertas no WhatsApp (Pro, só o dono — ver TeamAccess). */
@@ -99,6 +100,10 @@ class OfferController extends Controller
             'capacity' => ['sometimes', 'integer', 'min:50', 'max:1000'],
             'backup_admin_phone' => ['sometimes', 'nullable', 'string', 'max:30', 'regex:/^[\d\s()+\-]{10,}$/'],
             'active' => ['sometimes', 'boolean'],
+            // Novo nome: os grupos viram "Nome #1", "#2"... no WhatsApp
+            'name' => ['sometimes', 'string', 'min:3', 'max:60'],
+            // Foto padrão de todos os grupos (atuais e os próximos) ou só do atual
+            'image_all_groups' => ['sometimes', 'boolean'],
             // Cupom exclusivo da série (vai em cada oferta); null tira
             'coupon_id' => ['sometimes', 'nullable', 'integer', Rule::exists('coupons', 'id')->where('company_id', $series->company_id)],
         ], [
@@ -106,7 +111,19 @@ class OfferController extends Controller
             'slug.unique' => 'Esse endereço já está em uso. Escolha outro.',
         ]);
 
+        $renamed = null;
+        if (isset($data['name']) && trim($data['name']) !== $series->name) {
+            $renamed = $this->manager->rename($series->load(['company', 'groups']), trim($data['name']));
+        }
+        unset($data['name']);
+
         $series->update($data);
+
+        // Passou a ser a foto de todos os grupos: aplica nos que ainda não têm
+        $picture = null;
+        if ($series->wasChanged('image_all_groups') && $series->image_all_groups && $series->image_path) {
+            $picture = $this->manager->applyPicture($series->load(['company', 'groups']));
+        }
 
         // Segundo admin informado/trocado: o número novo entra em todos os grupos (o anterior, se havia,
         // continua admin no WhatsApp até alguém tirar pelo celular)
@@ -114,6 +131,44 @@ class OfferController extends Controller
             $series->groups()->update(['backup_admin_added' => false]);
             $this->manager->addBackupAdminToGroups($series->load('company'));
         }
+
+        return response()->json($this->seriesPayload($series->fresh('groups')) + array_filter([
+            'renamed' => $renamed && array_sum($renamed) > 0 ? ['ok' => $renamed[0], 'failed' => $renamed[1]] : null,
+            'picture' => $picture ? ['ok' => $picture[0], 'failed' => $picture[1]] : null,
+        ]));
+    }
+
+    /** Foto dos grupos (só grupos — a do canal se troca pelo celular). */
+    public function uploadImage(Request $request, OfferSeries $series)
+    {
+        $this->requirePro($request, 'Grupos de ofertas');
+        $this->authorizeSeries($request, $series);
+        abort_if($series->isChannel(), 422, 'A foto do canal se troca pelo celular, no próprio canal.');
+
+        $data = $request->validate([
+            'image' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+            'all_groups' => ['required', 'boolean'],
+        ], [
+            'image.max' => 'A imagem pode ter até 5 MB.',
+            'image.image' => 'Envie uma imagem (JPG, PNG ou WEBP).',
+            'image.mimes' => 'Envie uma imagem (JPG, PNG ou WEBP).',
+        ]);
+
+        $series->load(['company', 'groups']);
+        $this->manager->ensureConnected($series->company);
+        $this->manager->storePicture($series, $request->file('image'));
+        $series->update(['image_all_groups' => (bool) $data['all_groups']]);
+        [$ok, $failed] = $this->manager->applyPicture($series->fresh(['company', 'groups']));
+
+        return response()->json($this->seriesPayload($series->fresh('groups')) + ['picture' => ['ok' => $ok, 'failed' => $failed]]);
+    }
+
+    public function destroyImage(Request $request, OfferSeries $series)
+    {
+        $this->requirePro($request, 'Grupos de ofertas');
+        $this->authorizeSeries($request, $series);
+
+        $this->manager->removePicture($series->load(['company', 'groups']));
 
         return response()->json($this->seriesPayload($series->fresh('groups')));
     }
@@ -323,6 +378,8 @@ class OfferController extends Controller
             'kind' => $series->kind,
             'name' => $series->name,
             'description' => $series->description,
+            'image_url' => $series->image_path ? Storage::disk('public')->url($series->image_path) : null,
+            'image_all_groups' => $series->image_all_groups,
             'capacity' => $series->capacity,
             'backup_admin_phone' => $series->backup_admin_phone,
             'active' => $series->active,
@@ -347,6 +404,7 @@ class OfferController extends Controller
                 'participants_count' => $g->participants_count,
                 'full' => $g->full_at !== null,
                 'backup_admin_added' => $g->backup_admin_added,
+                'has_picture' => $g->has_picture,
                 'checked_at' => $g->participants_checked_at?->toIso8601String(),
             ])->values(),
         ];

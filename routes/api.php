@@ -270,6 +270,8 @@ Route::prefix('v1')->group(function () {
             Route::post('/offers/ai-text', [OfferController::class, 'aiText'])->middleware('throttle:20,1');
             Route::put('/products/{product}/offer-text', [OfferController::class, 'updateProductText']);
             Route::put('/offers/{series}', [OfferController::class, 'update']);
+            Route::post('/offers/{series}/image', [OfferController::class, 'uploadImage'])->middleware('throttle:10,1');
+            Route::delete('/offers/{series}/image', [OfferController::class, 'destroyImage']);
             Route::delete('/offers/{series}', [OfferController::class, 'destroy']);
             Route::post('/offers/{series}/check', [OfferController::class, 'check'])->middleware('throttle:10,1');
             Route::patch('/products/{product}/offers', [OfferController::class, 'toggleProduct']);
