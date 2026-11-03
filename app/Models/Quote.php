@@ -49,7 +49,7 @@ class Quote extends Model
         'company_id', 'customer_id', 'printer_id', 'material_id',
         'name', 'quantity', 'print_time_minutes', 'material_weight_g',
         'setup_minutes', 'postprocess_minutes', 'extra_costs',
-        'failure_rate_percent', 'markup_percent', 'discount_amount', 'cashback_amount', 'delivery_days',
+        'failure_rate_percent', 'markup_percent', 'discount_amount', 'cashback_amount', 'coupon_id', 'coupon_code', 'coupon_amount', 'delivery_days',
         'material_cost', 'energy_cost', 'depreciation_cost', 'labor_cost',
         'failure_cost', 'subtotal_cost', 'final_price', 'unit_price',
         'profit_amount', 'status', 'production_status', 'production_order', 'approved_at',
@@ -67,6 +67,7 @@ class Quote extends Model
         'markup_percent' => 'decimal:2',
         'discount_amount' => 'decimal:2',
         'cashback_amount' => 'decimal:2',
+        'coupon_amount' => 'decimal:2',
         'material_cost' => 'decimal:2',
         'energy_cost' => 'decimal:2',
         'depreciation_cost' => 'decimal:2',
@@ -132,6 +133,11 @@ class Quote extends Model
     public function customer(): BelongsTo
     {
         return $this->belongsTo(Customer::class);
+    }
+
+    public function coupon(): BelongsTo
+    {
+        return $this->belongsTo(Coupon::class);
     }
 
     public function printer(): BelongsTo

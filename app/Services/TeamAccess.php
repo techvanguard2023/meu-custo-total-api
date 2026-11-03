@@ -75,7 +75,7 @@ class TeamAccess
     /** Valores de venda — saem também para a produção, que trabalha sem valores. */
     private const PRICE_KEYS = [
         'price', 'final_price', 'unit_price', 'regular_unit_price', 'sale_price', 'original_price', 'amount',
-        'amount_paid', 'line_total', 'discount_amount', 'cashback_amount', 'cashback_max', 'products_total',
+        'amount_paid', 'line_total', 'discount_amount', 'cashback_amount', 'cashback_max', 'coupon_amount', 'products_total',
         'subtotal', 'minimum_order_price', 'order_discount_amount', 'order_discount_tiers', 'price_tiers',
         'amount_due', 'balance', 'list_price',
     ];

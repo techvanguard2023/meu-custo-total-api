@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Coupon;
 use App\Models\Display;
 use App\Models\Material;
 use App\Models\Printer;
@@ -22,6 +23,7 @@ class QuoteCalculatorService
      *     failure_rate_percent?: float|null,
      *     markup_percent?: float|null,
      *     discount_amount?: float,
+     *     coupon?: Coupon|null,
      * }  $data
      * @param  array<int, array{material: Material, weight: float}>  $materialLines
      * @param  array<int, array{product: \App\Models\Product, quantity: int}>  $productLines
@@ -184,7 +186,31 @@ class QuoteCalculatorService
         }
 
         // Desconto aplicado após o markup, sobre o total combinado.
-        $finalPrice = max(0, ($totalCost * (1 + ((float) $markup / 100))) + $productsTotal - $discount);
+        $printPrice = $totalCost * (1 + ((float) $markup / 100));
+        $finalPrice = max(0, $printPrice + $productsTotal - $discount);
+
+        // Cupom (Pro, um por pedido): as regras de uso já foram conferidas por quem chama; aqui sai o valor.
+        // Item com desconto (promoção ou preço por quantidade) só entra se o cupom permitir. Fora de
+        // marketplace e expositor.
+        $coupon = $data['coupon'] ?? null;
+        $couponAmount = 0.0;
+        $couponNote = null;
+        if ($coupon instanceof Coupon) {
+            if ($channel !== null || $display !== null) {
+                $couponNote = 'Cupom não vale para vendas em marketplace ou expositor.';
+            } else {
+                [$couponAmount, $couponNote] = $coupon->discountFor(
+                    array_map(fn ($l, $out) => [
+                        'product' => $l['product'],
+                        'line_total' => $out['line_total'],
+                        'discounted' => $l['inPromotion'] || $out['volume_applied'],
+                    ], $pricedLines, $productLinesOut),
+                    $printPrice,
+                );
+                $couponAmount = round(min($couponAmount, $finalPrice), 2);
+                $finalPrice = max(0, $finalPrice - $couponAmount);
+            }
+        }
 
         if ($setting && $finalPrice < (float) $setting->minimum_order_price) {
             $finalPrice = (float) $setting->minimum_order_price;
@@ -258,6 +284,11 @@ class QuoteCalculatorService
             'total_cost' => round($grandTotalCost, 2),
             'discount_amount' => round($discount, 2),
             'cashback_amount' => round($cashbackApplied, 2),
+            'coupon_id' => $couponAmount > 0 ? $coupon->id : null,
+            'coupon_code' => $couponAmount > 0 ? $coupon->code : null,
+            'coupon_amount' => $couponAmount,
+            // Cupom informado que não deu desconto neste pedido: o motivo (pedido mínimo, só itens em promoção...)
+            'coupon_note' => $couponNote,
             // Teto do cashback neste pedido (X% do que não está em promoção) — a tela mostra "até R$ ..."
             'cashback_max' => round($cashbackMax, 2),
             'markup_percent' => round((float) $markup, 2),

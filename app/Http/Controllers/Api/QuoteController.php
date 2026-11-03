@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Http\Controllers\Concerns\FindsCustomerByPhone;
 use App\Http\Controllers\Controller;
+use App\Models\Coupon;
 use App\Models\Customer;
 use App\Models\Material;
 use App\Models\MaterialMovement;
@@ -14,6 +15,7 @@ use App\Models\ProductVariation;
 use App\Models\Quote;
 use App\Models\SalesChannel;
 use App\Services\Cashback;
+use App\Services\Coupons;
 use App\Services\DisplayQr;
 use App\Services\DisplaySales;
 use App\Services\MaterialStock;
@@ -22,6 +24,7 @@ use App\Services\ProductRecipe;
 use App\Services\QuoteCalculatorService;
 use App\Services\QuotePdfNotifier;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -30,6 +33,9 @@ class QuoteController extends Controller
 {
     use EnforcesPlanLimits;
     use FindsCustomerByPhone;
+
+    /** Motivo do cupom não ter dado desconto, por pedido criado nesta requisição (pra mensagem de erro/aviso). */
+    private array $couponNotes = [];
 
     public function __construct(private QuoteCalculatorService $calculator) {}
 
@@ -57,16 +63,20 @@ class QuoteController extends Controller
         $editing = $request->filled('quote_id')
             ? Quote::where('company_id', $request->user()->company_id)->find($request->integer('quote_id'))
             : null;
-        $data = $this->withCashback($request, $this->validated($request, $editing));
+        $data = $this->withCoupon($request, $this->withCashback($request, $this->validated($request, $editing)), $editing, strict: false);
         $materialLines = $this->resolveMaterials($request, $data);
         $printer = $this->resolvePrinter($request, $data);
         $productLines = $this->resolveProducts($request, $data);
         $channel = $this->resolveSalesChannel($request, $data);
         $setting = $request->user()->company->setting;
 
-        return response()->json(
-            $this->calculator->calculate($data, $materialLines, $printer, $setting, $productLines, $channel)
-        );
+        $breakdown = $this->calculator->calculate($data, $materialLines, $printer, $setting, $productLines, $channel);
+        // Na prévia, cupom recusado (vencido, limite...) vira aviso na tela em vez de erro
+        if (isset($data['coupon_rejected'])) {
+            $breakdown['coupon_note'] = $data['coupon_rejected'];
+        }
+
+        return response()->json($breakdown);
     }
 
     public function store(Request $request)
@@ -80,7 +90,7 @@ class QuoteController extends Controller
             'orçamentos por mês'
         );
 
-        $data = $this->withCashback($request, $this->validated($request));
+        $data = $this->withCoupon($request, $this->withCashback($request, $this->validated($request)));
         $materialLines = $this->resolveMaterials($request, $data);
         $printer = $this->resolvePrinter($request, $data);
         $productLines = $this->resolveProducts($request, $data);
@@ -88,8 +98,10 @@ class QuoteController extends Controller
         $setting = $request->user()->company->setting;
 
         $breakdown = $this->calculator->calculate($data, $materialLines, $printer, $setting, $productLines, $channel);
+        $this->ensureCouponApplied($data, [$breakdown]);
 
         $quote = DB::transaction(function () use ($request, $data, $breakdown) {
+            $this->lockCoupon($data['coupon']);
             $quote = $request->user()->company->quotes()->create(
                 $this->quoteAttributes($data, $breakdown, Quote::STATUS_SENT)
             );
@@ -112,7 +124,7 @@ class QuoteController extends Controller
             'Orçamentos aprovados ou rejeitados não podem ser editados.'
         );
 
-        $data = $this->withCashback($request, $this->validated($request, $quote));
+        $data = $this->withCoupon($request, $this->withCashback($request, $this->validated($request, $quote)), $quote);
         $materialLines = $this->resolveMaterials($request, $data);
         $printer = $this->resolvePrinter($request, $data);
         $productLines = $this->resolveProducts($request, $data);
@@ -120,8 +132,12 @@ class QuoteController extends Controller
         $setting = $request->user()->company->setting;
 
         $breakdown = $this->calculator->calculate($data, $materialLines, $printer, $setting, $productLines, $channel);
+        $this->ensureCouponApplied($data, [$breakdown]);
 
         DB::transaction(function () use ($quote, $data, $breakdown) {
+            if ($data['coupon'] && $data['coupon']->id !== $quote->coupon_id) {
+                $this->lockCoupon($data['coupon'], $quote->id);
+            }
             $quote->update($this->quoteAttributes($data, $breakdown, $quote->status));
             $this->syncProductItems($quote, $breakdown);
             $this->syncMaterialItems($quote, $breakdown);
@@ -208,6 +224,7 @@ class QuoteController extends Controller
             'is_courtesy' => ['sometimes', 'boolean'],
             'discount_amount' => ['sometimes', 'numeric', 'min:0'],
             'use_cashback' => ['sometimes', 'boolean'],
+            'coupon_code' => ['sometimes', 'nullable', 'string', 'max:30'],
             'products' => ['required', 'array', 'min:1'],
             'products.*.product_id' => ['required', 'integer'],
             'products.*.product_variation_id' => ['sometimes', 'nullable', 'integer'],
@@ -217,7 +234,8 @@ class QuoteController extends Controller
         $isCourtesy = (bool) ($data['is_courtesy'] ?? false);
         abort_if(! $isCourtesy && empty($data['payment_method']), 422, 'Selecione a forma de pagamento.');
         abort_if($isCourtesy && ! empty($data['use_cashback']), 422, 'Cortesia não usa cashback.');
-        $data = $this->withCashback($request, $data);
+        abort_if($isCourtesy && ! empty($data['coupon_code']), 422, 'Cortesia não usa cupom.');
+        $data = $this->withCoupon($request, $this->withCashback($request, $data));
 
         $productLines = $this->resolveProducts($request, $data);
         $setting = $request->user()->company->setting;
@@ -225,6 +243,7 @@ class QuoteController extends Controller
         [$readyLines, $backorderLines] = $this->splitByAvailability($productLines);
 
         $quotes = DB::transaction(function () use ($request, $data, $setting, $isCourtesy, $readyLines, $backorderLines) {
+            $this->lockCoupon($data['coupon']);
             $created = [];
 
             if ($readyLines) {
@@ -240,11 +259,15 @@ class QuoteController extends Controller
                 // O desconto (se houver) já foi todo aplicado na venda entregue na
                 // hora acima — aqui sai pelo preço cheio, sem descontar de novo.
                 $backorderData = array_diff_key($data, ['discount_amount' => null, 'cashback_amount' => null]);
+                // O cupom vai na primeira parte (a entregue na hora, quando houver)
+                $backorderData['coupon'] = $readyLines ? null : $data['coupon'];
                 $created[] = $this->createQuickSaleQuote(
                     $request, $backorderData, $backorderLines, $setting, $isCourtesy,
                     Quote::PRODUCTION_PENDING, payFull: false,
                 );
             }
+
+            $this->ensureCouponApplied($data, $created);
 
             return $created;
         });
@@ -297,6 +320,9 @@ class QuoteController extends Controller
             'use_cashback' => ['sometimes', 'boolean'],
             // Código de indicação que veio do link do catálogo ("Indicação: CODIGO" na mensagem do carrinho)
             'referral_code' => ['sometimes', 'nullable', 'string', 'max:20'],
+            // Cupom de desconto ("Cupom: CODIGO" na mensagem do carrinho, ou digitado na conversa). Se não
+            // valer, o pedido sai sem ele e a resposta traz o motivo em `coupon_rejected`.
+            'coupon_code' => ['sometimes', 'nullable', 'string', 'max:30'],
             // Código do expositor de onde o cliente veio (QR da placa: "Expositor CODIGO" na mensagem)
             'origin_display_code' => ['sometimes', 'nullable', 'string', 'max:60'],
         ]);
@@ -343,30 +369,59 @@ class QuoteController extends Controller
             ? app(Cashback::class)->balance($customer)
             : 0.0;
 
-        $quotes = DB::transaction(function () use ($request, $orderData, $setting, $readyLines, $backorderLines, $cashback) {
+        // Cupom também vai na primeira parte; não valendo, o pedido segue sem ele (o bot explica o motivo)
+        $couponRejected = null;
+        $coupon = null;
+        if (! empty($data['coupon_code'])) {
+            $coupon = app(Coupons::class)->find($request->user()->company, $data['coupon_code']);
+            $couponRejected = match (true) {
+                ! $coupon => 'Cupom não encontrado.',
+                ! empty($data['sales_channel_id']) => 'Cupom não vale para vendas em marketplace.',
+                default => app(Coupons::class)->unavailableReason($coupon, $customer),
+            };
+            if ($couponRejected) {
+                $coupon = null;
+            }
+        }
+
+        $quotes = DB::transaction(function () use ($request, $orderData, $setting, $readyLines, $backorderLines, $cashback, &$coupon, &$couponRejected) {
+            if ($coupon && $coupon->usage_limit !== null) {
+                Coupon::whereKey($coupon->id)->lockForUpdate()->first();
+                if (app(Coupons::class)->uses($coupon) >= $coupon->usage_limit) {
+                    [$coupon, $couponRejected] = [null, 'Este cupom já atingiu o limite de usos.'];
+                }
+            }
+
             $created = [];
 
             if ($readyLines) {
                 $created[] = $this->createQuickSaleQuote(
-                    $request, $orderData + ['cashback_amount' => $cashback], $readyLines, $setting, isCourtesy: false,
+                    $request, $orderData + ['cashback_amount' => $cashback, 'coupon' => $coupon], $readyLines, $setting, isCourtesy: false,
                     productionStatus: Quote::PRODUCTION_FINISHED, payFull: false,
                 );
             }
 
             if ($backorderLines) {
                 $created[] = $this->createQuickSaleQuote(
-                    $request, $orderData + ['cashback_amount' => $readyLines ? 0 : $cashback], $backorderLines, $setting, isCourtesy: false,
+                    $request, $orderData + ['cashback_amount' => $readyLines ? 0 : $cashback, 'coupon' => $readyLines ? null : $coupon], $backorderLines, $setting, isCourtesy: false,
                     productionStatus: Quote::PRODUCTION_PENDING, payFull: false,
                 );
+            }
+
+            // Cupom válido que não deu desconto (pedido mínimo, só itens em promoção...)
+            if ($coupon && (float) $created[0]->coupon_amount <= 0) {
+                $couponRejected = $this->couponNotes[$created[0]->id] ?? 'O cupom não vale para os itens deste pedido.';
             }
 
             return $created;
         });
 
-        return response()->json(
-            collect($quotes)->map(fn (Quote $q) => $q->fresh()->load(['customer', 'items.product']))->values(),
-            201
-        );
+        $payload = collect($quotes)->map(fn (Quote $q) => $q->fresh()->load(['customer', 'items.product'])->toArray())->values()->all();
+        if ($couponRejected) {
+            $payload[0]['coupon_rejected'] = $couponRejected;
+        }
+
+        return response()->json($payload, 201);
     }
 
     /** Separa as linhas com estoque suficiente das que dependem de produção sob encomenda. */
@@ -404,6 +459,7 @@ class QuoteController extends Controller
             $this->quoteAttributes($data, $breakdown, Quote::STATUS_SENT),
             ['name' => $data['name'] ?? 'Venda balcão']
         ));
+        $this->couponNotes[$quote->id] = $breakdown['coupon_note'];
         $this->syncProductItems($quote, $breakdown);
 
         $paymentMethod = ! $isCourtesy && $payFull ? $data['payment_method'] : null;
@@ -836,13 +892,16 @@ class QuoteController extends Controller
         // update() é substituição completa (name é required), então campo ausente = zerado.
         // Sem isso, zerar um valor no formulário mantinha o valor antigo na coluna, deixando
         // o orçamento inconsistente com o breakdown recalculado.
-        return array_merge($data, [
+        return array_merge(Arr::except($data, ['coupon', 'coupon_rejected']), [
             'print_time_minutes' => (int) ($data['print_time_minutes'] ?? 0),
             'setup_minutes' => (int) ($data['setup_minutes'] ?? 0),
             'postprocess_minutes' => (int) ($data['postprocess_minutes'] ?? 0),
             'extra_costs' => $breakdown['extra_costs'],
             'discount_amount' => $breakdown['discount_amount'],
             'cashback_amount' => $breakdown['cashback_amount'] ?? 0,
+            'coupon_id' => $breakdown['coupon_id'] ?? null,
+            'coupon_code' => $breakdown['coupon_code'] ?? null,
+            'coupon_amount' => $breakdown['coupon_amount'] ?? 0,
             'material_id' => $primaryMaterial['material_id'] ?? null,
             'material_weight_g' => (float) ($primaryMaterial['weight'] ?? 0),
             'material_cost' => $breakdown['material_cost'],
@@ -1025,6 +1084,8 @@ class QuoteController extends Controller
             'discount_amount' => ['sometimes', 'numeric', 'min:0'],
             // Cliente paga parte com o saldo de cashback (Pro) — o valor sai do saldo dele
             'use_cashback' => ['sometimes', 'boolean'],
+            // Cupom de desconto da loja (Pro) — conferido em withCoupon()
+            'coupon_code' => ['sometimes', 'nullable', 'string', 'max:30'],
             'delivery_days' => ['nullable', 'integer', 'min:1', 'max:365'],
             'model_urls' => ['sometimes', 'nullable', 'array', 'max:10'],
             'model_urls.*' => ['url', 'max:2048'],
@@ -1063,6 +1124,68 @@ class QuoteController extends Controller
         $data['cashback_amount'] = app(Cashback::class)->balance($customer);
 
         return $data;
+    }
+
+    /**
+     * Cupom informado (`coupon_code`): troca o código pelo cupom, conferindo as regras de uso (validade,
+     * limites, primeira compra). Na prévia (`$strict` false) o motivo da recusa volta pra tela em vez de erro.
+     * Orçamento que já tinha o cupom continua com ele na edição, mesmo que tenha vencido depois.
+     */
+    private function withCoupon(Request $request, array $data, ?Quote $editing = null, bool $strict = true): array
+    {
+        $code = Coupon::normalizeCode($data['coupon_code'] ?? null);
+        unset($data['coupon_code']);
+        $data['coupon'] = null;
+
+        if ($code === '') {
+            return $data;
+        }
+
+        $company = $request->user()->company;
+        $coupon = app(Coupons::class)->find($company, $code);
+        $reason = $coupon ? null : 'Cupom não encontrado.';
+
+        if ($coupon && ! ($editing && $editing->coupon_id === $coupon->id)) {
+            $customer = ! empty($data['customer_id']) ? $company->customers()->find($data['customer_id']) : null;
+            $reason = app(Coupons::class)->unavailableReason($coupon, $customer, ignoreQuoteId: $editing?->id);
+        }
+
+        if ($reason) {
+            abort_if($strict, 422, $reason);
+            $data['coupon_rejected'] = $reason;
+
+            return $data;
+        }
+
+        $data['coupon'] = $coupon;
+
+        return $data;
+    }
+
+    /** Cupom aceito mas sem desconto no pedido (pedido mínimo, só itens em promoção...): avisa em vez de salvar sem ele. */
+    private function ensureCouponApplied(array $data, array $results): void
+    {
+        if (! ($data['coupon'] ?? null)) {
+            return;
+        }
+
+        $applied = collect($results)->sum(fn ($r) => (float) ($r instanceof Quote ? $r->coupon_amount : $r['coupon_amount']));
+        if ($applied <= 0) {
+            $first = $results[0] ?? null;
+            $note = $first instanceof Quote ? ($this->couponNotes[$first->id] ?? null) : ($first['coupon_note'] ?? null);
+            abort(422, $note ?: 'O cupom não deu desconto neste pedido.');
+        }
+    }
+
+    /** Limite total de usos conferido de novo com o cupom travado — dois pedidos ao mesmo tempo não passam do limite. */
+    private function lockCoupon(?Coupon $coupon, ?int $ignoreQuoteId = null): void
+    {
+        if (! $coupon || $coupon->usage_limit === null) {
+            return;
+        }
+
+        Coupon::whereKey($coupon->id)->lockForUpdate()->first();
+        abort_if(app(Coupons::class)->uses($coupon, $ignoreQuoteId) >= $coupon->usage_limit, 422, 'Este cupom acabou de atingir o limite de usos.');
     }
 
     private function authorizeCompany(Request $request, Quote $quote): void

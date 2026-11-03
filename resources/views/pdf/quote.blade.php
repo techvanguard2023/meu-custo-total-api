@@ -64,6 +64,12 @@ $brl = fn ($v) => 'R$ '.number_format((float) $v, 2, ',', '.');
                     <td class="text-right">{{ $brl($line['amount']) }}</td>
                 </tr>
             @endforeach
+            @if((float) $quote->coupon_amount > 0)
+                <tr>
+                    <td colspan="3">Cupom {{ $quote->coupon_code }}</td>
+                    <td class="text-right">- {{ $brl($quote->coupon_amount) }}</td>
+                </tr>
+            @endif
             <tr class="total-row">
                 <td colspan="3">Total</td>
                 <td class="text-right">{{ $brl($quote->final_price) }}</td>

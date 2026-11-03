@@ -261,6 +261,11 @@ class Company extends Model
         return $this->hasMany(Display::class);
     }
 
+    public function coupons(): HasMany
+    {
+        return $this->hasMany(Coupon::class);
+    }
+
     public function materialCategories(): HasMany
     {
         return $this->hasMany(MaterialCategory::class);

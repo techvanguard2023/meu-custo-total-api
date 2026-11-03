@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\PartnerPortalController;
 use App\Http\Controllers\Api\DisplayQrController;
 use App\Http\Controllers\Api\IntegrationTokenController;
 use App\Http\Controllers\Api\InvitationController;
+use App\Http\Controllers\Api\CouponController;
 use App\Http\Controllers\Api\OfferController;
 use App\Http\Controllers\Api\OnboardingController;
 use App\Http\Controllers\Api\TeamController;
@@ -87,6 +88,8 @@ Route::prefix('v1')->group(function () {
     Route::get('/public/offers/{slug}', [OfferController::class, 'publicShow'])->middleware('throttle:60,1');
     // Catálogo aberto pelo link de uma oferta (?o=CODIGO): conta o clique
     Route::post('/public/offer-clicks/{code}', [OfferController::class, 'publicClick'])->middleware('throttle:60,1');
+    // Cupom no carrinho do catálogo (limite baixo: ninguém fica chutando códigos)
+    Route::post('/public/catalog/{token}/coupon', [CouponController::class, 'publicCheck'])->middleware('throttle:30,1');
 
     Route::get('/public/review/{token}', [PublicReviewController::class, 'show'])
         ->middleware('throttle:60,1');
@@ -269,6 +272,12 @@ Route::prefix('v1')->group(function () {
             Route::delete('/offers/{series}', [OfferController::class, 'destroy']);
             Route::post('/offers/{series}/check', [OfferController::class, 'check'])->middleware('throttle:10,1');
             Route::patch('/products/{product}/offers', [OfferController::class, 'toggleProduct']);
+
+            // Cupons de desconto (Pro, só o dono cadastra; a equipe só aplica na venda)
+            Route::get('/coupons', [CouponController::class, 'index']);
+            Route::post('/coupons', [CouponController::class, 'store']);
+            Route::put('/coupons/{coupon}', [CouponController::class, 'update']);
+            Route::delete('/coupons/{coupon}', [CouponController::class, 'destroy']);
 
             // Primeiros passos do Dashboard (só o dono)
             Route::get('/onboarding', [OnboardingController::class, 'show']);
