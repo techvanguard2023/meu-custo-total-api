@@ -14,7 +14,10 @@ class WhatsAppMessenger
 {
     public function __construct(private WahaClient $waha) {}
 
-    /** @return array{sent: bool, reason: string|null}  reason: no_phone | not_connected | not_on_whatsapp | failed */
+    /**
+     * @return array{sent: bool, reason: string|null, chat_id?: string}  reason: no_phone | not_connected | not_on_whatsapp | failed;
+     *                                                                   chat_id: pra onde foi (com ou sem o 9º dígito)
+     */
     public function deliver(Company $company, ?string $phone, string $message): array
     {
         $digits = preg_replace('/\D/', '', (string) $phone);
@@ -40,7 +43,7 @@ class WhatsAppMessenger
 
             $this->waha->sendText($company->whatsapp_session_name, $chatId, $message);
 
-            return ['sent' => true, 'reason' => null];
+            return ['sent' => true, 'reason' => null, 'chat_id' => $chatId];
         } catch (\Throwable $e) {
             Log::warning("Mensagem pelo WhatsApp não enviada (empresa {$company->id}): ".$e->getMessage());
 

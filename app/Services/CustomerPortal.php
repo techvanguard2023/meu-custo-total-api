@@ -87,10 +87,15 @@ class CustomerPortal
 
         $recent = DB::table('customer_login_codes')->where('company_id', $company->id)->where('scope', $scope)->where('phone_key', $phoneKey);
         $last = (clone $recent)->max('created_at');
+        $ending = substr((string) $phoneKey, -4);
         if ($last && Carbon::parse($last)->gt(now()->subMinute())) {
+            Log::info("Código de acesso não enviado (empresa {$company->id}): número final {$ending} pediu de novo em menos de 1 minuto");
+
             return 'Aguarde um minuto antes de pedir outro código.';
         }
         if ((clone $recent)->where('created_at', '>', now()->subHour())->count() >= 5) {
+            Log::info("Código de acesso não enviado (empresa {$company->id}): número final {$ending} passou de 5 códigos na hora");
+
             return 'Muitos códigos pedidos para esse número. Tente de novo mais tarde.';
         }
 
@@ -114,9 +119,13 @@ class CustomerPortal
             'Ele vale por '.self::CODE_MINUTES.' minutos. Se não foi você que pediu, é só ignorar esta mensagem.',
         ]));
 
-        // Falha no envio não muda a resposta da tela (senão revelaria que o número é cliente); fica no log
+        // Falha no envio não muda a resposta da tela (senão revelaria que o número é cliente); fica no log.
+        // O envio que deu certo também fica: "enviado e não chegou" aparece com o número usado (com/sem o 9º dígito).
         if (! $result['sent']) {
-            Log::warning("Código de acesso não enviado (empresa {$company->id}): {$result['reason']}");
+            Log::warning("Código de acesso não enviado (empresa {$company->id}): número final {$ending} — {$result['reason']}");
+        } else {
+            $digits = strlen(preg_replace('/\D/', '', strstr($result['chat_id'] ?? '', '@', true) ?: ''));
+            Log::info("Código de acesso enviado (empresa {$company->id}): número final {$ending} → WhatsApp com {$digits} dígitos (".substr((string) ($result['chat_id'] ?? ''), -9).')');
         }
 
         return null;
