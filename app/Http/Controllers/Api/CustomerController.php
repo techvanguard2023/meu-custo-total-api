@@ -332,6 +332,8 @@ class CustomerController extends Controller
             'phone' => ['nullable', 'string', 'max:255'],
             'email' => ['nullable', 'email', 'max:255'],
             'notes' => ['nullable', 'string'],
+            // Não recebe cupons automáticos (reativação) pelo WhatsApp
+            'promo_opt_out' => ['sometimes', 'boolean'],
         ]);
     }
 

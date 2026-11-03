@@ -32,3 +32,7 @@ Schedule::command('cashback:send-notifications')->everyMinute()->withoutOverlapp
 Schedule::command('offers:schedule')->everyMinute()->withoutOverlapping(5);
 Schedule::command('offers:send')->everyMinute()->withoutOverlapping(5);
 Schedule::command('offers:check-groups')->everyFifteenMinutes()->withoutOverlapping(14);
+
+// Cupom de reativação (Pro): gera os do dia às 8h e envia aos poucos (1 por loja por minuto, das 9h às 20h)
+Schedule::command('coupons:reactivation')->dailyAt('08:00')->timezone('America/Sao_Paulo')->withoutOverlapping(30);
+Schedule::command('coupons:send-automated')->everyMinute()->withoutOverlapping(5);

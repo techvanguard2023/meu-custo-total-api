@@ -296,7 +296,9 @@ class PublicCatalogController extends Controller
                 'validity_months' => (int) $company->setting->cashback_validity_months,
             ] : null,
             // Cupom (Pro): o carrinho só mostra o campo "Tem cupom?" quando a loja tem algum cupom ligado
-            'coupons_enabled' => $company->isPro() && $company->coupons()->where('active', true)->exists(),
+            'coupons_enabled' => $company->isPro() && $company->coupons()->where('active', true)
+                ->where(fn ($q) => $q->whereNull('ends_on')->orWhere('ends_on', '>=', now($company->timezone ?: 'America/Sao_Paulo')->toDateString()))
+                ->exists(),
             // Desconto por valor do pedido (Pro): não vale para itens que já estão em promoção
             'order_discount_tiers' => $volumePricing ? array_values($company->setting?->order_discount_tiers ?? []) : [],
             // Coleções de campanha (Natal, Réveillon...) ativas e com pelo menos um

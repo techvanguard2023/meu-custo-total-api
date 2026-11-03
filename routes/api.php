@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\PartnerPortalController;
 use App\Http\Controllers\Api\DisplayQrController;
 use App\Http\Controllers\Api\IntegrationTokenController;
 use App\Http\Controllers\Api\InvitationController;
+use App\Http\Controllers\Api\CouponAutomationController;
 use App\Http\Controllers\Api\CouponController;
 use App\Http\Controllers\Api\OfferController;
 use App\Http\Controllers\Api\OnboardingController;
@@ -274,6 +275,8 @@ Route::prefix('v1')->group(function () {
             Route::patch('/products/{product}/offers', [OfferController::class, 'toggleProduct']);
 
             // Cupons de desconto (Pro, só o dono cadastra; a equipe só aplica na venda)
+            Route::get('/coupons/automations/reactivation', [CouponAutomationController::class, 'show']);
+            Route::put('/coupons/automations/reactivation', [CouponAutomationController::class, 'update']);
             Route::get('/coupons', [CouponController::class, 'index']);
             Route::post('/coupons', [CouponController::class, 'store']);
             Route::get('/coupons/{coupon}/orders', [CouponController::class, 'orders']);

@@ -27,6 +27,7 @@ class CouponController extends Controller
         $company = $request->user()->company;
 
         return $company->coupons()
+            ->whereNull('automation')
             ->withCount(['usedQuotes as uses_count'])
             ->withSum(['usedQuotes as discount_total'], 'coupon_amount')
             ->withSum(['usedQuotes as revenue_total'], 'final_price')

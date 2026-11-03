@@ -8,10 +8,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Customer extends Model
 {
-    protected $fillable = ['company_id', 'name', 'phone', 'email', 'notes'];
+    protected $fillable = ['company_id', 'name', 'phone', 'email', 'notes', 'promo_opt_out'];
 
     protected $casts = [
         'referral_rewarded_at' => 'datetime',
+        'promo_opt_out' => 'boolean',
     ];
 
     /**

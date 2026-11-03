@@ -45,14 +45,19 @@ class Coupons
             return 'Este cupom já atingiu o limite de usos.';
         }
 
-        if (! $coupon->per_customer_limit && ! $coupon->first_purchase_only) {
+        if (! $coupon->per_customer_limit && ! $coupon->first_purchase_only && ! $coupon->customer_id) {
             return null;
         }
         if (! $customer) {
             return $customerKnown ? 'Escolha o cliente: este cupom tem regra por cliente.' : null;
         }
 
-        $customerIds = $this->sameCustomerIds($customer);
+        $customerIds = $this->sameCustomerIds($customer, $company);
+
+        // Cupom pessoal: vale só para o dono (ou um cadastro duplicado dele, pelo telefone)
+        if ($coupon->customer_id && ! $customerIds->contains($coupon->customer_id)) {
+            return 'Este cupom é pessoal e pertence a outro cliente.';
+        }
 
         if ($coupon->per_customer_limit) {
             $used = $coupon->usedQuotes()->whereIn('customer_id', $customerIds)
@@ -81,13 +86,14 @@ class Coupons
     }
 
     /** O cliente e os cadastros duplicados dele (mesmo telefone). */
-    private function sameCustomerIds(Customer $customer): Collection
+    private function sameCustomerIds(Customer $customer, Company $company): Collection
     {
         $key = Customer::phoneKey($customer->phone);
         if (! $key) {
             return collect([$customer->id]);
         }
 
-        return app(CustomerPortal::class)->customerIds($customer->company, $key)->push($customer->id)->unique()->values();
+        // A empresa vem do cupom: o cliente pode chegar sem a relação carregada (busca por telefone do bot)
+        return app(CustomerPortal::class)->customerIds($company, $key)->push($customer->id)->unique()->values();
     }
 }

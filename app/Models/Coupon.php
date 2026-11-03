@@ -17,7 +17,7 @@ class Coupon extends Model
     public const TYPE_FIXED = 'fixed';
 
     protected $fillable = [
-        'company_id', 'code', 'description', 'type', 'value', 'max_discount', 'min_order', 'starts_on', 'ends_on',
+        'company_id', 'customer_id', 'automation', 'notified_at', 'notify_error', 'code', 'description', 'type', 'value', 'max_discount', 'min_order', 'starts_on', 'ends_on',
         'usage_limit', 'per_customer_limit', 'first_purchase_only', 'allow_promotions', 'category_ids', 'product_ids', 'active',
     ];
 
@@ -34,6 +34,7 @@ class Coupon extends Model
         'category_ids' => 'array',
         'product_ids' => 'array',
         'active' => 'boolean',
+        'notified_at' => 'datetime',
     ];
 
     public static function normalizeCode(?string $code): string
@@ -44,6 +45,12 @@ class Coupon extends Model
     public function company(): BelongsTo
     {
         return $this->belongsTo(Company::class);
+    }
+
+    /** Dono do cupom pessoal (gerado pela automação) — só ele usa. */
+    public function customer(): BelongsTo
+    {
+        return $this->belongsTo(Customer::class);
     }
 
     public function quotes(): HasMany
