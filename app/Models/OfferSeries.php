@@ -14,7 +14,7 @@ class OfferSeries extends Model
 
     protected $table = 'offer_series';
 
-    protected $fillable = ['company_id', 'kind', 'name', 'description', 'slug', 'capacity', 'backup_admin_phone', 'channel_jid', 'channel_invite', 'active'];
+    protected $fillable = ['company_id', 'kind', 'name', 'description', 'slug', 'capacity', 'backup_admin_phone', 'channel_jid', 'channel_invite', 'active', 'coupon_id'];
 
     protected $casts = [
         'active' => 'boolean',
@@ -24,6 +24,12 @@ class OfferSeries extends Model
     public function company(): BelongsTo
     {
         return $this->belongsTo(Company::class);
+    }
+
+    /** Cupom exclusivo da série: vai em cada oferta (texto + link que já aplica no carrinho). */
+    public function coupon(): BelongsTo
+    {
+        return $this->belongsTo(Coupon::class);
     }
 
     public function groups(): HasMany

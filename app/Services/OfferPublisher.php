@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Company;
+use App\Models\Coupon;
 use App\Models\OfferDelivery;
 use App\Models\OfferPost;
 use App\Models\OfferSeries;
@@ -90,7 +91,7 @@ class OfferPublisher
         }
 
         try {
-            $caption = $this->message($company, $product, $delivery->post->code);
+            $caption = $this->message($company, $product, $delivery->post->code, null, $delivery->series?->coupon);
             $image = $this->imageBytes($product);
 
             if ($image) {
@@ -112,9 +113,13 @@ class OfferPublisher
      * Texto da oferta: nome, preço (com o "de/por" da promoção), o texto da oferta (o próprio do produto,
      * ou um trecho da descrição) e o link do produto no catálogo — com o código da oferta (?o=), que o
      * catálogo usa pra contar o clique. Preço e link sempre montados aqui, nunca pela IA.
+     *
+     * Cupom do grupo: entra só quando vale agora para o produto (ligado, na validade, com uso sobrando, e
+     * produto coberto) — o link leva `cupom=` e o catálogo já deixa o cupom no carrinho.
      */
-    public function message(Company $company, Product $product, ?string $code = null, ?string $textOverride = null): string
+    public function message(Company $company, Product $product, ?string $code = null, ?string $textOverride = null, ?Coupon $coupon = null): string
     {
+        $coupon = $coupon && $this->couponFits($coupon, $product) ? $coupon : null;
         [$regular, $promo, $from] = $this->prices($company, $product);
         $money = fn (float $v) => 'R$ '.number_format($v, 2, ',', '.');
         $prefix = $from ? 'a partir de ' : '';
@@ -134,10 +139,25 @@ class OfferPublisher
             $lines[] = Str::limit($description, 160);
         }
 
+        if ($coupon) {
+            $lines[] = '';
+            $lines[] = "🎟️ Cupom *{$coupon->code}*: {$coupon->label()} de desconto"
+                .((float) $coupon->min_order > 0 ? ' em pedidos a partir de '.$money((float) $coupon->min_order) : '');
+        }
+
+        $query = http_build_query(array_filter(['o' => $code, 'cupom' => $coupon?->code]));
         $lines[] = '';
-        $lines[] = "👉 Veja e peça: {$this->productUrl($company, $product)}".($code ? "?o={$code}" : '');
+        $lines[] = "👉 Veja e peça: {$this->productUrl($company, $product)}".($query !== '' ? "?{$query}" : '');
 
         return implode("\n", $lines);
+    }
+
+    /** O cupom vale agora para este produto? (promoção só se o cupom permitir, como no pedido) */
+    private function couponFits(Coupon $coupon, Product $product): bool
+    {
+        return $coupon->coversProduct($product)
+            && ($coupon->allow_promotions || $product->discount_percent === null)
+            && app(Coupons::class)->unavailableReason($coupon, null, customerKnown: false) === null;
     }
 
     /**

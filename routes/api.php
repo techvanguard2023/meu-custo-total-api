@@ -276,6 +276,7 @@ Route::prefix('v1')->group(function () {
             // Cupons de desconto (Pro, só o dono cadastra; a equipe só aplica na venda)
             Route::get('/coupons', [CouponController::class, 'index']);
             Route::post('/coupons', [CouponController::class, 'store']);
+            Route::get('/coupons/{coupon}/orders', [CouponController::class, 'orders']);
             Route::put('/coupons/{coupon}', [CouponController::class, 'update']);
             Route::delete('/coupons/{coupon}', [CouponController::class, 'destroy']);
 

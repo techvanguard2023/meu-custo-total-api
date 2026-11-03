@@ -51,6 +51,12 @@ class Coupon extends Model
         return $this->hasMany(Quote::class);
     }
 
+    /** Séries de ofertas (grupos/canal) que divulgam este cupom. */
+    public function offerSeries(): HasMany
+    {
+        return $this->hasMany(OfferSeries::class);
+    }
+
     /** Pedidos que contam como uso: orçamentos em aberto e vendas (recusado e cancelado devolvem o uso). */
     public function usedQuotes(): HasMany
     {

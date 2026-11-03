@@ -9,6 +9,7 @@ use App\Models\OfferGroup;
 use App\Models\OfferPost;
 use App\Models\OfferSeries;
 use App\Models\Product;
+use App\Services\Coupons;
 use App\Services\OfferMetrics;
 use App\Services\OfferPublisher;
 use App\Services\OfferTextAi;
@@ -34,7 +35,7 @@ class OfferController extends Controller
         $numbers = $metrics->forPosts($company, $posts);
 
         return response()->json([
-            'series' => OfferSeries::where('company_id', $company->id)->with(['groups', 'company'])->latest('id')->get()
+            'series' => OfferSeries::where('company_id', $company->id)->with(['groups', 'company', 'coupon'])->latest('id')->get()
                 ->map(fn (OfferSeries $s) => $this->seriesPayload($s))->values(),
             'shared_products' => $company->products()->where('share_in_offers', true)->count(),
             'ai_enabled' => app(OfferTextAi::class)->isConfigured(),
@@ -98,6 +99,8 @@ class OfferController extends Controller
             'capacity' => ['sometimes', 'integer', 'min:50', 'max:1000'],
             'backup_admin_phone' => ['sometimes', 'nullable', 'string', 'max:30', 'regex:/^[\d\s()+\-]{10,}$/'],
             'active' => ['sometimes', 'boolean'],
+            // Cupom exclusivo da série (vai em cada oferta); null tira
+            'coupon_id' => ['sometimes', 'nullable', 'integer', Rule::exists('coupons', 'id')->where('company_id', $series->company_id)],
         ], [
             'slug.regex' => 'Use só letras minúsculas, números e hífens (ex: grupo-ofertas).',
             'slug.unique' => 'Esse endereço já está em uso. Escolha outro.',
@@ -327,6 +330,15 @@ class OfferController extends Controller
             // Domínio das ofertas → do catálogo → do app (ver Company::offersOrigin)
             'public_url' => $series->company->offersOrigin().'/ofertas/'.$series->slug,
             'channel_invite' => $series->channel_invite,
+            // Cupom do grupo e quanto vendeu com ele (pedidos não cancelados/recusados)
+            'coupon' => $series->coupon ? [
+                'id' => $series->coupon->id,
+                'code' => $series->coupon->code,
+                'label' => $series->coupon->label(),
+                'unavailable' => app(Coupons::class)->unavailableReason($series->coupon, null, customerKnown: false),
+                'orders' => $series->coupon->usedQuotes()->count(),
+                'revenue' => round((float) $series->coupon->usedQuotes()->sum('final_price'), 2),
+            ] : null,
             'groups' => $series->groups->map(fn (OfferGroup $g) => [
                 'id' => $g->id,
                 'number' => $g->number,

@@ -15,6 +15,11 @@ class OfferDelivery extends Model
 
     protected $casts = ['sent_at' => 'datetime'];
 
+    public function series(): BelongsTo
+    {
+        return $this->belongsTo(OfferSeries::class, 'offer_series_id');
+    }
+
     public function post(): BelongsTo
     {
         return $this->belongsTo(OfferPost::class, 'offer_post_id');

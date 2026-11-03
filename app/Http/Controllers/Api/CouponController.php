@@ -8,6 +8,7 @@ use App\Models\Company;
 use App\Models\Coupon;
 use App\Models\Customer;
 use App\Models\Product;
+use App\Models\Quote;
 use App\Services\Coupons;
 use App\Services\CustomerPortal;
 use App\Services\QuoteCalculatorService;
@@ -23,11 +24,43 @@ class CouponController extends Controller
     {
         $this->requirePro($request, 'Cupons de desconto');
 
-        return $request->user()->company->coupons()
+        $company = $request->user()->company;
+
+        return $company->coupons()
             ->withCount(['usedQuotes as uses_count'])
             ->withSum(['usedQuotes as discount_total'], 'coupon_amount')
+            ->withSum(['usedQuotes as revenue_total'], 'final_price')
+            ->with('offerSeries:id,coupon_id,name')
             ->latest()
-            ->get();
+            ->get()
+            ->map(fn (Coupon $c) => $this->payload($c, $company));
+    }
+
+    /** Pedidos que usaram o cupom (os mais recentes), pra conferir de onde veio cada venda. */
+    public function orders(Request $request, Coupon $coupon)
+    {
+        $this->requirePro($request, 'Cupons de desconto');
+        abort_unless($coupon->company_id === $request->user()->company_id, 404);
+
+        return $coupon->quotes()->with('customer:id,name')->latest('id')->limit(100)->get()->map(fn (Quote $q) => [
+            'id' => $q->id,
+            'date' => ($q->approved_at ?? $q->created_at)?->toIso8601String(),
+            'customer' => $q->customer?->name,
+            'status' => $q->status,
+            'counted' => ! in_array($q->status, [Quote::STATUS_REJECTED, Quote::STATUS_CANCELLED], true),
+            'final_price' => (float) $q->final_price,
+            'coupon_amount' => (float) $q->coupon_amount,
+            'payment_status' => $q->payment_status,
+        ]);
+    }
+
+    /** Link do catálogo que já deixa o cupom no carrinho, e em quais séries de ofertas ele está. */
+    private function payload(Coupon $coupon, Company $company): array
+    {
+        return array_merge($coupon->toArray(), [
+            'share_url' => $company->catalogUrl().'?cupom='.$coupon->code,
+            'offer_series' => $coupon->offerSeries->pluck('name')->values(),
+        ]);
     }
 
     public function store(Request $request)
@@ -36,7 +69,7 @@ class CouponController extends Controller
 
         $coupon = $request->user()->company->coupons()->create($this->validated($request));
 
-        return response()->json($coupon->loadCount(['usedQuotes as uses_count'])->loadSum(['usedQuotes as discount_total'], 'coupon_amount'), 201);
+        return response()->json($this->loadNumbers($coupon, $request->user()->company), 201);
     }
 
     public function update(Request $request, Coupon $coupon)
@@ -46,7 +79,7 @@ class CouponController extends Controller
 
         $coupon->update($this->validated($request, $coupon));
 
-        return response()->json($coupon->loadCount(['usedQuotes as uses_count'])->loadSum(['usedQuotes as discount_total'], 'coupon_amount'));
+        return response()->json($this->loadNumbers($coupon, $request->user()->company));
     }
 
     /** Pedidos que já usaram o cupom guardam o código e o desconto — só deixam de apontar pro cadastro. */
@@ -125,6 +158,16 @@ class CouponController extends Controller
             'amount' => $breakdown['coupon_amount'],
             'message' => null,
         ]);
+    }
+
+    private function loadNumbers(Coupon $coupon, Company $company): array
+    {
+        $coupon->loadCount(['usedQuotes as uses_count'])
+            ->loadSum(['usedQuotes as discount_total'], 'coupon_amount')
+            ->loadSum(['usedQuotes as revenue_total'], 'final_price')
+            ->load('offerSeries:id,coupon_id,name');
+
+        return $this->payload($coupon, $company);
     }
 
     private function validated(Request $request, ?Coupon $coupon = null): array
