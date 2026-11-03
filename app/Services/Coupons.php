@@ -80,6 +80,25 @@ class Coupons
         return null;
     }
 
+    /**
+     * Por que o cupom não pode ser divulgado nos grupos/canais agora (null = pode). Só sai cupom que vale:
+     * ligado, não vencido e com uso sobrando. Cupom que ainda vai começar pode sair — a mensagem avisa a data.
+     */
+    public function broadcastReason(Coupon $coupon): ?string
+    {
+        $company = $coupon->company;
+        $today = now($company->timezone ?: 'America/Sao_Paulo')->toDateString();
+
+        return match (true) {
+            $coupon->automation !== null || $coupon->customer_id !== null => 'Cupom pessoal não é divulgado em grupos.',
+            ! $coupon->share_in_offers => 'Marque "Divulgar nos grupos e canais de ofertas" no cupom.',
+            ! $company->isPro() || ! $coupon->active => 'Este cupom está desligado.',
+            $coupon->ends_on && $today > $coupon->ends_on->toDateString() => 'Este cupom expirou.',
+            $coupon->usage_limit !== null && $this->uses($coupon) >= $coupon->usage_limit => 'Este cupom já atingiu o limite de usos.',
+            default => null,
+        };
+    }
+
     public function uses(Coupon $coupon, ?int $ignoreQuoteId = null): int
     {
         return $coupon->usedQuotes()->when($ignoreQuoteId, fn ($q) => $q->where('id', '!=', $ignoreQuoteId))->count();

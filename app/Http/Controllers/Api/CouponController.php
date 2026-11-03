@@ -7,10 +7,12 @@ use App\Http\Controllers\Controller;
 use App\Models\Company;
 use App\Models\Coupon;
 use App\Models\Customer;
+use App\Models\OfferDelivery;
 use App\Models\Product;
 use App\Models\Quote;
 use App\Services\Coupons;
 use App\Services\CustomerPortal;
+use App\Services\OfferPublisher;
 use App\Services\QuoteCalculatorService;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -37,6 +39,46 @@ class CouponController extends Controller
             ->map(fn (Coupon $c) => $this->payload($c, $company));
     }
 
+    /** Como o cupom vai sair nos grupos/canais e pra quantos vai — a tela mostra antes de confirmar. */
+    public function broadcastPreview(Request $request, Coupon $coupon, OfferPublisher $publisher, Coupons $coupons)
+    {
+        $this->requirePro($request, 'Cupons de desconto');
+        abort_unless($coupon->company_id === $request->user()->company_id, 404);
+        $company = $request->user()->company;
+
+        return response()->json([
+            'reason' => $coupons->broadcastReason($coupon),
+            'message' => $publisher->couponMessage($company, $coupon),
+            'targets' => $publisher->targets($company)->pluck('label')->values(),
+        ]);
+    }
+
+    /**
+     * "Divulgar agora": coloca o cupom na fila das ofertas pra todos os grupos e canais (um envio por minuto).
+     * Só cupom que vale (ligado, na validade, com uso sobrando); recusa repetir enquanto o anterior está saindo.
+     */
+    public function broadcast(Request $request, Coupon $coupon, OfferPublisher $publisher, Coupons $coupons)
+    {
+        $this->requirePro($request, 'Cupons de desconto');
+        abort_unless($coupon->company_id === $request->user()->company_id, 404);
+        $company = $request->user()->company;
+
+        $reason = $coupons->broadcastReason($coupon);
+        abort_if($reason !== null, 422, $reason ?? '');
+
+        $sending = OfferDelivery::where('company_id', $company->id)->where('status', OfferDelivery::STATUS_PENDING)
+            ->whereHas('post', fn ($q) => $q->where('coupon_id', $coupon->id))->exists();
+        abort_if($sending, 422, 'Este cupom já está na fila de envio. Aguarde terminar antes de divulgar de novo.');
+
+        $queued = $publisher->queueCoupon($company, $coupon);
+        abort_if($queued === 0, 422, 'Crie um grupo ou canal em Ofertas para divulgar o cupom.');
+
+        // Fila: um envio por minuto por loja — o que já estava na fila sai antes
+        $ahead = OfferDelivery::where('company_id', $company->id)->where('status', OfferDelivery::STATUS_PENDING)->count();
+
+        return response()->json(['queued' => $queued, 'minutes' => $ahead, 'coupon' => $this->loadNumbers($coupon->fresh(), $company)]);
+    }
+
     /** Pedidos que usaram o cupom (os mais recentes), pra conferir de onde veio cada venda. */
     public function orders(Request $request, Coupon $coupon)
     {
@@ -59,6 +101,8 @@ class CouponController extends Controller
     private function payload(Coupon $coupon, Company $company): array
     {
         return array_merge($coupon->toArray(), [
+            // Por que não dá pra divulgar agora (null = pode)
+            'broadcast_reason' => app(Coupons::class)->broadcastReason($coupon),
             'share_url' => $company->catalogUrl().'?cupom='.$coupon->code,
             'offer_series' => $coupon->offerSeries->pluck('name')->values(),
         ]);
@@ -192,6 +236,8 @@ class CouponController extends Controller
             'per_customer_limit' => ['nullable', 'integer', 'min:1', 'max:100'],
             'first_purchase_only' => ['boolean'],
             'allow_promotions' => ['boolean'],
+            // Pode ser divulgado nos grupos/canais de ofertas pelo "Divulgar agora"
+            'share_in_offers' => ['boolean'],
             'category_ids' => ['nullable', 'array'],
             // Categorias padrão (sem dono) valem pra todas as lojas
             'category_ids.*' => ['integer', Rule::exists('product_categories', 'id')->where(fn ($q) => $q->where('company_id', $companyId)->orWhereNull('company_id'))],

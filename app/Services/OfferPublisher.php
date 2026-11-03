@@ -8,6 +8,8 @@ use App\Models\OfferDelivery;
 use App\Models\OfferPost;
 use App\Models\OfferSeries;
 use App\Models\Product;
+use App\Models\ProductCategory;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -21,15 +23,20 @@ class OfferPublisher
 {
     public function __construct(private WahaClient $waha) {}
 
-    /** Coloca o produto na fila de todas as séries ativas. Devolve quantas entregas foram criadas. */
-    public function queue(Company $company, Product $product, string $origin = 'manual'): int
+    /** Grupos (todos os #N) e canais das séries ativas — pra onde cada oferta vai. */
+    public function targets(Company $company): \Illuminate\Support\Collection
     {
         $series = OfferSeries::where('company_id', $company->id)->where('active', true)->with('groups')->get();
 
-        $targets = $series->flatMap(fn (OfferSeries $s) => $s->isChannel()
+        return $series->flatMap(fn (OfferSeries $s) => $s->isChannel()
             ? [['series' => $s, 'group' => null, 'jid' => $s->channel_jid, 'label' => "{$s->name} (canal)"]]
             : $s->groups->map(fn ($g) => ['series' => $s, 'group' => $g, 'jid' => $g->jid, 'label' => $s->groupName($g->number)]));
+    }
 
+    /** Coloca o produto na fila de todas as séries ativas. Devolve quantas entregas foram criadas. */
+    public function queue(Company $company, Product $product, string $origin = 'manual'): int
+    {
+        $targets = $this->targets($company);
         if ($targets->isEmpty()) {
             return 0;
         }
@@ -42,6 +49,37 @@ class OfferPublisher
             'code' => $this->uniqueCode(),
         ]);
 
+        $this->createDeliveries($company, $post, $targets);
+
+        $product->forceFill(['offers_last_sent_at' => now()])->saveQuietly();
+
+        return $targets->count();
+    }
+
+    /** "Divulgar agora" do cupom: entra na mesma fila (um envio por minuto) pra todos os grupos e canais. */
+    public function queueCoupon(Company $company, Coupon $coupon): int
+    {
+        $targets = $this->targets($company);
+        if ($targets->isEmpty()) {
+            return 0;
+        }
+
+        $post = OfferPost::create([
+            'company_id' => $company->id,
+            'coupon_id' => $coupon->id,
+            'product_name' => "Cupom {$coupon->code}",
+            'origin' => 'coupon',
+            'code' => $this->uniqueCode(),
+        ]);
+
+        $this->createDeliveries($company, $post, $targets);
+        $coupon->forceFill(['broadcast_at' => now()])->save();
+
+        return $targets->count();
+    }
+
+    private function createDeliveries(Company $company, OfferPost $post, \Illuminate\Support\Collection $targets): void
+    {
         foreach ($targets as $target) {
             $post->deliveries()->create([
                 'company_id' => $company->id,
@@ -51,10 +89,6 @@ class OfferPublisher
                 'target_jid' => $target['jid'],
             ]);
         }
-
-        $product->forceFill(['offers_last_sent_at' => now()])->saveQuietly();
-
-        return $targets->count();
     }
 
     /** Manda a entrega pendente mais antiga da loja. Sem WhatsApp conectado, espera (até 24h). */
@@ -81,6 +115,27 @@ class OfferPublisher
             }
 
             return null;
+        }
+
+        // Post de cupom: confere de novo na hora de enviar (pode ter vencido ou esgotado na fila)
+        if ($delivery->post?->coupon_id || $delivery->post?->origin === 'coupon') {
+            $coupon = $delivery->post->coupon_id ? Coupon::find($delivery->post->coupon_id) : null;
+            $reason = $coupon ? app(Coupons::class)->broadcastReason($coupon) : 'Cupom excluído';
+            if ($reason) {
+                $delivery->update(['status' => OfferDelivery::STATUS_FAILED, 'error' => Str::limit($reason, 250)]);
+
+                return $delivery;
+            }
+
+            try {
+                $this->waha->sendText($session, $delivery->target_jid, $this->couponMessage($company, $coupon, $delivery->post->code), true);
+                $delivery->update(['status' => OfferDelivery::STATUS_SENT, 'sent_at' => now(), 'error' => null]);
+            } catch (Throwable $e) {
+                Log::warning("Ofertas: envio do cupom {$delivery->id} falhou (empresa {$company->id}): {$e->getMessage()}");
+                $delivery->update(['status' => OfferDelivery::STATUS_FAILED, 'error' => Str::limit($e->getMessage(), 250)]);
+            }
+
+            return $delivery;
         }
 
         $product = $delivery->post?->product_id ? Product::with(['category.parent', 'images', 'variations'])->find($delivery->post->product_id) : null;
@@ -148,6 +203,61 @@ class OfferPublisher
         $query = http_build_query(array_filter(['o' => $code, 'cupom' => $coupon?->code]));
         $lines[] = '';
         $lines[] = "👉 Veja e peça: {$this->productUrl($company, $product)}".($query !== '' ? "?{$query}" : '');
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Mensagem do cupom divulgado: desconto, validade (com "a partir de" quando ainda vai começar), regras
+     * principais e o link que já coloca o cupom no carrinho (com o código da oferta, pra contar o clique).
+     */
+    public function couponMessage(Company $company, Coupon $coupon, ?string $code = null): string
+    {
+        $tz = $company->timezone ?: 'America/Sao_Paulo';
+        $today = now($tz)->startOfDay();
+        $money = fn (float $v) => 'R$ '.number_format($v, 2, ',', '.');
+
+        $lines = ["🎟️ *CUPOM DE DESCONTO: {$coupon->code}*"];
+        $lines[] = "{$coupon->label()} de desconto"
+            .($coupon->type === Coupon::TYPE_PERCENT && $coupon->max_discount !== null ? ' (até '.$money((float) $coupon->max_discount).')' : '')
+            .((float) $coupon->min_order > 0 ? ' em pedidos a partir de '.$money((float) $coupon->min_order) : '');
+
+        $starts = $coupon->starts_on ? Carbon::parse($coupon->starts_on->toDateString(), $tz) : null;
+        $until = $coupon->ends_on ? ' até '.$coupon->ends_on->format('d/m') : '';
+        if ($starts && $starts->gt($today)) {
+            $days = (int) $today->diffInDays($starts);
+            $lines[] = '⏳ Válido a partir de '.$starts->format('d/m').' ('.($days === 1 ? 'amanhã' : "daqui a {$days} dias").")$until";
+        } elseif ($until !== '') {
+            $lines[] = "📅 Válido{$until}";
+        }
+
+        $rules = [];
+        if (! empty($coupon->product_ids)) {
+            $names = Product::whereIn('id', $coupon->product_ids)->orderBy('name')->pluck('name');
+            $rules[] = 'Vale para: '.$names->take(3)->implode(', ').($names->count() > 3 ? ' e mais '.($names->count() - 3) : '');
+        } elseif (! empty($coupon->category_ids)) {
+            $names = ProductCategory::whereIn('id', $coupon->category_ids)->orderBy('name')->pluck('name');
+            $rules[] = 'Vale para: '.$names->take(3)->implode(', ').($names->count() > 3 ? ' e mais '.($names->count() - 3) : '');
+        }
+        if ($coupon->first_purchase_only) {
+            $rules[] = 'só na primeira compra';
+        } elseif ($coupon->per_customer_limit === 1) {
+            $rules[] = '1 vez por cliente';
+        }
+        if (! $coupon->allow_promotions) {
+            $rules[] = 'não vale para itens em promoção';
+        }
+        if ($rules) {
+            $lines[] = 'ℹ️ '.Str::ucfirst(implode(' · ', $rules));
+        }
+
+        $lines[] = '';
+        if ($company->hasCatalogActive()) {
+            $query = http_build_query(array_filter(['o' => $code, 'cupom' => $coupon->code]));
+            $lines[] = "👉 Use no carrinho do catálogo: {$company->catalogUrl()}?{$query}";
+        } else {
+            $lines[] = '👉 Informe o cupom ao fazer o seu pedido.';
+        }
 
         return implode("\n", $lines);
     }

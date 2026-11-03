@@ -65,17 +65,29 @@ class OfferMetrics
             ->whereIn('quote_items.product_id', $posts->pluck('product_id')->filter()->unique())
             ->get(['quote_items.product_id', 'quote_items.quantity', 'quotes.id AS quote_id', 'quotes.created_at']);
 
+        // Post de cupom: pedidos que usaram o cupom na janela (não um produto)
+        $couponSales = Quote::where('company_id', $company->id)
+            ->whereIn('coupon_id', $posts->pluck('coupon_id')->filter()->unique())
+            ->whereNotIn('status', [Quote::STATUS_REJECTED, Quote::STATUS_CANCELLED])
+            ->whereBetween('created_at', [$from, $until])
+            ->get(['id', 'coupon_id', 'created_at']);
+
         $result = [];
         foreach ($posts as $post) {
             $start = Carbon::parse($post->created_at);
             $end = $start->copy()->addHours(self::SALES_WINDOW_HOURS);
-            $window = $sales->filter(fn ($row) => (int) $row->product_id === (int) $post->product_id
-                && Carbon::parse($row->created_at)->betweenIncluded($start, $end));
+            $window = $post->coupon_id
+                ? collect()
+                : $sales->filter(fn ($row) => (int) $row->product_id === (int) $post->product_id
+                    && Carbon::parse($row->created_at)->betweenIncluded($start, $end));
+            $couponOrders = $post->coupon_id
+                ? $couponSales->filter(fn ($q) => (int) $q->coupon_id === (int) $post->coupon_id && $q->created_at->betweenIncluded($start, $end))->count()
+                : 0;
 
             $result[$post->id] = [
                 'clicks' => (int) ($clicks[$post->id]->total ?? 0),
                 'unique_clicks' => (int) ($clicks[$post->id]->people ?? 0),
-                'orders' => $window->pluck('quote_id')->unique()->count(),
+                'orders' => $post->coupon_id ? $couponOrders : $window->pluck('quote_id')->unique()->count(),
                 'units' => (int) $window->sum('quantity'),
             ];
         }

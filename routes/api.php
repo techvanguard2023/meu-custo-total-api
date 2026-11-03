@@ -282,6 +282,8 @@ Route::prefix('v1')->group(function () {
             Route::get('/coupons', [CouponController::class, 'index']);
             Route::post('/coupons', [CouponController::class, 'store']);
             Route::get('/coupons/{coupon}/orders', [CouponController::class, 'orders']);
+            Route::get('/coupons/{coupon}/broadcast', [CouponController::class, 'broadcastPreview']);
+            Route::post('/coupons/{coupon}/broadcast', [CouponController::class, 'broadcast'])->middleware('throttle:10,1');
             Route::put('/coupons/{coupon}', [CouponController::class, 'update']);
             Route::delete('/coupons/{coupon}', [CouponController::class, 'destroy']);
 

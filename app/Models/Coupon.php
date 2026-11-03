@@ -18,7 +18,7 @@ class Coupon extends Model
 
     protected $fillable = [
         'company_id', 'customer_id', 'automation', 'notified_at', 'notify_error', 'code', 'description', 'type', 'value', 'max_discount', 'min_order', 'starts_on', 'ends_on',
-        'usage_limit', 'per_customer_limit', 'first_purchase_only', 'allow_promotions', 'category_ids', 'product_ids', 'active',
+        'usage_limit', 'per_customer_limit', 'first_purchase_only', 'allow_promotions', 'share_in_offers', 'broadcast_at', 'category_ids', 'product_ids', 'active',
     ];
 
     protected $casts = [
@@ -35,6 +35,8 @@ class Coupon extends Model
         'product_ids' => 'array',
         'active' => 'boolean',
         'notified_at' => 'datetime',
+        'share_in_offers' => 'boolean',
+        'broadcast_at' => 'datetime',
     ];
 
     public static function normalizeCode(?string $code): string
