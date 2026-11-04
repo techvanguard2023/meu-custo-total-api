@@ -2,11 +2,20 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BustsCatalogCache;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Setting extends Model
 {
+    use BustsCatalogCache;
+
+    /** Catálogo público que mostra este registro (cache limpo ao gravar). */
+    public function catalogCompanyId(): ?int
+    {
+        return $this->company_id;
+    }
+
     protected $fillable = [
         'company_id', 'electricity_rate_kwh', 'labor_hour_rate',
         'default_failure_rate', 'default_markup', 'minimum_order_price', 'order_discount_tiers',

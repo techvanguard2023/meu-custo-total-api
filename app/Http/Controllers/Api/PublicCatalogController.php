@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\CatalogVisit;
+use App\Services\CatalogCache;
 use App\Models\Company;
 use App\Models\OfferSeries;
 use App\Services\CustomerPortal;
@@ -74,8 +75,15 @@ class PublicCatalogController extends Controller
         // não-Pro — não dá pra distinguir os casos de fora.
         abort_unless($company && $company->hasCatalogActive(), 404, 'Catálogo não encontrado.');
 
+        // A visita conta sempre; o resto é igual pra todo visitante e vem do cache (CatalogCache)
         CatalogVisit::record($company, $request);
 
+        return response()->json(CatalogCache::remember($company->id, fn () => $this->payload($company)));
+    }
+
+    /** Tudo que o catálogo público mostra (sem nada do visitante) — guardado por CatalogCache. */
+    private function payload(Company $company): array
+    {
         $markup = (float) ($company->setting?->default_markup ?? 0);
         // Preço por quantidade e desconto por valor do pedido são do plano Pro
         $volumePricing = $company->isPro();
@@ -250,7 +258,8 @@ class PublicCatalogController extends Controller
                 ];
             });
 
-        return response()->json([
+        // Arrays puros (sem Collection/Model): é o que vai pro cache
+        return json_decode(json_encode([
             'company_name' => $company->name,
             'catalog_url' => $catalogUrl,
             'logo_url' => $company->logo_url,
@@ -318,7 +327,7 @@ class PublicCatalogController extends Controller
                     'product_ids' => $c->products->pluck('id')->values(),
                 ])
                 ->values(),
-        ]);
+        ]), true);
     }
 
     private function stockStatus(int $quantity): string

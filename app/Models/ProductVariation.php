@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BustsCatalogCache;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -16,6 +17,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class ProductVariation extends Model
 {
+    use BustsCatalogCache;
+
+    /** Catálogo público que mostra este registro (cache limpo ao gravar). */
+    public function catalogCompanyId(): ?int
+    {
+        return Product::whereKey($this->product_id)->value('company_id');
+    }
+
     protected $fillable = [
         'product_id', 'color', 'color_hexes', 'size', 'weight', 'sku',
         'sale_price', 'cost', 'print_time_minutes', 'stock_quantity', 'active', 'position',

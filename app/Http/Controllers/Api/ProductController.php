@@ -151,6 +151,8 @@ class ProductController extends Controller
         // numa coleção de outra empresa.
         $ownIds = $product->company->productCollections()->whereIn('id', $collectionIds)->pluck('id');
         $product->collections()->sync($ownIds);
+        // Vínculo da coleção não dispara evento: o catálogo mostra as coleções
+        \App\Services\CatalogCache::forget($product->company_id);
     }
 
     /**

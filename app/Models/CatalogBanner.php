@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BustsCatalogCache;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -9,6 +10,14 @@ use Illuminate\Support\Facades\Storage;
 
 class CatalogBanner extends Model
 {
+    use BustsCatalogCache;
+
+    /** Catálogo público que mostra este registro (cache limpo ao gravar). */
+    public function catalogCompanyId(): ?int
+    {
+        return $this->company_id;
+    }
+
     protected $fillable = ['company_id', 'image_path', 'link_url', 'position'];
 
     protected $casts = [

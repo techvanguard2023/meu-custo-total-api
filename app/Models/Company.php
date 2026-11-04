@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BustsCatalogCache;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -11,6 +12,13 @@ use Laravel\Cashier\Billable;
 class Company extends Model
 {
     use Billable;
+    use BustsCatalogCache;
+
+    /** Catálogo público da própria loja (cache limpo ao gravar). */
+    public function catalogCompanyId(): ?int
+    {
+        return $this->id;
+    }
 
     protected static function booted(): void
     {

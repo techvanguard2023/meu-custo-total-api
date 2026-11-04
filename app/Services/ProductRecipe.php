@@ -138,6 +138,9 @@ class ProductRecipe
                 $product->auto_price ? ['sale_price' => $own['suggested_price'] ?? null] : [],
             ))->saveQuietly();
         }
+
+        // Gravou sem eventos (pra não recalcular em cascata): o preço no catálogo pode ter mudado
+        CatalogCache::forget($product->company_id);
     }
 
     /** Preço do insumo mudou: atualiza o custo dos produtos que usam ele. */

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BustsCatalogCache;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -13,6 +14,14 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 class Coupon extends Model
 {
+    use BustsCatalogCache;
+
+    /** Catálogo público que mostra este registro (cache limpo ao gravar). */
+    public function catalogCompanyId(): ?int
+    {
+        return $this->company_id;
+    }
+
     public const TYPE_PERCENT = 'percent';
     public const TYPE_FIXED = 'fixed';
 

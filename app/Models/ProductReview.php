@@ -2,12 +2,21 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BustsCatalogCache;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ProductReview extends Model
 {
+    use BustsCatalogCache;
+
+    /** Catálogo público que mostra este registro (cache limpo ao gravar). */
+    public function catalogCompanyId(): ?int
+    {
+        return $this->company_id;
+    }
+
     public const COMMENT_PENDING = 'pending';
     public const COMMENT_APPROVED = 'approved';
     public const COMMENT_REJECTED = 'rejected';
