@@ -18,6 +18,9 @@ return Application::configure(basePath: dirname(__DIR__))
         // nele, todo acesso chegaria com o IP interno do proxy — o que faria as
         // métricas do catálogo contarem todos os visitantes como uma pessoa só.
         $middleware->trustProxies(at: '*');
+
+        // Limite de requisições com um contador por rota (o padrão do Laravel soma todas as rotas do usuário)
+        $middleware->alias(['throttle' => \App\Http\Middleware\ThrottleRequestsPerRoute::class]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

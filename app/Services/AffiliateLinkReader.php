@@ -34,7 +34,7 @@ class AffiliateLinkReader
     private const GENERIC_TITLES = ['mercado livre', 'mercado libre', 'shopee', 'shopee brasil', 'amazon', 'amazon.com.br', 'magalu', 'aliexpress', 'shein'];
 
     /**
-     * @return array{marketplace: string, final_url: string, title: ?string, image_url: ?string, description: ?string, price: ?float}
+     * @return array{marketplace: string, final_url: string, title: ?string, image_url: ?string, description: ?string, price: ?float, blocked: bool}
      */
     public function read(string $url): array
     {
@@ -76,6 +76,16 @@ class AffiliateLinkReader
             Log::info('Achadinhos: não deu pra ler o link ('.parse_url($url, PHP_URL_HOST).'): '.Str::limit($e->getMessage(), 200));
         }
 
+        // Página de verificação/captcha (a loja desconfiou de leitura automática): nada da página serve, e o
+        // endereço final não é o do produto — usa o do parâmetro de volta ("go=") quando houver, senão o colado
+        $blocked = $this->isBlockPage($finalUrl);
+        if ($blocked) {
+            parse_str((string) parse_url($finalUrl, PHP_URL_QUERY), $query);
+            $back = (string) ($query['go'] ?? $query['return_to'] ?? $query['url'] ?? '');
+            $finalUrl = str_starts_with($back, 'http') ? $back : $url;
+            $html = '';
+        }
+
         $marketplace = AffiliateOffer::detectMarketplace($finalUrl !== $url ? $finalUrl : $url);
         if ($marketplace === 'other') {
             $marketplace = AffiliateOffer::detectMarketplace($url);
@@ -100,7 +110,14 @@ class AffiliateLinkReader
             'image_url' => $image && str_starts_with($image, 'http') ? $image : null,
             'description' => ($d = $this->meta($html, 'og:description')) ? Str::limit($d, 300) : null,
             'price' => $this->price($html),
+            'blocked' => $blocked,
         ];
+    }
+
+    /** Página de verificação de robô/captcha/login em vez da página do produto. */
+    private function isBlockPage(string $url): bool
+    {
+        return (bool) preg_match('~/(gz/account-verification|errors/validateCaptcha|captcha|verify|login|signin|ap/signin)~i', (string) parse_url($url, PHP_URL_PATH));
     }
 
     /** Baixa a foto (da prévia do link) pro disco do sistema — a oferta sai com a imagem, não com o link dela. */
