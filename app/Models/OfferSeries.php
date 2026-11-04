@@ -14,13 +14,23 @@ class OfferSeries extends Model
 
     protected $table = 'offer_series';
 
-    protected $fillable = ['company_id', 'kind', 'name', 'description', 'image_path', 'image_all_groups', 'slug', 'capacity', 'backup_admin_phone', 'channel_jid', 'channel_invite', 'active', 'coupon_id'];
+    public const PURPOSE_STORE = 'store';       // produtos da loja (link do catálogo)
+
+    public const PURPOSE_AFFILIATE = 'affiliate'; // achadinhos de outras lojas (link de afiliado)
+
+    protected $fillable = ['company_id', 'kind', 'purpose', 'affiliate_disclosure', 'name', 'description', 'image_path', 'image_all_groups', 'slug', 'capacity', 'backup_admin_phone', 'channel_jid', 'channel_invite', 'active', 'coupon_id'];
 
     protected $casts = [
         'active' => 'boolean',
         'capacity' => 'integer',
         'image_all_groups' => 'boolean',
+        'affiliate_disclosure' => 'boolean',
     ];
+
+    public function isAffiliate(): bool
+    {
+        return $this->purpose === self::PURPOSE_AFFILIATE;
+    }
 
     public function company(): BelongsTo
     {

@@ -41,6 +41,7 @@ class OfferSeriesManager
         $series = new OfferSeries([
             'company_id' => $company->id,
             'kind' => $data['kind'],
+            'purpose' => $data['purpose'] ?? OfferSeries::PURPOSE_STORE,
             'name' => $data['name'],
             'description' => $data['description'] ?? null,
             'slug' => $this->freeSlug($data['name']),

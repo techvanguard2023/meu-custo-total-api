@@ -62,11 +62,15 @@ class AnnouncementController extends Controller
             'message' => ['nullable', 'string', 'max:1000'],
             'level' => ['required', Rule::in(['info', 'warning', 'success'])],
             'audience' => ['required', Rule::in(['all', 'free', 'essential', 'pro'])],
-            'link_url' => ['nullable', 'url', 'max:500'],
+            // Endereço completo (https://…) ou uma tela do próprio app (/suporte, /divulgacao…)
+            'link_url' => ['nullable', 'string', 'max:500', 'regex:~^(https?://[^\s]+|/(?!/)[^\s]*)$~i'],
             'link_label' => ['nullable', 'string', 'max:40'],
             'starts_at' => ['nullable', 'date'],
             'ends_at' => ['nullable', 'date', 'after_or_equal:starts_at'],
             'active' => ['required', 'boolean'],
-        ], ['ends_at.after_or_equal' => 'O fim precisa ser depois do início.']);
+        ], [
+            'ends_at.after_or_equal' => 'O fim precisa ser depois do início.',
+            'link_url.regex' => 'Use um endereço completo (https://…) ou uma tela do app começando com / (ex: /suporte).',
+        ]);
     }
 }

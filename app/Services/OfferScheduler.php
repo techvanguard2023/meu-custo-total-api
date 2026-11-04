@@ -98,7 +98,8 @@ class OfferScheduler
             return 0;
         }
 
-        if (! OfferSeries::where('company_id', $company->id)->where('active', true)->exists()) {
+        // Agenda dos produtos da loja: só conta série da loja (achadinho tem a sua própria fila)
+        if (! OfferSeries::where('company_id', $company->id)->where('active', true)->where('purpose', OfferSeries::PURPOSE_STORE)->exists()) {
             $schedule->update(['last_slot' => $slot]);
 
             return 0;

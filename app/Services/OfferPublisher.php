@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\AffiliateOffer;
 use App\Models\Company;
 use App\Models\Coupon;
 use App\Models\OfferDelivery;
@@ -23,10 +24,14 @@ class OfferPublisher
 {
     public function __construct(private WahaClient $waha) {}
 
-    /** Grupos (todos os #N) e canais das séries ativas — pra onde cada oferta vai. */
-    public function targets(Company $company): \Illuminate\Support\Collection
+    /**
+     * Grupos (todos os #N) e canais das séries ativas do tipo pedido — pra onde cada oferta vai. Produto e cupom
+     * da loja vão só pras séries "store"; achadinho (afiliado) só pras "affiliate": cliente da loja não recebe
+     * link da Shopee, e o grupo de achadinhos não recebe o catálogo.
+     */
+    public function targets(Company $company, string $purpose = OfferSeries::PURPOSE_STORE): \Illuminate\Support\Collection
     {
-        $series = OfferSeries::where('company_id', $company->id)->where('active', true)->with('groups')->get();
+        $series = OfferSeries::where('company_id', $company->id)->where('active', true)->where('purpose', $purpose)->with('groups')->get();
 
         return $series->flatMap(fn (OfferSeries $s) => $s->isChannel()
             ? [['series' => $s, 'group' => null, 'jid' => $s->channel_jid, 'label' => "{$s->name} (canal)"]]
@@ -56,7 +61,29 @@ class OfferPublisher
         return $targets->count();
     }
 
-    /** "Divulgar agora" do cupom: entra na mesma fila (um envio por minuto) pra todos os grupos e canais. */
+    /** Achadinho: entra na mesma fila (um envio por minuto), só pros grupos e canais de achadinhos. */
+    public function queueAffiliate(Company $company, AffiliateOffer $offer): int
+    {
+        $targets = $this->targets($company, OfferSeries::PURPOSE_AFFILIATE);
+        if ($targets->isEmpty()) {
+            return 0;
+        }
+
+        $post = OfferPost::create([
+            'company_id' => $company->id,
+            'affiliate_offer_id' => $offer->id,
+            'product_name' => $offer->title,
+            'origin' => 'affiliate',
+            'code' => $this->uniqueCode(),
+        ]);
+
+        $this->createDeliveries($company, $post, $targets);
+        $offer->forceFill(['last_sent_at' => now()])->saveQuietly();
+
+        return $targets->count();
+    }
+
+    /** "Divulgar agora" do cupom: entra na mesma fila (um envio por minuto) pra todos os grupos e canais da loja. */
     public function queueCoupon(Company $company, Coupon $coupon): int
     {
         $targets = $this->targets($company);
@@ -115,6 +142,11 @@ class OfferPublisher
             }
 
             return null;
+        }
+
+        // Achadinho: confere de novo na hora de enviar (pode ter vencido, sido desligado ou excluído na fila)
+        if ($delivery->post?->origin === 'affiliate') {
+            return $this->sendAffiliate($company, $session, $delivery);
         }
 
         // Post de cupom: confere de novo na hora de enviar (pode ter vencido ou esgotado na fila)
@@ -205,6 +237,83 @@ class OfferPublisher
         $lines[] = "👉 Veja e peça: {$this->productUrl($company, $product)}".($query !== '' ? "?{$query}" : '');
 
         return implode("\n", $lines);
+    }
+
+    private function sendAffiliate(Company $company, string $session, OfferDelivery $delivery): OfferDelivery
+    {
+        $offer = $delivery->post->affiliate_offer_id ? AffiliateOffer::find($delivery->post->affiliate_offer_id) : null;
+        $reason = $offer ? $offer->unavailableReason() : 'Achadinho excluído';
+        if ($reason) {
+            $delivery->update(['status' => OfferDelivery::STATUS_FAILED, 'error' => $reason]);
+
+            return $delivery;
+        }
+
+        try {
+            $caption = $this->affiliateMessage($company, $offer, $delivery->post->code, $delivery->series?->affiliate_disclosure ?? true);
+            $image = $this->imageFromPath($offer->image_path);
+
+            if ($image) {
+                $this->waha->sendImage($session, $delivery->target_jid, $image['bytes'], $image['mimetype'], 'oferta.'.$image['ext'], $caption);
+            } else {
+                $this->waha->sendText($session, $delivery->target_jid, $caption, true);
+            }
+
+            $delivery->update(['status' => OfferDelivery::STATUS_SENT, 'sent_at' => now(), 'error' => null]);
+        } catch (Throwable $e) {
+            Log::warning("Achadinhos: envio {$delivery->id} falhou (empresa {$company->id}): {$e->getMessage()}");
+            $delivery->update(['status' => OfferDelivery::STATUS_FAILED, 'error' => Str::limit($e->getMessage(), 250)]);
+        }
+
+        return $delivery;
+    }
+
+    /**
+     * Texto do achadinho: nome, preço ("de/por" quando há o preço antigo) e onde comprar, cupom da loja de
+     * origem, o texto da oferta e o link — o rastreado (…/r/CODIGO: conta o clique e leva ao link de
+     * afiliado) quando há código; sem código (prévia), o próprio link de afiliado.
+     */
+    public function affiliateMessage(Company $company, AffiliateOffer $offer, ?string $code = null, bool $disclosure = true): string
+    {
+        $money = fn (float $v) => 'R$ '.number_format($v, 2, ',', '.');
+        $where = $offer->whereToBuy();
+        $price = $offer->price !== null ? (float) $offer->price : null;
+        $original = $offer->original_price !== null ? (float) $offer->original_price : null;
+
+        $lines = ["🔥 *{$offer->title}*"];
+        if ($price !== null && $original !== null && $original > $price) {
+            $lines[] = "De ~{$money($original)}~ por *{$money($price)}*".($where ? " {$where}" : '');
+        } elseif ($price !== null) {
+            $lines[] = "*{$money($price)}*".($where ? " {$where}" : '');
+        } elseif ($where) {
+            $lines[] = '🛒 '.Str::ucfirst($where);
+        }
+
+        if ($offer->store_coupon) {
+            $lines[] = "🎟️ Cupom: *{$offer->store_coupon}*";
+        }
+
+        $text = trim((string) $offer->offer_text);
+        if ($text !== '') {
+            $lines[] = '';
+            $lines[] = $text;
+        }
+
+        $lines[] = '';
+        $lines[] = '👉 '.($code ? $this->affiliateLink($company, $code) : $offer->url);
+
+        if ($disclosure) {
+            $lines[] = '';
+            $lines[] = '_Link de afiliado. Preço e estoque podem mudar._';
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /** Link curto rastreado do achadinho, no domínio das ofertas (ou do catálogo, ou do app). */
+    public function affiliateLink(Company $company, string $code): string
+    {
+        return $company->offersOrigin().'/r/'.$code;
     }
 
     /**
@@ -320,7 +429,11 @@ class OfferPublisher
     /** Primeira foto do produto (do disco do sistema). Sem foto, a oferta vai com a prévia do link. */
     private function imageBytes(Product $product): ?array
     {
-        $path = $product->images->sortBy('position')->first()?->path ?? $product->image_path;
+        return $this->imageFromPath($product->images->sortBy('position')->first()?->path ?? $product->image_path);
+    }
+
+    private function imageFromPath(?string $path): ?array
+    {
         if (! $path || ! Storage::disk('public')->exists($path)) {
             return null;
         }

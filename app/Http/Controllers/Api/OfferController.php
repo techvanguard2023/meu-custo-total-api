@@ -32,7 +32,11 @@ class OfferController extends Controller
         $this->requirePro($request, 'Grupos de ofertas');
         $company = $request->user()->company;
 
-        $posts = OfferPost::where('company_id', $company->id)->with('deliveries')->latest('id')->limit(20)->get();
+        // Últimas 20 da loja e 20 dos achadinhos (cada aba da tela mostra as suas)
+        $recent = fn (bool $affiliate) => OfferPost::where('company_id', $company->id)
+            ->where('origin', $affiliate ? '=' : '!=', 'affiliate')
+            ->with('deliveries')->latest('id')->limit(20)->get();
+        $posts = $recent(false)->concat($recent(true))->sortByDesc('id')->values();
         $numbers = $metrics->forPosts($company, $posts);
 
         return response()->json([
@@ -73,6 +77,8 @@ class OfferController extends Controller
 
         $data = $request->validate([
             'kind' => ['required', Rule::in([OfferSeries::KIND_GROUP, OfferSeries::KIND_CHANNEL])],
+            // Produtos da loja ou achadinhos (links de afiliado) — uma série recebe só o seu tipo
+            'purpose' => ['sometimes', Rule::in([OfferSeries::PURPOSE_STORE, OfferSeries::PURPOSE_AFFILIATE])],
             'name' => ['required', 'string', 'min:3', 'max:60'],
             'description' => ['nullable', 'string', 'max:500'],
             'capacity' => ['nullable', 'integer', 'min:50', 'max:1000'],
@@ -106,10 +112,15 @@ class OfferController extends Controller
             'image_all_groups' => ['sometimes', 'boolean'],
             // Cupom exclusivo da série (vai em cada oferta); null tira
             'coupon_id' => ['sometimes', 'nullable', 'integer', Rule::exists('coupons', 'id')->where('company_id', $series->company_id)],
+            // Achadinhos: linha "Link de afiliado" no fim de cada oferta
+            'affiliate_disclosure' => ['sometimes', 'boolean'],
         ], [
             'slug.regex' => 'Use só letras minúsculas, números e hífens (ex: grupo-ofertas).',
             'slug.unique' => 'Esse endereço já está em uso. Escolha outro.',
         ]);
+
+        // Cupom da loja só faz sentido nos grupos da loja (o achadinho leva o cupom da loja de origem)
+        abort_if($series->isAffiliate() && ! empty($data['coupon_id']), 422, 'Grupo de achadinhos não usa cupom da loja.');
 
         $renamed = null;
         if (isset($data['name']) && trim($data['name']) !== $series->name) {
@@ -376,6 +387,8 @@ class OfferController extends Controller
         return [
             'id' => $series->id,
             'kind' => $series->kind,
+            'purpose' => $series->purpose,
+            'affiliate_disclosure' => $series->affiliate_disclosure,
             'name' => $series->name,
             'description' => $series->description,
             'image_url' => $series->image_path ? Storage::disk('public')->url($series->image_path) : null,

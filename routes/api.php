@@ -50,6 +50,7 @@ use App\Http\Controllers\Admin\OverviewController as AdminOverviewController;
 use App\Http\Controllers\Admin\UserController as AdminUserController;
 use App\Http\Controllers\Admin\SupportController as AdminSupportController;
 use App\Http\Controllers\Api\SupportTicketController;
+use App\Http\Controllers\Api\AffiliateOfferController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -102,6 +103,8 @@ Route::prefix('v1')->group(function () {
     Route::get('/public/offers/{slug}', [OfferController::class, 'publicShow'])->middleware('throttle:60,1');
     // Catálogo aberto pelo link de uma oferta (?o=CODIGO): conta o clique
     Route::post('/public/offer-clicks/{code}', [OfferController::class, 'publicClick'])->middleware('throttle:60,1');
+    // Link rastreado do achadinho (…/r/CODIGO): conta o clique e devolve o link de afiliado
+    Route::get('/public/r/{code}', [AffiliateOfferController::class, 'publicRedirect'])->middleware('throttle:60,1');
     // Cupom no carrinho do catálogo (limite baixo: ninguém fica chutando códigos)
     Route::post('/public/catalog/{token}/coupon', [CouponController::class, 'publicCheck'])->middleware('throttle:30,1');
 
@@ -329,6 +332,14 @@ Route::prefix('v1')->group(function () {
             Route::delete('/offers/{series}', [OfferController::class, 'destroy']);
             Route::post('/offers/{series}/check', [OfferController::class, 'check'])->middleware('throttle:10,1');
             Route::patch('/products/{product}/offers', [OfferController::class, 'toggleProduct']);
+            // Achadinhos (links de afiliado de outras lojas). Editar é POST por causa da foto (multipart).
+            Route::get('/affiliate-offers', [AffiliateOfferController::class, 'index']);
+            Route::post('/affiliate-offers/read-link', [AffiliateOfferController::class, 'readLink'])->middleware('throttle:20,1');
+            Route::post('/affiliate-offers/preview', [AffiliateOfferController::class, 'previewMessage']);
+            Route::post('/affiliate-offers', [AffiliateOfferController::class, 'store'])->middleware('throttle:30,1');
+            Route::post('/affiliate-offers/{offer}', [AffiliateOfferController::class, 'update'])->middleware('throttle:60,1');
+            Route::delete('/affiliate-offers/{offer}', [AffiliateOfferController::class, 'destroy']);
+            Route::post('/affiliate-offers/{offer}/send', [AffiliateOfferController::class, 'send'])->middleware('throttle:30,1');
 
             // Cupons de desconto (Pro, só o dono cadastra; a equipe só aplica na venda)
             Route::get('/coupons/automations/reactivation', [CouponAutomationController::class, 'show']);
