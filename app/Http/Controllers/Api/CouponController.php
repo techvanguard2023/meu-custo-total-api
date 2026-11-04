@@ -36,7 +36,8 @@ class CouponController extends Controller
             ->with('offerSeries:id,coupon_id,name')
             ->latest()
             ->get()
-            ->map(fn (Coupon $c) => $this->payload($c, $company));
+            // A loja já está carregada: sem isso, cada cupom buscava a mesma loja de novo (validade usa o fuso dela)
+            ->map(fn (Coupon $c) => $this->payload($c->setRelation('company', $company), $company));
     }
 
     /** Como o cupom vai sair nos grupos/canais e pra quantos vai — a tela mostra antes de confirmar. */

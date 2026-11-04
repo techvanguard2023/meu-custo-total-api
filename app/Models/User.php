@@ -86,7 +86,7 @@ class User extends Authenticatable
     /** Conta da equipe da plataforma (PLATFORM_ADMIN_EMAILS) — não é o dono da empresa. */
     public function isPlatformAdmin(): bool
     {
-        return in_array(strtolower($this->email), config('services.platform.admin_emails', []), true);
+        return in_array(strtolower((string) $this->email), config('services.platform.admin_emails', []), true);
     }
 
     protected function getIsPlatformAdminAttribute(): bool
