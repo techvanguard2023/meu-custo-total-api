@@ -33,6 +33,14 @@ Schedule::command('offers:schedule')->everyMinute()->withoutOverlapping(5);
 Schedule::command('offers:send')->everyMinute()->withoutOverlapping(5);
 Schedule::command('offers:check-groups')->everyFifteenMinutes()->withoutOverlapping(14);
 
+// Sessões de login sem uso há 60 dias e tokens vencidos (ex: "Entrar como") são apagados
+Schedule::command('tokens:prune')->dailyAt('03:45');
+
+// Área admin: cortesias vencidas voltam pro plano da assinatura
+Schedule::command('admin:expire-comps')->dailyAt('03:15');
+// Financeiro da área admin: cobranças da Stripe, tarifas, custo da OpenAI e cotação do dólar
+Schedule::command('admin:sync-finance')->dailyAt('04:30')->withoutOverlapping(30);
+
 // Cupom de reativação (Pro): gera os do dia às 8h e envia aos poucos (1 por loja por minuto, das 9h às 20h)
 Schedule::command('coupons:reactivation')->dailyAt('08:00')->timezone('America/Sao_Paulo')->withoutOverlapping(30);
 Schedule::command('coupons:send-automated')->everyMinute()->withoutOverlapping(5);

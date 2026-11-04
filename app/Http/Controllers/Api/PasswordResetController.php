@@ -44,8 +44,9 @@ class PasswordResetController extends Controller
             $request->only('email', 'password', 'password_confirmation', 'token'),
             function ($user, string $password) {
                 $user->update(['password' => Hash::make($password)]);
-                // Invalida sessões de API antigas por segurança
-                $user->tokens()->delete();
+                // Derruba as sessões de login (e o "Entrar como" da área admin) — o token de integração do bot
+                // fica: apagá-lo parava o bot do WhatsApp sem ninguém saber
+                $user->tokens()->where(fn ($q) => $q->where('name', 'api')->orWhere('name', 'like', 'impersonation:%'))->delete();
             }
         );
 

@@ -16,6 +16,14 @@ class EnsureAccountActive
     {
         $company = $request->user()?->company;
 
+        // Loja bloqueada pela plataforma (área admin): o painel e o bot param até desbloquear
+        if ($company?->isBlocked()) {
+            return response()->json([
+                'message' => 'O acesso desta conta está suspenso. Fale com o suporte do Meu Custo Total.',
+                'code' => 'account_blocked',
+            ], 423);
+        }
+
         if ($company?->isPendingDeletion()) {
             return response()->json([
                 'message' => 'Esta conta está com a exclusão agendada. Desfaça a exclusão para voltar a usar o sistema.',

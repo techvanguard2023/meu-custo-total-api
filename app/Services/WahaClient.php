@@ -30,6 +30,14 @@ class WahaClient
             ->timeout(15);
     }
 
+    /** Todas as sessões da WAHA (nome => situação) — saúde do sistema na área admin. */
+    public function listSessions(): array
+    {
+        return collect($this->http()->timeout(20)->get('/sessions', ['all' => 'true'])->throw()->json() ?? [])
+            ->mapWithKeys(fn ($s) => [(string) ($s['name'] ?? '') => (string) ($s['status'] ?? '?')])
+            ->all();
+    }
+
     /** null quando a sessão nunca foi criada (ou foi deletada). */
     public function getSession(string $name): ?array
     {

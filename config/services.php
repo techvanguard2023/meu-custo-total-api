@@ -54,6 +54,12 @@ return [
         'webhook_secret' => env('N8N_WEBHOOK_SECRET'),
     ],
 
+    // Custos da OpenAI na área admin (Financeiro): chave de ADMINISTRADOR da organização (sk-admin-...), só leitura
+    // de custos — não é a chave usada pelo bot/IA. Sem ela, o custo da OpenAI fica de fora do lucro.
+    'openai' => [
+        'admin_key' => env('OPENAI_ADMIN_KEY'),
+    ],
+
     // Contas da plataforma (separadas por vírgula) que veem as configurações técnicas: webhook, tokens, endpoints
     'platform' => [
         'admin_emails' => array_values(array_filter(array_map(

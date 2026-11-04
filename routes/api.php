@@ -38,6 +38,16 @@ use App\Http\Controllers\Api\DisplayController;
 use App\Http\Controllers\Api\SettingsController;
 use App\Http\Middleware\EnforceTeamAccess;
 use App\Http\Middleware\EnsureAccountActive;
+use App\Http\Middleware\EnsurePlatformAdmin;
+use App\Http\Middleware\TrackLastSeen;
+use App\Http\Middleware\LogImpersonation;
+use App\Http\Middleware\RestrictIntegrationTokens;
+use App\Http\Controllers\Admin\AnnouncementController as AdminAnnouncementController;
+use App\Http\Controllers\Admin\SystemController as AdminSystemController;
+use App\Http\Controllers\Admin\CompanyController as AdminCompanyController;
+use App\Http\Controllers\Admin\FinanceController as AdminFinanceController;
+use App\Http\Controllers\Admin\OverviewController as AdminOverviewController;
+use App\Http\Controllers\Admin\UserController as AdminUserController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -46,10 +56,11 @@ Route::prefix('v1')->group(function () {
         return response()->json(['status' => 'API V1 Meu Custo Total is alive!'], 200);
     });
 
-    Route::post('/register', [AuthController::class, 'register']);
-    Route::post('/login', [AuthController::class, 'login']);
-    Route::post('/forgot-password', [PasswordResetController::class, 'forgot']);
-    Route::post('/reset-password', [PasswordResetController::class, 'reset']);
+    // Limites em AppServiceProvider (força bruta e cadastro em massa)
+    Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:register');
+    Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:login');
+    Route::post('/forgot-password', [PasswordResetController::class, 'forgot'])->middleware('throttle:password-forgot');
+    Route::post('/reset-password', [PasswordResetController::class, 'reset'])->middleware('throttle:password-reset');
 
     // Convite da equipe: a pessoa convidada confere o convite e cria a senha
     Route::get('/invitation', [InvitationController::class, 'show'])->middleware('throttle:30,1');
@@ -98,9 +109,37 @@ Route::prefix('v1')->group(function () {
         ->middleware('throttle:10,1');
 
     // EnforceTeamAccess: o que cada perfil da equipe acessa e vê (App\Services\TeamAccess)
-    Route::middleware(['auth:sanctum', EnforceTeamAccess::class])->group(function () {
+    Route::middleware(['auth:sanctum', RestrictIntegrationTokens::class, EnforceTeamAccess::class, TrackLastSeen::class, LogImpersonation::class])->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::get('/me', [AuthController::class, 'me']);
+        // Sair do "Entrar como" (área admin) e comunicados da plataforma (faixa no app)
+        Route::post('/impersonation/stop', [AuthController::class, 'stopImpersonation']);
+        Route::get('/announcements', [AdminAnnouncementController::class, 'active']);
+
+        // Área admin da plataforma (só PLATFORM_ADMIN_EMAILS; para os outros, 404). Toda ação vai pra auditoria.
+        Route::prefix('admin')->middleware(EnsurePlatformAdmin::class)->group(function () {
+            Route::get('/overview', AdminOverviewController::class);
+            Route::get('/companies', [AdminCompanyController::class, 'index']);
+            Route::get('/companies/{company}', [AdminCompanyController::class, 'show']);
+            Route::post('/companies/{company}/comp', [AdminCompanyController::class, 'setComp']);
+            Route::delete('/companies/{company}/comp', [AdminCompanyController::class, 'removeComp']);
+            Route::post('/companies/{company}/block', [AdminCompanyController::class, 'block']);
+            Route::delete('/companies/{company}/block', [AdminCompanyController::class, 'unblock']);
+            Route::put('/companies/{company}/notes', [AdminCompanyController::class, 'notes']);
+            Route::post('/companies/{company}/impersonate', [AdminCompanyController::class, 'impersonate'])->middleware('throttle:10,1');
+            Route::get('/announcements', [AdminAnnouncementController::class, 'index']);
+            Route::post('/announcements', [AdminAnnouncementController::class, 'store']);
+            Route::put('/announcements/{announcement}', [AdminAnnouncementController::class, 'update']);
+            Route::delete('/announcements/{announcement}', [AdminAnnouncementController::class, 'destroy']);
+            Route::get('/system', AdminSystemController::class);
+            Route::get('/finance', [AdminFinanceController::class, 'index']);
+            Route::post('/finance/sync', [AdminFinanceController::class, 'sync'])->middleware('throttle:3,1');
+            Route::post('/finance/costs', [AdminFinanceController::class, 'storeCost']);
+            Route::put('/finance/costs/{cost}', [AdminFinanceController::class, 'updateCost']);
+            Route::delete('/finance/costs/{cost}', [AdminFinanceController::class, 'destroyCost']);
+            Route::get('/users', [AdminUserController::class, 'index']);
+            Route::post('/users/{user}/password-link', [AdminUserController::class, 'passwordLink'])->middleware('throttle:20,1');
+        });
 
         // LGPD — liberadas mesmo com a exclusão da conta agendada (baixar os dados, desfazer a exclusão)
         Route::post('/account/accept-terms', [AccountController::class, 'acceptTerms']);

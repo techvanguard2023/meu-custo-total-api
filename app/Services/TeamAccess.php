@@ -28,6 +28,10 @@ class TeamAccess
         // Status do WhatsApp: as telas decidem se o aviso ao cliente sai automático (o QR fica de fora)
         ['GET', 'whatsapp', self::ALL],
 
+        // Comunicados da plataforma (faixa no app) e sair do "Entrar como": todo mundo
+        ['GET', 'announcements', self::ALL],
+        ['POST', 'impersonation/stop', self::ALL],
+
         // Linha de produção (vendas também acompanha e move os pedidos)
         ['GET', 'quotes', self::ALL],
         ['GET', 'quotes/{quote}', self::ALL],

@@ -323,6 +323,8 @@ class QuoteController extends Controller
             // Cupom de desconto ("Cupom: CODIGO" na mensagem do carrinho, ou digitado na conversa). Se não
             // valer, o pedido sai sem ele e a resposta traz o motivo em `coupon_rejected`.
             'coupon_code' => ['sometimes', 'nullable', 'string', 'max:30'],
+            // Observação do cliente: nomes pra personalizar, cor de embalagem, recado... (vai nas observações do pedido)
+            'notes' => ['sometimes', 'nullable', 'string', 'max:1000'],
             // Código do expositor de onde o cliente veio (QR da placa: "Expositor CODIGO" na mensagem)
             'origin_display_code' => ['sometimes', 'nullable', 'string', 'max:60'],
         ]);
@@ -362,6 +364,7 @@ class QuoteController extends Controller
             'external_reference' => $data['external_reference'] ?? null,
             'sales_channel_id' => $data['sales_channel_id'] ?? null,
             'origin_display_id' => $originDisplay?->id,
+            'notes' => trim((string) ($data['notes'] ?? '')) ?: null,
         ];
 
         // Cashback vai todo na primeira parte do pedido (a pronta, quando houver) — o teto de X% vale nela
@@ -1021,7 +1024,17 @@ class QuoteController extends Controller
             $variationId = $line['product_variation_id'] ?? null;
             $label = trim((string) ($line['variation_label'] ?? ''));
 
-            if ($label !== '' && $product->has_variations) {
+            // Produto sem variações não tem o que escolher: variação mandada por engano (o bot às vezes inventa
+            // uma, ex: "Personalizável") é ignorada em vez de recusar o pedido inteiro
+            if (! $product->has_variations) {
+                if ($variationId || $label !== '') {
+                    \Illuminate\Support\Facades\Log::info("Pedido: variação ignorada em \"{$product->name}\" (produto sem variações): ".($label ?: "id {$variationId}"));
+                }
+
+                return ['product' => $product, 'variation' => null, 'quantity' => (int) $line['quantity']];
+            }
+
+            if ($label !== '') {
                 // Compara sem acento e sem maiúscula: "Lilás" = "lilas" = "LILAS".
                 $normalize = fn (string $v) => mb_strtolower(trim(Str::ascii($v)));
                 $variation = $product->variations->first(fn ($v) => $normalize($v->display_name) === $normalize($label));
@@ -1033,7 +1046,7 @@ class QuoteController extends Controller
             } elseif ($variationId) {
                 $variation = $product->variations->firstWhere('id', (int) $variationId);
                 abort_unless($variation, 422, "Variação inválida para o produto \"{$product->name}\".");
-            } elseif ($product->has_variations) {
+            } else {
                 // Sem isso a venda baixaria estoque do produto (que não é usado quando
                 // há variações), deixando o estoque das variações intacto e errado.
                 abort(422, "Escolha uma variação para o produto \"{$product->name}\".");

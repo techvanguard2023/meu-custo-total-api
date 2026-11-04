@@ -37,8 +37,7 @@ class SyncPlanFromStripe
             return;
         }
 
-        $company->update([
-            'plan' => Company::planForSubscription($company->subscription('default')),
-        ]);
+        // A cortesia dada pela área admin vale por cima da assinatura (o maior dos dois)
+        $company->update(['plan' => $company->planFromBilling()]);
     }
 }

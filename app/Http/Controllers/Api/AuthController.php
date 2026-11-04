@@ -95,6 +95,30 @@ class AuthController extends Controller
 
     public function me(Request $request)
     {
-        return $request->user()->load('company');
+        $user = $request->user()->load('company');
+
+        // "Entrar como" (área admin): o app mostra a faixa "Você está acessando como…" e o botão de sair
+        $adminId = \App\Services\AdminAudit::impersonatorId($request->user()->currentAccessToken());
+        if ($adminId) {
+            $user->setAttribute('impersonated_by', [
+                'email' => \App\Models\User::whereKey($adminId)->value('email'),
+                'expires_at' => $request->user()->currentAccessToken()->expires_at?->toIso8601String(),
+            ]);
+        }
+
+        return $user;
+    }
+
+    /** Sai do "Entrar como": apaga o token da loja (o app volta pro token do admin, guardado no navegador). */
+    public function stopImpersonation(Request $request)
+    {
+        $token = $request->user()->currentAccessToken();
+        $adminId = \App\Services\AdminAudit::impersonatorId($token);
+        abort_unless($adminId, 422, 'Esta sessão não é um acesso pela área admin.');
+
+        \App\Services\AdminAudit::logAs($adminId, (string) \App\Models\User::whereKey($adminId)->value('email'), 'impersonate.stop', $request->user()->company_id, $request->user()->id, [], $request->ip());
+        $token->delete();
+
+        return response()->noContent();
     }
 }

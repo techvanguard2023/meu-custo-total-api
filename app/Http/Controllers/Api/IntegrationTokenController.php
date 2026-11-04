@@ -24,6 +24,7 @@ class IntegrationTokenController extends Controller
         return PersonalAccessToken::whereIn('tokenable_id', $userIds)
             ->where('tokenable_type', User::class)
             ->where('name', '!=', 'api')
+            ->where('name', 'not like', 'impersonation:%')
             ->latest()
             ->get(['id', 'name', 'last_used_at', 'created_at']);
     }
@@ -31,8 +32,9 @@ class IntegrationTokenController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
-        ]);
+            // "api" e "impersonation:*" são nomes do sistema (login e "Entrar como" da área admin)
+            'name' => ['required', 'string', 'max:255', 'not_in:api', 'not_regex:/^impersonation:/i'],
+        ], ['name.not_in' => 'Escolha outro nome para o token.', 'name.not_regex' => 'Escolha outro nome para o token.']);
 
         $token = $request->user()->createToken($data['name']);
 
@@ -49,7 +51,8 @@ class IntegrationTokenController extends Controller
         $userIds = $request->user()->company->users()->pluck('id');
 
         abort_unless(
-            $integrationToken->tokenable_type === User::class && $userIds->contains($integrationToken->tokenable_id),
+            $integrationToken->tokenable_type === User::class && $userIds->contains($integrationToken->tokenable_id)
+                && ! str_starts_with($integrationToken->name, 'impersonation:'),
             403
         );
 

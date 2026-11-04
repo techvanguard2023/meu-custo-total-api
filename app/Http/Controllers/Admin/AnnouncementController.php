@@ -1,0 +1,72 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Services\AdminAudit;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
+
+/** Comunicados da plataforma: faixa dentro do app (todas as lojas ou só um plano), com início e fim. */
+class AnnouncementController extends Controller
+{
+    public function index()
+    {
+        return DB::table('platform_announcements')->latest('id')->get();
+    }
+
+    public function store(Request $request)
+    {
+        $id = DB::table('platform_announcements')->insertGetId($this->validated($request) + ['created_at' => now(), 'updated_at' => now()]);
+        AdminAudit::log($request, 'announcement.create', null, null, ['id' => $id, 'title' => $request->input('title')]);
+
+        return response()->json(DB::table('platform_announcements')->find($id), 201);
+    }
+
+    public function update(Request $request, int $announcement)
+    {
+        abort_unless(DB::table('platform_announcements')->where('id', $announcement)->exists(), 404);
+        DB::table('platform_announcements')->where('id', $announcement)->update($this->validated($request) + ['updated_at' => now()]);
+        AdminAudit::log($request, 'announcement.update', null, null, ['id' => $announcement, 'title' => $request->input('title')]);
+
+        return response()->json(DB::table('platform_announcements')->find($announcement));
+    }
+
+    public function destroy(Request $request, int $announcement)
+    {
+        DB::table('platform_announcements')->where('id', $announcement)->delete();
+        AdminAudit::log($request, 'announcement.delete', null, null, ['id' => $announcement]);
+
+        return response()->noContent();
+    }
+
+    /** Pro app (qualquer pessoa logada): os comunicados valendo agora pro plano da loja. */
+    public function active(Request $request)
+    {
+        $plan = $request->user()->company?->plan ?? 'free';
+
+        return DB::table('platform_announcements')
+            ->where('active', true)
+            ->where(fn ($q) => $q->whereNull('starts_at')->orWhere('starts_at', '<=', now()))
+            ->where(fn ($q) => $q->whereNull('ends_at')->orWhere('ends_at', '>=', now()))
+            ->whereIn('audience', ['all', $plan])
+            ->latest('id')
+            ->get(['id', 'title', 'message', 'level', 'link_url', 'link_label']);
+    }
+
+    private function validated(Request $request): array
+    {
+        return $request->validate([
+            'title' => ['required', 'string', 'max:120'],
+            'message' => ['nullable', 'string', 'max:1000'],
+            'level' => ['required', Rule::in(['info', 'warning', 'success'])],
+            'audience' => ['required', Rule::in(['all', 'free', 'essential', 'pro'])],
+            'link_url' => ['nullable', 'url', 'max:500'],
+            'link_label' => ['nullable', 'string', 'max:40'],
+            'starts_at' => ['nullable', 'date'],
+            'ends_at' => ['nullable', 'date', 'after_or_equal:starts_at'],
+            'active' => ['required', 'boolean'],
+        ], ['ends_at.after_or_equal' => 'O fim precisa ser depois do início.']);
+    }
+}

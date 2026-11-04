@@ -65,10 +65,22 @@ class Company extends Model
         'partner_domain_verified_at' => 'datetime',
         'offers_domain_verified_at' => 'datetime',
         'deletion_scheduled_for' => 'datetime',
+        'blocked_at' => 'datetime',
+        'comp_until' => 'date:Y-m-d',
         'deletion_paused_subscription' => 'boolean',
     ];
 
     protected $appends = ['logo_url'];
+
+    /**
+     * Fora do JSON que vai pro navegador (/me, login...): anotações internas da plataforma e dados técnicos
+     * (webhook, token antigo do catálogo, Stripe). As telas que precisam deles têm rota própria.
+     */
+    protected $hidden = [
+        'admin_notes', 'comp_note',
+        'whatsapp_webhook_url', 'whatsapp_webhook_events', 'catalog_token',
+        'stripe_id', 'pm_type', 'pm_last_four', 'trial_ends_at', 'deletion_paused_subscription',
+    ];
 
     /** Quantas pessoas (contando o dono) o plano comporta. */
     public const USER_LIMITS = [
@@ -88,10 +100,41 @@ class Company extends Model
         return $this->deletion_scheduled_for !== null;
     }
 
-    /** Só lojas ativas — catálogo, área do parceiro, QR e "Meus pedidos" somem durante o prazo de exclusão. */
+    /**
+     * Só lojas ativas — catálogo, área do parceiro, QR, "Meus pedidos" e envios automáticos somem durante o
+     * prazo de exclusão e enquanto a loja estiver bloqueada pela plataforma.
+     */
     public function scopeActive($query)
     {
-        return $query->whereNull('deletion_scheduled_for');
+        return $query->whereNull('deletion_scheduled_for')->whereNull('blocked_at');
+    }
+
+    public function isBlocked(): bool
+    {
+        return $this->blocked_at !== null;
+    }
+
+    /** Plano de cortesia valendo hoje (sem data = sem prazo). */
+    public function activeCompPlan(): ?string
+    {
+        if (! $this->comp_plan || ($this->comp_until && $this->comp_until->lt(now()->startOfDay()))) {
+            return null;
+        }
+
+        return $this->comp_plan;
+    }
+
+    /**
+     * Plano que a loja deve ter: o da assinatura Stripe ou o de cortesia, o maior dos dois. Usado pelo
+     * webhook da Stripe e pelo plan:sync — assim a sincronização nunca desfaz uma cortesia.
+     */
+    public function planFromBilling(): string
+    {
+        $rank = [self::PLAN_FREE => 0, self::PLAN_ESSENTIAL => 1, self::PLAN_PRO => 2];
+        $subscription = self::planForSubscription($this->subscription('default'));
+        $comp = $this->activeCompPlan();
+
+        return $comp && $rank[$comp] > $rank[$subscription] ? $comp : $subscription;
     }
 
     protected function logoUrl(): Attribute

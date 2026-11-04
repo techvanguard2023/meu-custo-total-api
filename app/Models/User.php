@@ -121,6 +121,7 @@ class User extends Authenticatable
             'terms_accepted_at' => 'datetime',
             'invited_at' => 'datetime',
             'invitation_accepted_at' => 'datetime',
+            'last_seen_at' => 'datetime',
             'password' => 'hashed',
         ];
     }

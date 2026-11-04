@@ -36,7 +36,7 @@ class SyncPlansFromStripe extends Command
 
         foreach ($companies as $company) {
             $wasPlan = $company->plan;
-            $correctPlan = Company::planForSubscription($company->subscription('default'));
+            $correctPlan = $company->planFromBilling();
 
             if ($wasPlan === $correctPlan) {
                 $this->line("Empresa #{$company->id} ({$company->name}): já em \"{$wasPlan}\" (ok)");
