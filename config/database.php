@@ -160,7 +160,11 @@ return [
             'password' => env('REDIS_PASSWORD'),
             'port' => env('REDIS_PORT', '6379'),
             'database' => env('REDIS_DB', '0'),
-            'max_retries' => env('REDIS_MAX_RETRIES', 3),
+            // Tempo curto: com o Redis fora do ar, o cache "failover" cai pro MySQL em vez de travar a requisição
+            'timeout' => env('REDIS_TIMEOUT', 1),
+            'read_timeout' => env('REDIS_READ_TIMEOUT', 2),
+            // Sem nova tentativa: quem trata a falha é o failover (cai pro MySQL na hora)
+            'max_retries' => env('REDIS_MAX_RETRIES', 0),
             'backoff_algorithm' => env('REDIS_BACKOFF_ALGORITHM', 'decorrelated_jitter'),
             'backoff_base' => env('REDIS_BACKOFF_BASE', 100),
             'backoff_cap' => env('REDIS_BACKOFF_CAP', 1000),
@@ -173,7 +177,11 @@ return [
             'password' => env('REDIS_PASSWORD'),
             'port' => env('REDIS_PORT', '6379'),
             'database' => env('REDIS_CACHE_DB', '1'),
-            'max_retries' => env('REDIS_MAX_RETRIES', 3),
+            // Tempo curto: com o Redis fora do ar, o cache "failover" cai pro MySQL em vez de travar a requisição
+            'timeout' => env('REDIS_TIMEOUT', 1),
+            'read_timeout' => env('REDIS_READ_TIMEOUT', 2),
+            // Sem nova tentativa: quem trata a falha é o failover (cai pro MySQL na hora)
+            'max_retries' => env('REDIS_MAX_RETRIES', 0),
             'backoff_algorithm' => env('REDIS_BACKOFF_ALGORITHM', 'decorrelated_jitter'),
             'backoff_base' => env('REDIS_BACKOFF_BASE', 100),
             'backoff_cap' => env('REDIS_BACKOFF_CAP', 1000),

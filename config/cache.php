@@ -97,12 +97,11 @@ return [
             'driver' => 'octane',
         ],
 
+        // CACHE_STORE=failover em produção: Redis primeiro; se ele cair, segue no MySQL (o app não para).
+        // Vale também pros limites de acesso e pras travas do agendador, que usam o cache padrão.
         'failover' => [
             'driver' => 'failover',
-            'stores' => [
-                'database',
-                'array',
-            ],
+            'stores' => array_values(array_filter(array_map('trim', explode(',', (string) env('CACHE_FAILOVER_STORES', 'redis,database'))))),
         ],
 
     ],

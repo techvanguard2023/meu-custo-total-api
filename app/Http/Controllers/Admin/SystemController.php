@@ -94,10 +94,30 @@ class SystemController extends Controller
                 'php' => PHP_VERSION,
                 'laravel' => app()->version(),
                 'cache' => config('cache.default'),
+                // Cache no Redis com failover: se o Redis não responde, o app segue no MySQL (mais lento)
+                'redis' => $this->redisStatus(),
                 'queue' => config('queue.default'),
                 'timezone' => config('app.timezone'),
             ],
             'finance_synced_at' => Cache::get('platform_finance_synced_at'),
         ]);
+    }
+
+    /** null = Redis não está em uso; senão se ele responde agora. */
+    private function redisStatus(): ?array
+    {
+        $stores = config('cache.default') === 'failover' ? (array) config('cache.stores.failover.stores') : [config('cache.default')];
+        if (! in_array('redis', $stores, true)) {
+            return null;
+        }
+
+        try {
+            $started = microtime(true);
+            \Illuminate\Support\Facades\Redis::connection(config('cache.stores.redis.connection', 'cache'))->ping();
+
+            return ['ok' => true, 'ms' => (int) round((microtime(true) - $started) * 1000), 'error' => null];
+        } catch (\Throwable $e) {
+            return ['ok' => false, 'ms' => null, 'error' => \Illuminate\Support\Str::limit($e->getMessage(), 150)];
+        }
     }
 }
