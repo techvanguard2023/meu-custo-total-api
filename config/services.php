@@ -74,6 +74,11 @@ return [
         'support_waha_session' => env('PLATFORM_WAHA_SESSION'),
     ],
 
+    // API de afiliados da Shopee (Achadinhos): endereço oficial do Brasil; trocar só pra testes
+    'shopee_affiliate' => [
+        'endpoint' => env('SHOPEE_AFFILIATE_ENDPOINT'),
+    ],
+
     // Domínio próprio do catálogo (Pro): cadastra o domínio do lojista no projeto do frontend na Vercel
     'vercel' => [
         'token' => env('VERCEL_API_TOKEN'),

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Http\Controllers\Controller;
+use App\Models\AffiliateAccount;
 use App\Models\AffiliateOffer;
 use App\Models\OfferPost;
 use App\Models\OfferSeries;
@@ -11,6 +12,8 @@ use App\Services\AffiliateLinkReader;
 use App\Services\OfferMetrics;
 use App\Services\OfferPublisher;
 use App\Services\OfferTextAi;
+use App\Services\ShopeeAffiliate;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -68,6 +71,7 @@ class AffiliateOfferController extends Controller
             'max_bulk' => self::MAX_BULK,
             // Grupos/canais de achadinhos ativos (sem nenhum, "Enviar agora" não tem pra onde ir)
             'targets' => $this->publisher->targets($company, OfferSeries::PURPOSE_AFFILIATE)->pluck('label')->values(),
+            'shopee_connected' => (bool) AffiliateAccount::shopeeFor($company->id)?->verified_at,
         ]);
     }
 
@@ -82,11 +86,47 @@ class AffiliateOfferController extends Controller
         ], ['url.required' => 'Cole o link do produto.']);
 
         $read = $this->reader->read($data['url']);
+        $read = $this->enrichFromShopee($request->user()->company_id, $data['url'], $read);
 
         return response()->json([
             ...$read,
             'duplicate' => $this->duplicateOf($request->user()->company_id, [$data['url'], $read['final_url']], $data['ignore_id'] ?? null),
         ]);
+    }
+
+    /**
+     * Shopee com a conta conectada: nome, foto, preço, desconto e comissão vêm da API (a página da Shopee não
+     * mostra nada). Endereço comum da Shopee (não é link de afiliado) vira o link curto de afiliado da pessoa.
+     */
+    private function enrichFromShopee(int $companyId, string $pasted, array $read): array
+    {
+        $key = AffiliateOffer::productKey($read['final_url']) ?? AffiliateOffer::productKey($pasted);
+        $account = AffiliateAccount::shopeeFor($companyId);
+        if (! $account?->verified_at || ! preg_match('/^shopee:(\d+)-(\d+)$/', (string) $key, $m)) {
+            return $read + ['commission_rate' => null, 'affiliate_url' => null, 'api_error' => null];
+        }
+
+        $client = ShopeeAffiliate::for($account);
+        try {
+            $item = $client->item($m[1], $m[2]);
+            $host = strtolower((string) parse_url($pasted, PHP_URL_HOST));
+            // Link de afiliado já vem encurtado (s.shopee.com.br / shp.ee); o endereço normal do produto não
+            $plain = in_array($host, ['shopee.com.br', 'www.shopee.com.br'], true);
+            $affiliateUrl = $plain ? $client->shortLink($item['product_url'] ?? $read['final_url']) : null;
+        } catch (ValidationException $e) {
+            return $read + ['commission_rate' => null, 'affiliate_url' => null, 'api_error' => collect($e->errors())->flatten()->first()];
+        }
+
+        return [
+            ...$read,
+            'title' => $item['title'] ?? $read['title'],
+            'image_url' => $item['image_url'] ?? $read['image_url'],
+            'price' => $item['price'] ?? $read['price'],
+            'original_price' => $item['original_price'] ?? null,
+            'commission_rate' => $item['commission_rate'] ?? null,
+            'affiliate_url' => $affiliateUrl,
+            'api_error' => null,
+        ];
     }
 
     /** Texto do achadinho pela IA (n8n), com os dados do formulário — não salva; a pessoa revisa. */
@@ -293,6 +333,7 @@ class AffiliateOfferController extends Controller
             'source_url' => ['nullable', 'string', 'max:2000', 'regex:~^https?://~i'],
             'description' => ['nullable', 'string', 'max:2000'],
             'flash' => ['sometimes', 'boolean'],
+            'commission_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'marketplace' => ['sometimes', Rule::in(array_keys(AffiliateOffer::MARKETPLACES))],
             'title' => [$req, 'string', 'min:3', 'max:200'],
             'price' => ['nullable', 'numeric', 'min:0', 'max:9999999'],

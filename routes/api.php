@@ -51,6 +51,7 @@ use App\Http\Controllers\Admin\UserController as AdminUserController;
 use App\Http\Controllers\Admin\SupportController as AdminSupportController;
 use App\Http\Controllers\Api\SupportTicketController;
 use App\Http\Controllers\Api\AffiliateOfferController;
+use App\Http\Controllers\Api\AffiliateIntegrationController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -338,6 +339,13 @@ Route::prefix('v1')->group(function () {
             Route::post('/affiliate-offers/preview', [AffiliateOfferController::class, 'previewMessage']);
             Route::post('/affiliate-offers/ai-text', [AffiliateOfferController::class, 'aiText'])->middleware('throttle:20,1');
             Route::post('/affiliate-offers/bulk', [AffiliateOfferController::class, 'bulkStore'])->middleware('throttle:10,1');
+            // Shopee (API oficial de afiliados): conta, busca, importar e comissões
+            Route::get('/affiliate-accounts', [AffiliateIntegrationController::class, 'show']);
+            Route::put('/affiliate-accounts/shopee', [AffiliateIntegrationController::class, 'connectShopee'])->middleware('throttle:10,1');
+            Route::delete('/affiliate-accounts/shopee', [AffiliateIntegrationController::class, 'disconnectShopee']);
+            Route::get('/affiliate-offers/shopee/search', [AffiliateIntegrationController::class, 'searchShopee'])->middleware('throttle:30,1');
+            Route::post('/affiliate-offers/shopee/import', [AffiliateIntegrationController::class, 'importShopee'])->middleware('throttle:10,1');
+            Route::get('/affiliate-offers/shopee/commissions', [AffiliateIntegrationController::class, 'shopeeCommissions'])->middleware('throttle:10,1');
             Route::post('/affiliate-offers', [AffiliateOfferController::class, 'store'])->middleware('throttle:30,1');
             Route::post('/affiliate-offers/{offer}', [AffiliateOfferController::class, 'update'])->middleware('throttle:60,1');
             Route::delete('/affiliate-offers/{offer}', [AffiliateOfferController::class, 'destroy']);

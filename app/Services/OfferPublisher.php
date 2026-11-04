@@ -250,6 +250,9 @@ class OfferPublisher
             return $delivery;
         }
 
+        // Preço atual pela API da loja de origem (Shopee conectada), no máximo uma vez por hora
+        app(AffiliatePriceRefresher::class)->refresh($offer);
+
         try {
             $caption = $this->affiliateMessage($company, $offer, $delivery->post->code, $delivery->series?->affiliate_disclosure ?? true);
             $image = $this->imageFromPath($offer->image_path);

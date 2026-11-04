@@ -36,6 +36,7 @@ class AffiliateOffer extends Model
     protected $fillable = [
         'company_id', 'marketplace', 'url', 'source_url', 'product_key', 'title', 'price', 'original_price', 'store_coupon',
         'offer_text', 'description', 'image_path', 'expires_at', 'flash', 'active', 'last_sent_at',
+        'commission_rate', 'price_checked_at',
     ];
 
     protected $casts = [
@@ -44,6 +45,8 @@ class AffiliateOffer extends Model
         'expires_at' => 'datetime',
         'active' => 'boolean',
         'flash' => 'boolean',
+        'commission_rate' => 'decimal:2',
+        'price_checked_at' => 'datetime',
         'last_sent_at' => 'datetime',
     ];
 
