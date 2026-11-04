@@ -66,6 +66,12 @@ return [
             fn ($email) => strtolower(trim($email)),
             explode(',', (string) env('PLATFORM_ADMIN_EMAILS', ''))
         ))),
+        // Chamados de suporte: WhatsApp de quem atende (separados por vírgula) e a sessão da WAHA que envia o aviso
+        'support_whatsapp' => array_values(array_filter(array_map(
+            fn ($phone) => preg_replace('/\D/', '', $phone),
+            explode(',', (string) env('PLATFORM_SUPPORT_WHATSAPP', ''))
+        ))),
+        'support_waha_session' => env('PLATFORM_WAHA_SESSION'),
     ],
 
     // Domínio próprio do catálogo (Pro): cadastra o domínio do lojista no projeto do frontend na Vercel

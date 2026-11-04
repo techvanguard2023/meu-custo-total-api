@@ -48,6 +48,8 @@ use App\Http\Controllers\Admin\CompanyController as AdminCompanyController;
 use App\Http\Controllers\Admin\FinanceController as AdminFinanceController;
 use App\Http\Controllers\Admin\OverviewController as AdminOverviewController;
 use App\Http\Controllers\Admin\UserController as AdminUserController;
+use App\Http\Controllers\Admin\SupportController as AdminSupportController;
+use App\Http\Controllers\Api\SupportTicketController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -139,7 +141,20 @@ Route::prefix('v1')->group(function () {
             Route::delete('/finance/costs/{cost}', [AdminFinanceController::class, 'destroyCost']);
             Route::get('/users', [AdminUserController::class, 'index']);
             Route::post('/users/{user}/password-link', [AdminUserController::class, 'passwordLink'])->middleware('throttle:20,1');
+            Route::get('/support', [AdminSupportController::class, 'index']);
+            Route::get('/support/summary', [AdminSupportController::class, 'summary']);
+            Route::get('/support/{ticket}', [AdminSupportController::class, 'show']);
+            Route::post('/support/{ticket}/reply', [AdminSupportController::class, 'reply']);
+            Route::patch('/support/{ticket}/status', [AdminSupportController::class, 'status']);
         });
+
+        // Ajuda e suporte: fora do bloqueio da conta — loja suspensa ou com exclusão agendada também pede ajuda
+        Route::get('/support', [SupportTicketController::class, 'index']);
+        Route::get('/support/unread', [SupportTicketController::class, 'unread']);
+        Route::post('/support', [SupportTicketController::class, 'store'])->middleware('throttle:10,60');
+        Route::get('/support/{ticket}', [SupportTicketController::class, 'show']);
+        Route::post('/support/{ticket}/reply', [SupportTicketController::class, 'reply'])->middleware('throttle:30,1');
+        Route::post('/support/{ticket}/resolve', [SupportTicketController::class, 'resolve']);
 
         // LGPD — liberadas mesmo com a exclusão da conta agendada (baixar os dados, desfazer a exclusão)
         Route::post('/account/accept-terms', [AccountController::class, 'acceptTerms']);

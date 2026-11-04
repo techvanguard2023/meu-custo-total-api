@@ -32,6 +32,9 @@ class TeamAccess
         ['GET', 'announcements', self::ALL],
         ['POST', 'impersonation/stop', self::ALL],
 
+        // Ajuda e suporte: qualquer pessoa da equipe abre chamado (o controller limita aos próprios)
+        ['*', 'support*', self::ALL],
+
         // Linha de produção (vendas também acompanha e move os pedidos)
         ['GET', 'quotes', self::ALL],
         ['GET', 'quotes/{quote}', self::ALL],

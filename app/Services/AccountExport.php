@@ -73,6 +73,10 @@ class AccountExport
             'expositores_movimentacoes' => DB::table('display_stock_movements')->whereIn('display_id', $displayIds)->orderBy('id'),
             'expositores_visitas' => DB::table('display_visits')->whereIn('display_id', $displayIds)->orderBy('id'),
             'catalogo_banners' => $byCompany('catalog_banners'),
+            'chamados_de_suporte' => $byCompany('support_tickets'),
+            'chamados_de_suporte_mensagens' => DB::table('support_messages')
+                ->whereIn('support_ticket_id', DB::table('support_tickets')->where('company_id', $companyId)->select('id'))
+                ->orderBy('id'),
         ];
     }
 
