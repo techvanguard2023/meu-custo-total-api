@@ -336,6 +336,8 @@ Route::prefix('v1')->group(function () {
             Route::get('/affiliate-offers', [AffiliateOfferController::class, 'index']);
             Route::post('/affiliate-offers/read-link', [AffiliateOfferController::class, 'readLink'])->middleware('throttle:20,1');
             Route::post('/affiliate-offers/preview', [AffiliateOfferController::class, 'previewMessage']);
+            Route::post('/affiliate-offers/ai-text', [AffiliateOfferController::class, 'aiText'])->middleware('throttle:20,1');
+            Route::post('/affiliate-offers/bulk', [AffiliateOfferController::class, 'bulkStore'])->middleware('throttle:10,1');
             Route::post('/affiliate-offers', [AffiliateOfferController::class, 'store'])->middleware('throttle:30,1');
             Route::post('/affiliate-offers/{offer}', [AffiliateOfferController::class, 'update'])->middleware('throttle:60,1');
             Route::delete('/affiliate-offers/{offer}', [AffiliateOfferController::class, 'destroy']);

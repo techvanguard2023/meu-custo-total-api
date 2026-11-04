@@ -62,7 +62,8 @@ class OfferPublisher
     }
 
     /** Achadinho: entra na mesma fila (um envio por minuto), só pros grupos e canais de achadinhos. */
-    public function queueAffiliate(Company $company, AffiliateOffer $offer): int
+    /** $origin: affiliate (Enviar agora) ou affiliate_schedule (agenda dos achadinhos). */
+    public function queueAffiliate(Company $company, AffiliateOffer $offer, string $origin = 'manual'): int
     {
         $targets = $this->targets($company, OfferSeries::PURPOSE_AFFILIATE);
         if ($targets->isEmpty()) {
@@ -73,7 +74,7 @@ class OfferPublisher
             'company_id' => $company->id,
             'affiliate_offer_id' => $offer->id,
             'product_name' => $offer->title,
-            'origin' => 'affiliate',
+            'origin' => $origin === 'schedule' ? 'affiliate_schedule' : 'affiliate',
             'code' => $this->uniqueCode(),
         ]);
 
@@ -145,7 +146,7 @@ class OfferPublisher
         }
 
         // Achadinho: confere de novo na hora de enviar (pode ter vencido, sido desligado ou excluído na fila)
-        if ($delivery->post?->origin === 'affiliate') {
+        if (str_starts_with((string) $delivery->post?->origin, 'affiliate')) {
             return $this->sendAffiliate($company, $session, $delivery);
         }
 
@@ -280,7 +281,7 @@ class OfferPublisher
         $price = $offer->price !== null ? (float) $offer->price : null;
         $original = $offer->original_price !== null ? (float) $offer->original_price : null;
 
-        $lines = ["🔥 *{$offer->title}*"];
+        $lines = $offer->flash ? ['⚡ *OFERTA RELÂMPAGO*', "*{$offer->title}*"] : ["🔥 *{$offer->title}*"];
         if ($price !== null && $original !== null && $original > $price) {
             $lines[] = "De ~{$money($original)}~ por *{$money($price)}*".($where ? " {$where}" : '');
         } elseif ($price !== null) {
@@ -291,6 +292,19 @@ class OfferPublisher
 
         if ($offer->store_coupon) {
             $lines[] = "🎟️ Cupom: *{$offer->store_coupon}*";
+        }
+
+        // Validade perto do fim: "Termina hoje às 18:00" / "Termina amanhã às 23:59" (na hora da loja)
+        if ($offer->expires_at && $offer->expires_at->isFuture()) {
+            $tz = $company->timezone ?: 'America/Sao_Paulo';
+            $ends = $offer->expires_at->copy()->setTimezone($tz);
+            $today = now($tz)->startOfDay();
+            $time = $ends->format('H:i') === '23:59' ? 'o fim do dia' : 'as '.$ends->format('H:i');
+            if ($ends->isSameDay($today)) {
+                $lines[] = "⏰ Só hoje! Termina até {$time}";
+            } elseif ($ends->isSameDay($today->copy()->addDay())) {
+                $lines[] = "⏰ Termina amanhã, até {$time}";
+            }
         }
 
         $text = trim((string) $offer->offer_text);

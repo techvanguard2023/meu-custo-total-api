@@ -17,7 +17,7 @@ class OfferSchedule extends Model
         'only_in_stock' => true,
     ];
 
-    protected $fillable = ['company_id', 'enabled', 'days', 'times', 'products_per_run', 'only_in_stock', 'last_slot'];
+    protected $fillable = ['company_id', 'purpose', 'enabled', 'days', 'times', 'products_per_run', 'only_in_stock', 'last_slot'];
 
     protected $casts = [
         'enabled' => 'boolean',

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\AffiliateOffer;
 use App\Models\Company;
 use App\Models\OfferSchedule;
 use App\Models\OfferSeries;
@@ -14,6 +15,8 @@ use Throwable;
 /**
  * Envio automático das ofertas. Nos dias e horários da agenda, os N produtos marcados que estão há mais
  * tempo sem divulgar entram na fila (rodízio — o mesmo produto não se repete enquanto houver outros).
+ * Cada loja tem duas agendas independentes: a dos produtos da loja e a dos achadinhos (links de afiliado),
+ * cada uma indo só pros grupos/canais do seu tipo.
  */
 class OfferScheduler
 {
@@ -22,9 +25,21 @@ class OfferScheduler
 
     public function __construct(private OfferPublisher $publisher, private WahaClient $waha) {}
 
-    public function forCompany(Company $company): OfferSchedule
+    public function forCompany(Company $company, string $purpose = OfferSeries::PURPOSE_STORE): OfferSchedule
     {
-        return OfferSchedule::firstOrNew(['company_id' => $company->id], OfferSchedule::DEFAULTS);
+        return OfferSchedule::firstOrNew(['company_id' => $company->id, 'purpose' => $purpose], OfferSchedule::DEFAULTS);
+    }
+
+    /** Achadinhos na rodada: ligados e na validade; nunca enviados primeiro, depois os enviados há mais tempo. */
+    public function eligibleAffiliates(Company $company): Collection
+    {
+        return AffiliateOffer::where('company_id', $company->id)
+            ->where('active', true)
+            ->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()))
+            ->orderByRaw('last_sent_at IS NOT NULL')
+            ->orderBy('last_sent_at')
+            ->orderBy('id')
+            ->get();
     }
 
     /** Produtos na rodada, na ordem do rodízio (nunca divulgados primeiro, depois os mais antigos). */
@@ -84,22 +99,24 @@ class OfferScheduler
         return null;
     }
 
-    /** Roda a agenda da loja agora, se for a hora. Devolve quantos produtos entraram na fila. */
+    /** Roda as agendas da loja (produtos e achadinhos) agora, se for a hora. Devolve quantas ofertas entraram na fila. */
     public function run(Company $company, ?Carbon $now = null): int
     {
-        $schedule = OfferSchedule::where('company_id', $company->id)->where('enabled', true)->first();
-        if (! $schedule) {
-            return 0;
-        }
-
         $now ??= now($company->timezone ?: 'America/Sao_Paulo');
+
+        return OfferSchedule::where('company_id', $company->id)->where('enabled', true)->get()
+            ->sum(fn (OfferSchedule $schedule) => $this->runSchedule($company, $schedule, $now));
+    }
+
+    private function runSchedule(Company $company, OfferSchedule $schedule, Carbon $now): int
+    {
         $slot = $this->dueSlot($schedule, $now);
         if (! $slot) {
             return 0;
         }
 
-        // Agenda dos produtos da loja: só conta série da loja (achadinho tem a sua própria fila)
-        if (! OfferSeries::where('company_id', $company->id)->where('active', true)->where('purpose', OfferSeries::PURPOSE_STORE)->exists()) {
+        // Cada agenda só conta as séries do seu tipo (sem grupo de achadinhos, a agenda deles não tem pra onde ir)
+        if (! OfferSeries::where('company_id', $company->id)->where('active', true)->where('purpose', $schedule->purpose)->exists()) {
             $schedule->update(['last_slot' => $slot]);
 
             return 0;
@@ -120,6 +137,15 @@ class OfferScheduler
 
         // Marca o horário antes de enfileirar: daqui em diante ele não é tentado de novo (nada sai em dobro)
         $schedule->update(['last_slot' => $slot]);
+
+        if ($schedule->purpose === OfferSeries::PURPOSE_AFFILIATE) {
+            $offers = $this->eligibleAffiliates($company)->take($schedule->products_per_run);
+            foreach ($offers as $offer) {
+                $this->publisher->queueAffiliate($company, $offer, 'schedule');
+            }
+
+            return $offers->count();
+        }
 
         $products = $this->eligibleProducts($company, $schedule)->take($schedule->products_per_run);
         foreach ($products as $product) {

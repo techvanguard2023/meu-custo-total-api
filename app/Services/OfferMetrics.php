@@ -98,7 +98,7 @@ class OfferMetrics
     /** Resumo dos últimos N dias das ofertas da loja (enviadas, cliques, pessoas, pedidos em 48h) — sem os achadinhos. */
     public function summary(Company $company, int $days = 30): array
     {
-        $posts = OfferPost::where('company_id', $company->id)->whereNull('affiliate_offer_id')->where('origin', '!=', 'affiliate')
+        $posts = OfferPost::where('company_id', $company->id)->whereNull('affiliate_offer_id')->where('origin', 'not like', 'affiliate%')
             ->where('created_at', '>=', now()->subDays($days))->get();
         $metrics = collect($this->forPosts($company, $posts));
 

@@ -34,8 +34,8 @@ class AffiliateOffer extends Model
     ];
 
     protected $fillable = [
-        'company_id', 'marketplace', 'url', 'title', 'price', 'original_price', 'store_coupon',
-        'offer_text', 'image_path', 'expires_at', 'active', 'last_sent_at',
+        'company_id', 'marketplace', 'url', 'source_url', 'product_key', 'title', 'price', 'original_price', 'store_coupon',
+        'offer_text', 'description', 'image_path', 'expires_at', 'flash', 'active', 'last_sent_at',
     ];
 
     protected $casts = [
@@ -43,8 +43,12 @@ class AffiliateOffer extends Model
         'original_price' => 'decimal:2',
         'expires_at' => 'datetime',
         'active' => 'boolean',
+        'flash' => 'boolean',
         'last_sent_at' => 'datetime',
     ];
+
+    /** Fora da resposta da tela: são só pra achar repetido e pra IA. */
+    protected $hidden = ['product_key', 'description'];
 
     protected $appends = ['image_url', 'marketplace_label', 'expired'];
 
@@ -60,6 +64,34 @@ class AffiliateOffer extends Model
         }
 
         return 'other';
+    }
+
+    /**
+     * "Identidade" do produto, pra avisar quando ele já foi cadastrado — mesmo com outro link curto de afiliado:
+     * ASIN na Amazon, MLB no Mercado Livre, loja+item na Shopee; nas outras, o endereço sem os parâmetros.
+     */
+    public static function productKey(?string $url): ?string
+    {
+        if (! $url) {
+            return null;
+        }
+
+        $patterns = [
+            'amazon' => '~/(?:dp|gp/product|gp/aw/d)/([A-Z0-9]{10})~i',
+            'mercadolivre' => '~\b(MLB)-?(\d{6,})~i',
+            'shopee' => '~(?:-i\.|/product/)(\d+)[./](\d+)~',
+        ];
+        $marketplace = self::detectMarketplace($url);
+        if (isset($patterns[$marketplace]) && preg_match($patterns[$marketplace], $url, $m)) {
+            return $marketplace.':'.strtoupper(implode('-', array_slice($m, 1)));
+        }
+
+        $parts = parse_url($url);
+        if (empty($parts['host'])) {
+            return null;
+        }
+
+        return mb_substr(strtolower($parts['host']).rtrim($parts['path'] ?? '', '/'), 0, 191);
     }
 
     public function company(): BelongsTo

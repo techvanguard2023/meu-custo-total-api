@@ -10,6 +10,7 @@ use App\Models\OfferSeries;
 use App\Services\AffiliateLinkReader;
 use App\Services\OfferMetrics;
 use App\Services\OfferPublisher;
+use App\Services\OfferTextAi;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -27,6 +28,9 @@ class AffiliateOfferController extends Controller
     private const FEATURE = 'Achadinhos (links de afiliado)';
 
     private const MAX_OFFERS = 1000;
+
+    /** "Colar vários links": quantos de uma vez. */
+    private const MAX_BULK = 20;
 
     public function __construct(private OfferPublisher $publisher, private AffiliateLinkReader $reader) {}
 
@@ -60,6 +64,8 @@ class AffiliateOfferController extends Controller
                 'unique_clicks' => (int) ($clicks[$o->id]->people ?? 0),
             ])->values(),
             'marketplaces' => AffiliateOffer::MARKETPLACES,
+            'ai_enabled' => app(OfferTextAi::class)->isConfigured(),
+            'max_bulk' => self::MAX_BULK,
             // Grupos/canais de achadinhos ativos (sem nenhum, "Enviar agora" não tem pra onde ir)
             'targets' => $this->publisher->targets($company, OfferSeries::PURPOSE_AFFILIATE)->pluck('label')->values(),
         ]);
@@ -69,9 +75,98 @@ class AffiliateOfferController extends Controller
     public function readLink(Request $request)
     {
         $this->requirePro($request, self::FEATURE);
-        $data = $request->validate(['url' => ['required', 'string', 'max:2000']], ['url.required' => 'Cole o link do produto.']);
+        $data = $request->validate([
+            'url' => ['required', 'string', 'max:2000'],
+            // Editando: o próprio achadinho não conta como repetido
+            'ignore_id' => ['nullable', 'integer'],
+        ], ['url.required' => 'Cole o link do produto.']);
 
-        return response()->json($this->reader->read($data['url']));
+        $read = $this->reader->read($data['url']);
+
+        return response()->json([
+            ...$read,
+            'duplicate' => $this->duplicateOf($request->user()->company_id, [$data['url'], $read['final_url']], $data['ignore_id'] ?? null),
+        ]);
+    }
+
+    /** Texto do achadinho pela IA (n8n), com os dados do formulário — não salva; a pessoa revisa. */
+    public function aiText(Request $request, OfferTextAi $ai)
+    {
+        $this->requirePro($request, self::FEATURE);
+        $data = $this->validated($request, partial: true) + $request->validate(['instructions' => ['nullable', 'string', 'max:200']]);
+
+        $offer = new AffiliateOffer([
+            ...collect($data)->except(['instructions', 'image', 'image_url', 'remove_image', 'disclosure'])->all(),
+            'title' => $data['title'] ?? 'Produto',
+            'marketplace' => $data['marketplace'] ?? AffiliateOffer::detectMarketplace($data['url'] ?? ''),
+        ]);
+
+        return response()->json(['text' => $ai->generateAffiliate($request->user()->company, $offer, $data['instructions'] ?? null)]);
+    }
+
+    /**
+     * "Colar vários links": a tela lê cada link (read-link), a pessoa confere nome e preço e salva todos de uma
+     * vez. A foto de cada um é baixada aqui. Devolve quantos entraram e os avisos (foto que não veio).
+     */
+    public function bulkStore(Request $request)
+    {
+        $this->requirePro($request, self::FEATURE);
+        $company = $request->user()->company;
+
+        $data = $request->validate([
+            'items' => ['required', 'array', 'min:1', 'max:'.self::MAX_BULK],
+            'items.*.url' => ['required', 'string', 'max:2000', 'regex:~^https?://~i'],
+            'items.*.source_url' => ['nullable', 'string', 'max:2000', 'regex:~^https?://~i'],
+            'items.*.title' => ['required', 'string', 'min:3', 'max:200'],
+            'items.*.marketplace' => ['nullable', Rule::in(array_keys(AffiliateOffer::MARKETPLACES))],
+            'items.*.price' => ['nullable', 'numeric', 'min:0', 'max:9999999'],
+            'items.*.original_price' => ['nullable', 'numeric', 'min:0', 'max:9999999'],
+            'items.*.description' => ['nullable', 'string', 'max:2000'],
+            'items.*.image_url' => ['nullable', 'string', 'max:2000'],
+        ], [
+            'items.max' => 'No máximo '.self::MAX_BULK.' links de uma vez.',
+            'items.*.title.required' => 'Falta o nome de um dos produtos.',
+            'items.*.title.min' => 'Um dos nomes está curto demais (mínimo 3 letras).',
+            'items.*.url.regex' => 'Um dos links não começa com https://.',
+        ]);
+
+        $existing = AffiliateOffer::where('company_id', $company->id)->count();
+        abort_if($existing + count($data['items']) > self::MAX_OFFERS, 422, 'Passaria do limite de '.self::MAX_OFFERS.' achadinhos. Exclua os antigos antes.');
+
+        $warnings = [];
+        foreach ($data['items'] as $item) {
+            $offer = new AffiliateOffer([
+                ...collect($item)->except('image_url')->all(),
+                'company_id' => $company->id,
+                'marketplace' => $item['marketplace'] ?? AffiliateOffer::detectMarketplace($item['source_url'] ?? $item['url']),
+                'product_key' => AffiliateOffer::productKey($item['source_url'] ?? $item['url']),
+                'active' => true,
+            ]);
+            if (! empty($item['image_url'])) {
+                $offer->image_path = $this->reader->downloadImage($item['image_url'], $company->id);
+                if (! $offer->image_path) {
+                    $warnings[] = 'Sem foto: '.$offer->title;
+                }
+            }
+            $offer->save();
+        }
+
+        return response()->json(['created' => count($data['items']), 'warnings' => $warnings], 201);
+    }
+
+    /** Achadinho já cadastrado com o mesmo produto (mesmo link, ou outro link curto que leva ao mesmo produto). */
+    private function duplicateOf(int $companyId, array $urls, ?int $ignoreId = null): ?array
+    {
+        $urls = array_values(array_unique(array_filter($urls)));
+        $keys = array_values(array_unique(array_filter(array_map(fn ($u) => AffiliateOffer::productKey($u), $urls))));
+
+        $match = AffiliateOffer::where('company_id', $companyId)
+            ->when($ignoreId, fn ($q) => $q->where('id', '!=', $ignoreId))
+            ->where(fn ($q) => $q->whereIn('url', $urls)->when($keys, fn ($q) => $q->orWhereIn('product_key', $keys)))
+            ->latest('id')
+            ->first(['id', 'title', 'active', 'last_sent_at']);
+
+        return $match ? ['id' => $match->id, 'title' => $match->title, 'active' => $match->active, 'last_sent_at' => $match->last_sent_at?->toIso8601String()] : null;
     }
 
     /** Como o achadinho sai no WhatsApp, com os dados ainda não salvos (o link aparece como o de afiliado). */
@@ -97,9 +192,13 @@ class AffiliateOfferController extends Controller
         abort_if(AffiliateOffer::where('company_id', $company->id)->count() >= self::MAX_OFFERS, 422, 'Limite de '.self::MAX_OFFERS.' achadinhos. Exclua os antigos para cadastrar novos.');
 
         $data = $this->validated($request);
-        $data['marketplace'] ??= AffiliateOffer::detectMarketplace($data['url']);
+        $data['marketplace'] ??= AffiliateOffer::detectMarketplace($data['source_url'] ?? $data['url']);
 
-        $offer = new AffiliateOffer([...collect($data)->except(['image', 'image_url', 'disclosure'])->all(), 'company_id' => $company->id]);
+        $offer = new AffiliateOffer([
+            ...collect($data)->except(['image', 'image_url', 'disclosure'])->all(),
+            'company_id' => $company->id,
+            'product_key' => AffiliateOffer::productKey($data['source_url'] ?? $data['url']),
+        ]);
         $warning = $this->applyImage($request, $offer, $data);
         $offer->save();
 
@@ -115,6 +214,9 @@ class AffiliateOfferController extends Controller
         $offer->fill(collect($data)->except(['image', 'image_url', 'remove_image', 'disclosure'])->all());
         if (array_key_exists('url', $data) && ! array_key_exists('marketplace', $data)) {
             $offer->marketplace = AffiliateOffer::detectMarketplace($data['url']);
+        }
+        if (array_key_exists('url', $data) || array_key_exists('source_url', $data)) {
+            $offer->product_key = AffiliateOffer::productKey($offer->source_url ?? $offer->url);
         }
 
         $warning = null;
@@ -187,6 +289,10 @@ class AffiliateOfferController extends Controller
 
         return $request->validate([
             'url' => [$req, 'string', 'max:2000', 'regex:~^https?://~i'],
+            // Endereço final lido do link curto (pra achar o mesmo produto cadastrado com outro link)
+            'source_url' => ['nullable', 'string', 'max:2000', 'regex:~^https?://~i'],
+            'description' => ['nullable', 'string', 'max:2000'],
+            'flash' => ['sometimes', 'boolean'],
             'marketplace' => ['sometimes', Rule::in(array_keys(AffiliateOffer::MARKETPLACES))],
             'title' => [$req, 'string', 'min:3', 'max:200'],
             'price' => ['nullable', 'numeric', 'min:0', 'max:9999999'],

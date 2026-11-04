@@ -34,7 +34,7 @@ class OfferController extends Controller
 
         // Últimas 20 da loja e 20 dos achadinhos (cada aba da tela mostra as suas)
         $recent = fn (bool $affiliate) => OfferPost::where('company_id', $company->id)
-            ->where('origin', $affiliate ? '=' : '!=', 'affiliate')
+            ->where('origin', $affiliate ? 'like' : 'not like', 'affiliate%')
             ->with('deliveries')->latest('id')->limit(20)->get();
         $posts = $recent(false)->concat($recent(true))->sortByDesc('id')->values();
         $numbers = $metrics->forPosts($company, $posts);
@@ -298,7 +298,16 @@ class OfferController extends Controller
     {
         $this->requirePro($request, 'Grupos de ofertas');
 
-        return response()->json($this->schedulePayload($request->user()->company, $scheduler));
+        return response()->json($this->schedulePayload($request->user()->company, $scheduler, $this->schedulePurpose($request)));
+    }
+
+    /** Qual agenda: a dos produtos da loja (padrão) ou a dos achadinhos (?purpose=affiliate). */
+    private function schedulePurpose(Request $request): string
+    {
+        $purpose = (string) $request->input('purpose', OfferSeries::PURPOSE_STORE);
+        abort_unless(in_array($purpose, [OfferSeries::PURPOSE_STORE, OfferSeries::PURPOSE_AFFILIATE], true), 422, 'Agenda inválida.');
+
+        return $purpose;
     }
 
     public function updateSchedule(Request $request, OfferScheduler $scheduler)
@@ -321,7 +330,8 @@ class OfferController extends Controller
         ]);
 
         $company = $request->user()->company;
-        $schedule = $scheduler->forCompany($company);
+        $purpose = $this->schedulePurpose($request);
+        $schedule = $scheduler->forCompany($company, $purpose);
 
         $data['days'] = collect($data['days'])->map(fn ($d) => (int) $d)->sort()->values()->all();
         $data['times'] = collect($data['times'])->sort()->values()->all();
@@ -332,13 +342,17 @@ class OfferController extends Controller
 
         $schedule->save();
 
-        return response()->json($this->schedulePayload($company, $scheduler));
+        return response()->json($this->schedulePayload($company, $scheduler, $purpose));
     }
 
-    private function schedulePayload(Company $company, OfferScheduler $scheduler): array
+    private function schedulePayload(Company $company, OfferScheduler $scheduler, string $purpose = OfferSeries::PURPOSE_STORE): array
     {
-        $schedule = $scheduler->forCompany($company);
-        $eligible = $scheduler->eligibleProducts($company, $schedule);
+        $schedule = $scheduler->forCompany($company, $purpose);
+        $affiliate = $purpose === OfferSeries::PURPOSE_AFFILIATE;
+        // Achadinhos na rodada viram o mesmo formato da lista de produtos (id, name, last_sent_at)
+        $eligible = $affiliate
+            ? $scheduler->eligibleAffiliates($company)->map(fn ($o) => (object) ['id' => $o->id, 'name' => $o->title, 'offers_last_sent_at' => $o->last_sent_at])
+            : $scheduler->eligibleProducts($company, $schedule);
         $next = $scheduler->nextRun($schedule, now($company->timezone ?: 'America/Sao_Paulo'));
 
         return [
@@ -350,7 +364,7 @@ class OfferController extends Controller
             'next_run_at' => $next?->toIso8601String(),
             'eligible_count' => $eligible->count(),
             // Quem vai no próximo envio (rodízio: nunca divulgados primeiro, depois os mais antigos)
-            'next_products' => $eligible->take($schedule->products_per_run)->map(fn (Product $p) => [
+            'next_products' => $eligible->take($schedule->products_per_run)->map(fn (object $p) => [
                 'id' => $p->id,
                 'name' => $p->name,
                 'last_sent_at' => $p->offers_last_sent_at?->toIso8601String(),
