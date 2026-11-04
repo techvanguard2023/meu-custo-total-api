@@ -141,9 +141,12 @@ class DisplayController extends Controller
         $this->requirePro($request, 'Expositores');
         $this->authorizeCompany($request, $display);
 
-        $count = DB::transaction(function () use ($display) {
+        $count = DB::transaction(function () use ($display, $request) {
             $quotes = app(DisplaySales::class)->unsettled($display);
+            // A empresa (com as configurações) é a mesma de todas: os eventos da venda (cashback) não buscam de novo
+            $company = $request->user()->company->loadMissing('setting');
             foreach ($quotes as $quote) {
+                $quote->setRelation('company', $company);
                 $quote->update(['amount_paid' => $quote->final_price, 'paid_at' => now()]);
             }
 

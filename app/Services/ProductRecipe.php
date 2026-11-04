@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Company;
 use App\Models\Material;
 use App\Models\MaterialMovement;
 use App\Models\Printer;
@@ -108,15 +109,18 @@ class ProductRecipe
      * Recalcula o custo gravado no produto e nas variações, quando o custo é pela ficha — e o
      * preço de venda também, quando ele segue o preço sugerido (custo + margem).
      * Variação sem insumo próprio nem tempo próprio fica sem custo e sem preço (herda os do produto).
+     * `$fresh` false: quem chama já carregou ficha, variações, impressora e empresa (recálculo em lote).
      */
-    public function refreshCost(Product $product): void
+    public function refreshCost(Product $product, bool $fresh = true): void
     {
         if (! $product->auto_cost) {
             return;
         }
 
-        $product->unsetRelation('recipeLines');
-        $product->load('variations');
+        if ($fresh) {
+            $product->unsetRelation('recipeLines');
+            $product->load('variations');
+        }
 
         $base = $this->unitCost($product);
         $product->forceFill(array_filter([
@@ -139,20 +143,33 @@ class ProductRecipe
     /** Preço do insumo mudou: atualiza o custo dos produtos que usam ele. */
     public function refreshForMaterial(Material $material): void
     {
-        Product::where('company_id', $material->company_id)
-            ->where('auto_cost', true)
-            ->whereHas('recipeLines', fn ($q) => $q->where('material_id', $material->id))
-            ->get()
-            ->each(fn (Product $product) => $this->refreshCost($product));
+        $this->refreshMany(
+            Product::where('company_id', $material->company_id)
+                ->where('auto_cost', true)
+                ->whereHas('recipeLines', fn ($q) => $q->where('material_id', $material->id)),
+            $material->company_id,
+        );
     }
 
     /** Energia, mão de obra, taxa de falha ou uma impressora mudou: atualiza todos os produtos com custo pela ficha. */
     public function refreshCompany(int $companyId): void
     {
-        Product::where('company_id', $companyId)
-            ->where('auto_cost', true)
-            ->get()
-            ->each(fn (Product $product) => $this->refreshCost($product));
+        $this->refreshMany(Product::where('company_id', $companyId)->where('auto_cost', true), $companyId);
+    }
+
+    /**
+     * Recálculo em lote: ficha, insumos, variações e impressora de todos os produtos vêm numa leva só, e a
+     * empresa (com as configurações) é a mesma pra todos — antes, cada produto buscava tudo de novo.
+     */
+    private function refreshMany($query, int $companyId): void
+    {
+        $company = Company::with('setting')->find($companyId);
+
+        $query->with(['recipeLines.material.category', 'variations', 'printer'])->get()
+            ->each(function (Product $product) use ($company) {
+                $product->setRelation('company', $company);
+                $this->refreshCost($product, fresh: false);
+            });
     }
 
     /**
@@ -216,22 +233,63 @@ class ProductRecipe
             ->where('stock_deducted', false)
             ->whereNull('materials_consumed_at')
             ->get();
-
-        foreach ($items as $item) {
-            $product = Product::find($item->product_id);
-            if (! $product) {
-                continue;
-            }
-
-            $variation = $item->product_variation_id ? $product->variations->firstWhere('id', $item->product_variation_id) : null;
-
-            $this->consume($product, $variation, (int) $item->quantity, MaterialMovement::TYPE_ORDER_PRODUCTION, [
-                'quote_id' => $quote->id,
-                'note' => "Pedido #{$quote->id}",
-            ]);
-
-            $item->forceFill(['materials_consumed_at' => now()])->save();
+        if ($items->isEmpty()) {
+            return;
         }
+
+        // Tudo numa leva só: produtos com ficha e variações, e os insumos travados uma vez
+        $products = Product::with(['recipeLines.material.category', 'variations'])
+            ->whereIn('id', $items->pluck('product_id')->unique())->get()->keyBy('id');
+
+        $needs = []; // [item, linhas da ficha]
+        foreach ($items as $item) {
+            $product = $products->get($item->product_id);
+            if ($product) {
+                $variation = $item->product_variation_id ? $product->variations->firstWhere('id', $item->product_variation_id) : null;
+                $needs[] = [$item, $product, $variation, $this->linesFor($product, $variation)];
+            }
+        }
+
+        $materials = Material::whereIn('id', collect($needs)->flatMap(fn ($n) => $n[3]->pluck('material.id'))->unique())
+            ->lockForUpdate()->get()->keyBy('id');
+
+        // Saldo de cada insumo andando item a item (pro histórico ter o saldo depois de cada baixa); no fim, uma
+        // atualização por insumo e todas as movimentações numa gravação só — mesmo resultado do MaterialStock::move
+        $now = now();
+        $balances = $materials->map(fn (Material $m) => $m->stock_quantity === null ? null : (float) $m->stock_quantity);
+        $movements = [];
+        foreach ($needs as [$item, $product, $variation, $lines]) {
+            foreach ($lines as $line) {
+                $id = $line['material']->id;
+                $delta = round(-$line['quantity'] * (int) $item->quantity, 2);
+                if (! isset($balances[$id]) || $delta == 0) {
+                    continue; // estoque do insumo não é controlado
+                }
+                $balances[$id] = round($balances[$id] + $delta, 2);
+                $movements[] = [
+                    'company_id' => $materials[$id]->company_id,
+                    'material_id' => $id,
+                    'type' => MaterialMovement::TYPE_ORDER_PRODUCTION,
+                    'quantity' => $delta,
+                    'balance_after' => $balances[$id],
+                    'product_id' => $product->id,
+                    'product_variation_id' => $variation?->id,
+                    'quote_id' => $quote->id,
+                    'user_id' => auth()->id(),
+                    'note' => "Pedido #{$quote->id}",
+                    'created_at' => $now,
+                ];
+            }
+        }
+
+        foreach (collect($movements)->groupBy('material_id') as $materialId => $rows) {
+            Material::whereKey($materialId)->increment('stock_quantity', round($rows->sum('quantity'), 2));
+        }
+        if ($movements) {
+            MaterialMovement::insert($movements);
+        }
+
+        $quote->items()->whereIn('id', collect($needs)->map(fn ($n) => $n[0]->id))->update(['materials_consumed_at' => $now]);
     }
 
     /**
