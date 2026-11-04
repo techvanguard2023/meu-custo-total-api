@@ -267,6 +267,9 @@ Route::prefix('v1')->group(function () {
             Route::patch('/quotes/{quote}/resume', [QuoteController::class, 'resume']);
             Route::patch('/quotes/{quote}/production-status', [QuoteController::class, 'updateProductionStatus']);
             Route::patch('/quotes/production-order', [QuoteController::class, 'reorderProduction']);
+            // Antes do resource (senão "dashboard" viraria o {quote})
+            Route::get('/quotes/dashboard', [QuoteController::class, 'dashboard']);
+            Route::get('/quotes/team-summary', [QuoteController::class, 'teamSummary']);
             Route::apiResource('quotes', QuoteController::class)->only(['index', 'show', 'store', 'update', 'destroy']);
 
             Route::get('/settings', [SettingsController::class, 'show']);

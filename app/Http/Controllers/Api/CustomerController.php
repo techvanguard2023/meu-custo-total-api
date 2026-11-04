@@ -18,9 +18,28 @@ class CustomerController extends Controller
 {
     use EnforcesPlanLimits;
 
+    /**
+     * Com ?page: a tela de Clientes, com busca e paginação no banco. Sem: a lista inteira (os seletores de
+     * cliente do Caixa e do orçamento escolhem dela).
+     */
     public function index(Request $request)
     {
-        return $request->user()->company->customers()->latest()->get();
+        $query = $request->user()->company->customers()->latest()->latest('id');
+        if (! $request->has('page')) {
+            return $query->get();
+        }
+
+        $data = $request->validate(['page' => ['integer', 'min:1'], 'search' => ['nullable', 'string', 'max:100']]);
+        $term = trim((string) ($data['search'] ?? ''));
+        if ($term !== '') {
+            $like = '%'.addcslashes($term, '\\%_').'%';
+            $digits = preg_replace('/\D/', '', $term);
+            // Telefone pode estar salvo com máscara: compara só os números
+            $query->where(fn ($q) => $q->where('name', 'like', $like)->orWhere('email', 'like', $like)->orWhere('phone', 'like', $like)
+                ->when(strlen($digits) >= 3, fn ($q) => $q->orWhereRaw("REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, '(', ''), ')', ''), '-', ''), ' ', ''), '+', '') LIKE ?", ['%'.$digits.'%'])));
+        }
+
+        return $query->paginate(10, ['*'], 'page', (int) $data['page']);
     }
 
     public function store(Request $request)

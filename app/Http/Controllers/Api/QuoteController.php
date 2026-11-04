@@ -22,6 +22,7 @@ use App\Services\MaterialStock;
 use App\Services\ProductionStageNotifier;
 use App\Services\ProductRecipe;
 use App\Services\QuoteCalculatorService;
+use App\Services\QuoteListing;
 use App\Services\QuotePdfNotifier;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
@@ -45,15 +46,61 @@ class QuoteController extends Controller
         return ['customer', 'printer', 'material.category', ...Product::displayRelations('items.product'), 'salesChannel:id,name'];
     }
 
-    public function index(Request $request)
+    /**
+     * Listas com filtro e paginação no banco: ?scope=quotes (orçamentos), sales (vendas, com os totais) ou
+     * production (quadro da Produção). Sem scope, a lista inteira de antes — só pra versão antiga do app que
+     * ainda estiver aberta em algum celular; as telas atuais não usam mais.
+     */
+    public function index(Request $request, QuoteListing $listing)
     {
-        return $request->user()->company->quotes()
-            ->with(self::detailRelations())
-            // Só a contagem — pra tela saber se o cliente já respondeu à avaliação
-            // sem precisar carregar o conteúdo de cada uma.
-            ->withCount('reviews')
-            ->latest()
-            ->get();
+        $company = $request->user()->company;
+        $scope = $request->query('scope');
+
+        if ($scope === null) {
+            return $company->quotes()
+                ->with(self::detailRelations())
+                // Só a contagem — pra tela saber se o cliente já respondeu à avaliação
+                // sem precisar carregar o conteúdo de cada uma.
+                ->withCount('reviews')
+                ->latest()
+                ->get();
+        }
+
+        $filters = $request->validate([
+            'scope' => ['required', Rule::in(['quotes', 'sales', 'production'])],
+            'search' => ['nullable', 'string', 'max:100'],
+            'status' => ['nullable', Rule::in(['all', Quote::STATUS_DRAFT, Quote::STATUS_SENT, Quote::STATUS_REJECTED, Quote::STATUS_CANCELLED])],
+            'stage' => ['nullable', Rule::in(['all', ...Quote::PRODUCTION_STATUSES])],
+            'payment' => ['nullable', Rule::in(['all', 'paid', 'partial', 'unpaid', 'courtesy'])],
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date'],
+            'page' => ['nullable', 'integer', 'min:1'],
+        ]);
+
+        return match ($scope) {
+            'quotes' => [
+                ...$listing->quotes($company, self::detailRelations(), $filters)->toArray(),
+                // Total sem filtro, pro "Mostrando X de Y"
+                'scope_total' => $company->quotes()->where('status', '!=', Quote::STATUS_APPROVED)->count(),
+            ],
+            'sales' => [
+                ...$listing->sales($company, self::detailRelations(), $filters)->toArray(),
+                'summary' => $listing->salesSummary($company),
+            ],
+            'production' => $listing->production($company, self::detailRelations()),
+        };
+    }
+
+    /** Dashboard do dono: totais somados no banco, o gráfico (8 mais recentes) e os 5 últimos orçamentos. */
+    public function dashboard(Request $request, QuoteListing $listing)
+    {
+        return $listing->dashboard($request->user()->company, self::detailRelations());
+    }
+
+    /** Painel da equipe: só as contagens (em produção, orçamentos abertos). */
+    public function teamSummary(Request $request, QuoteListing $listing)
+    {
+        return $listing->teamSummary($request->user()->company);
     }
 
     public function show(Request $request, Quote $quote)
@@ -848,7 +895,15 @@ class QuoteController extends Controller
         // Só quem de fato mudou de coluna avisa o cliente — reordenar dentro da coluna não.
         $moved = [];
 
-        DB::transaction(function () use ($data, $quotes, &$moved) {
+        // "Entregue" mostra só as últimas entregas: a ordem recebida vai pro fim da coluna, depois das que não
+        // aparecem na tela (senão elas, com posição maior, passariam a ser as "últimas")
+        $base = $data['production_status'] === Quote::PRODUCTION_DELIVERED
+            ? (int) Quote::where('company_id', $companyId)->where('status', Quote::STATUS_APPROVED)
+                ->where('production_status', Quote::PRODUCTION_DELIVERED)
+                ->whereNotIn('id', $data['ordered_ids'])->max('production_order') + 1
+            : 0;
+
+        DB::transaction(function () use ($data, $quotes, &$moved, $base) {
             foreach (array_values($data['ordered_ids']) as $index => $id) {
                 $quote = $quotes->get($id);
                 abort_unless($quote, 404, 'Venda não encontrada.');
@@ -857,7 +912,7 @@ class QuoteController extends Controller
 
                 $quote->update([
                     'production_status' => $data['production_status'],
-                    'production_order' => $index,
+                    'production_order' => $base + $index,
                 ]);
 
                 if ($previousStatus !== $data['production_status']) {

@@ -125,6 +125,17 @@ class Quote extends Model
         );
     }
 
+    /**
+     * Custo total da venda: produção (material, energia, máquina, mão de obra, extras), falhas e o custo dos
+     * produtos de estoque — a mesma regra dos Relatórios. Usa os itens carregados.
+     */
+    public function totalCost(): float
+    {
+        $products = $this->items->where('type', 'product')->sum(fn ($item) => (float) $item->unit_cost * (int) $item->quantity);
+
+        return round((float) $this->subtotal_cost + (float) $this->failure_cost + $products, 2);
+    }
+
     public function company(): BelongsTo
     {
         return $this->belongsTo(Company::class);

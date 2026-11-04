@@ -37,6 +37,9 @@ class TeamAccess
 
         // Linha de produção (vendas também acompanha e move os pedidos)
         ['GET', 'quotes', self::ALL],
+        // Painel da equipe: só as contagens (o Dashboard com valores, quotes/dashboard, é só do dono)
+        ['GET', 'quotes/team-summary', self::ALL],
+        ['GET', 'quotes/dashboard', []],
         ['GET', 'quotes/{quote}', self::ALL],
         ['PATCH', 'quotes/{quote}/production-status', self::ALL],
         ['PATCH', 'quotes/production-order', self::ALL],
