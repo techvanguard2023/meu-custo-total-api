@@ -124,7 +124,7 @@ class PublicCatalogController extends Controller
             ->where('active', true)
             ->where('show_in_catalog', true)
             ->orderBy('name')
-            ->with('category.parent')
+            ->with(['images', 'variations', 'category.parent'])
             // Uma consulta só pra média/contagem e outra pros comentários
             // aprovados — sem isso seria uma query por produto no map abaixo.
             ->withAvg('reviews as rating_avg', 'rating')

@@ -39,7 +39,33 @@ class Product extends Model
 
     protected $appends = ['image_url', 'has_variations', 'total_stock', 'lead_time_label'];
 
-    protected $with = ['images', 'category', 'variations'];
+    /**
+     * Relações que acompanham o produto quando ele vai pra tela (fotos, categoria e variações; os campos
+     * image_url, has_variations e total_stock dependem delas). Não ficam em $with de propósito: buscas
+     * internas (baixa de estoque, cálculo de custo, travas) não precisam delas — quem devolve produto
+     * pro frontend carrega explicitamente, com withDisplay() ou displayRelations('caminho').
+     */
+    public const DISPLAY_RELATIONS = ['images', 'category', 'variations'];
+
+    /** Ex.: displayRelations('items.product') → ['items.product.images', 'items.product.category', ...] */
+    public static function displayRelations(string $path): array
+    {
+        return array_map(fn ($relation) => "{$path}.{$relation}", self::DISPLAY_RELATIONS);
+    }
+
+    public function scopeWithDisplay($query)
+    {
+        return $query->with(self::DISPLAY_RELATIONS);
+    }
+
+    /**
+     * Produto só citado numa lista (avaliações, movimentos de insumo — carregado como product:id,name):
+     * sem os campos calculados, que buscariam fotos e variações de cada um só pra mostrar o nome.
+     */
+    public function asReference(): static
+    {
+        return $this->setAppends([]);
+    }
 
     /** Produto com variações controla estoque e preço pelas variações, não por si. */
     protected function hasVariations(): Attribute

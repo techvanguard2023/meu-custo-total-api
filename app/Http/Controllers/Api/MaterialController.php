@@ -70,10 +70,13 @@ class MaterialController extends Controller
     {
         $this->authorizeCompany($request, $material);
 
-        return $material->movements()
+        $movements = $material->movements()
             ->with(['product:id,name', 'variation:id,color,size,weight', 'user:id,name'])
             ->orderByDesc('id')
             ->paginate(30);
+        $movements->getCollection()->each(fn ($movement) => $movement->product?->asReference());
+
+        return $movements;
     }
 
     public function destroy(Request $request, Material $material)

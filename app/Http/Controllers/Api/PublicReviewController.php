@@ -168,7 +168,7 @@ class PublicReviewController extends Controller
         $products = $quote->items()
             ->where('type', 'product')
             ->whereNotNull('product_id')
-            ->with('product')
+            ->with('product.images')
             ->get()
             // Um mesmo produto pode aparecer em mais de uma linha da venda; a
             // avaliação é por produto, não por linha.

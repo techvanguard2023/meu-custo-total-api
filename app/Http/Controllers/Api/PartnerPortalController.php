@@ -168,7 +168,7 @@ class PartnerPortalController extends Controller
 
         $lines = $display->stockLines()
             ->where('quantity_current', '>', 0)
-            ->with(['product', 'variation'])
+            ->with(['product.images', 'variation'])
             ->get()
             ->filter(fn (DisplayStockLine $line) => $line->product !== null)
             ->values();

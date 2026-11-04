@@ -57,9 +57,9 @@ class DisplayController extends Controller
         $this->authorizeCompany($request, $display);
 
         $display->load([
-            'stockLines' => fn ($q) => $q->where('quantity_current', '>', 0)->with(['product', 'variation']),
-            'quotes' => fn ($q) => $q->where('status', Quote::STATUS_APPROVED)->latest()->with('items.product'),
-            'visits' => fn ($q) => $q->latest()->with(['quote.items', 'movements.product', 'movements.variation']),
+            'stockLines' => fn ($q) => $q->where('quantity_current', '>', 0)->with([...Product::displayRelations('product'), 'variation']),
+            'quotes' => fn ($q) => $q->where('status', Quote::STATUS_APPROVED)->latest()->with(Product::displayRelations('items.product')),
+            'visits' => fn ($q) => $q->latest()->with(['quote.items', ...Product::displayRelations('movements.product'), 'movements.variation']),
         ]);
 
         $unsettled = app(DisplaySales::class)->unsettled($display);
@@ -310,7 +310,7 @@ class DisplayController extends Controller
             }
         });
 
-        return response()->json($display->fresh()->load('stockLines.product', 'stockLines.variation'));
+        return response()->json($display->fresh()->load([...Product::displayRelations('stockLines.product'), 'stockLines.variation']));
     }
 
     /**
@@ -365,7 +365,7 @@ class DisplayController extends Controller
             }
         });
 
-        return response()->json($display->fresh()->load('stockLines.product', 'stockLines.variation'));
+        return response()->json($display->fresh()->load([...Product::displayRelations('stockLines.product'), 'stockLines.variation']));
     }
 
     /**
@@ -469,7 +469,7 @@ class DisplayController extends Controller
             return $quote;
         });
 
-        return response()->json($quote->load('items.product'), 201);
+        return response()->json($quote->load(Product::displayRelations('items.product')), 201);
     }
 
     /** Encerra o expositor e devolve tudo que sobrou de estoque pro estoque principal. */
@@ -517,7 +517,7 @@ class DisplayController extends Controller
             ->whereHas('quote', fn ($q) => $q->where('display_id', $display->id)->where('status', Quote::STATUS_APPROVED))
             ->selectRaw('product_id, SUM(quantity) as quantity_sold, SUM(amount) as revenue')
             ->groupBy('product_id')
-            ->with('product')
+            ->with('product.category')
             ->get()
             ->map(fn ($row) => [
                 'product_id' => $row->product_id,

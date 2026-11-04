@@ -39,10 +39,16 @@ class QuoteController extends Controller
 
     public function __construct(private QuoteCalculatorService $calculator) {}
 
+    /** O que acompanha a venda nas respostas da tela de Vendas (o produto de cada item com fotos, categoria e variações). */
+    private static function detailRelations(): array
+    {
+        return ['customer', 'printer', 'material.category', ...Product::displayRelations('items.product'), 'salesChannel:id,name'];
+    }
+
     public function index(Request $request)
     {
         return $request->user()->company->quotes()
-            ->with(['customer', 'printer', 'material.category', 'items.product', 'salesChannel:id,name'])
+            ->with(self::detailRelations())
             // Só a contagem — pra tela saber se o cliente já respondeu à avaliação
             // sem precisar carregar o conteúdo de cada uma.
             ->withCount('reviews')
@@ -54,7 +60,7 @@ class QuoteController extends Controller
     {
         $this->authorizeCompany($request, $quote);
 
-        return $quote->loadCount('reviews')->load(['customer', 'printer', 'material.category', 'items.product', 'salesChannel:id,name']);
+        return $quote->loadCount('reviews')->load(self::detailRelations());
     }
 
     public function preview(Request $request)
@@ -111,7 +117,7 @@ class QuoteController extends Controller
             return $quote;
         });
 
-        return response()->json($quote->load(['customer', 'printer', 'material.category', 'items.product', 'salesChannel:id,name']), 201);
+        return response()->json($quote->load(self::detailRelations()), 201);
     }
 
     public function update(Request $request, Quote $quote)
@@ -143,7 +149,7 @@ class QuoteController extends Controller
             $this->syncMaterialItems($quote, $breakdown);
         });
 
-        return response()->json($quote->fresh()->load(['customer', 'printer', 'material.category', 'items.product', 'salesChannel:id,name']));
+        return response()->json($quote->fresh()->load(self::detailRelations()));
     }
 
     public function destroy(Request $request, Quote $quote)
@@ -189,7 +195,7 @@ class QuoteController extends Controller
 
         app(ProductionStageNotifier::class)->paymentChanged($quote, $previousPaid);
 
-        return response()->json($quote->fresh()->load(['customer', 'printer', 'material.category', 'items.product', 'salesChannel:id,name']));
+        return response()->json($quote->fresh()->load(self::detailRelations()));
     }
 
     /**
@@ -273,7 +279,7 @@ class QuoteController extends Controller
         });
 
         return response()->json(
-            collect($quotes)->map(fn (Quote $q) => $q->fresh()->load(['customer', 'items.product']))->values(),
+            collect($quotes)->map(fn (Quote $q) => $q->fresh()->load(['customer', ...Product::displayRelations('items.product')]))->values(),
             201
         );
     }
@@ -332,7 +338,7 @@ class QuoteController extends Controller
         if (! empty($data['external_reference'])) {
             $existing = $request->user()->company->quotes()
                 ->where('external_reference', $data['external_reference'])
-                ->with(['customer', 'items.product'])
+                ->with(['customer', ...Product::displayRelations('items.product')])
                 ->get();
 
             if ($existing->isNotEmpty()) {
@@ -419,7 +425,7 @@ class QuoteController extends Controller
             return $created;
         });
 
-        $payload = collect($quotes)->map(fn (Quote $q) => $q->fresh()->load(['customer', 'items.product'])->toArray())->values()->all();
+        $payload = collect($quotes)->map(fn (Quote $q) => $q->fresh()->load(['customer', ...Product::displayRelations('items.product')])->toArray())->values()->all();
         if ($couponRejected) {
             $payload[0]['coupon_rejected'] = $couponRejected;
         }
@@ -639,7 +645,7 @@ class QuoteController extends Controller
 
         app(ProductionStageNotifier::class)->paymentChanged($quote, $previousPaid);
 
-        return response()->json($quote->fresh()->load(['customer', 'printer', 'material.category', 'items.product', 'salesChannel:id,name']));
+        return response()->json($quote->fresh()->load(self::detailRelations()));
     }
 
     public function reject(Request $request, Quote $quote)
@@ -665,7 +671,7 @@ class QuoteController extends Controller
             'pause_reason' => $data['reason'] ?? null,
         ]);
 
-        return response()->json($quote->fresh()->load(['customer', 'printer', 'material.category', 'items.product', 'salesChannel:id,name']));
+        return response()->json($quote->fresh()->load(self::detailRelations()));
     }
 
     /** Retoma a produção — estende o prazo automaticamente pelos dias que ficou pausada. */
@@ -687,7 +693,7 @@ class QuoteController extends Controller
             'pause_reason' => null,
         ]);
 
-        return response()->json($quote->fresh()->load(['customer', 'printer', 'material.category', 'items.product', 'salesChannel:id,name']));
+        return response()->json($quote->fresh()->load(self::detailRelations()));
     }
 
     /**
@@ -783,7 +789,7 @@ class QuoteController extends Controller
             ]);
         });
 
-        return response()->json($quote->fresh()->load(['customer', 'printer', 'material.category', 'items.product', 'salesChannel:id,name']));
+        return response()->json($quote->fresh()->load(self::detailRelations()));
     }
 
     public function updateProductionStatus(Request $request, Quote $quote)
@@ -814,7 +820,7 @@ class QuoteController extends Controller
 
         app(ProductionStageNotifier::class)->stageChanged($quote, $previousStatus);
 
-        return response()->json($quote->fresh()->load(['customer', 'printer', 'material.category', 'items.product', 'salesChannel:id,name']));
+        return response()->json($quote->fresh()->load(self::detailRelations()));
     }
 
     /**
@@ -884,7 +890,7 @@ class QuoteController extends Controller
 
         $quote->update(['status' => $status]);
 
-        return response()->json($quote->fresh()->load(['customer', 'printer', 'material.category', 'items.product', 'salesChannel:id,name']));
+        return response()->json($quote->fresh()->load(self::detailRelations()));
     }
 
     private function quoteAttributes(array $data, array $breakdown, string $status): array
@@ -1011,7 +1017,9 @@ class QuoteController extends Controller
             return [];
         }
 
+        // variações (escolha e estoque) e categoria (cupom restrito por categoria)
         $products = Product::where('company_id', $request->user()->company_id)
+            ->with(['variations', 'category'])
             ->whereIn('id', collect($lines)->pluck('product_id'))
             ->get()
             ->keyBy('id');

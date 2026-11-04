@@ -26,8 +26,8 @@ class ProductController extends Controller
     private const SKU_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
     private const SKU_LENGTH = 6;
 
-    /** O que a tela de produtos precisa além do padrão — a ficha técnica só aparece aqui, nunca no catálogo público. */
-    private const ADMIN_RELATIONS = ['collections:id,name', 'recipeLines.material.category', 'activeDisplayLines.display:id,name'];
+    /** O que a tela de produtos precisa: o padrão (fotos, categoria, variações) e a ficha técnica — que só aparece aqui, nunca no catálogo público. */
+    private const ADMIN_RELATIONS = [...Product::DISPLAY_RELATIONS, 'collections:id,name', 'recipeLines.material.category', 'activeDisplayLines.display:id,name'];
 
     public function index(Request $request)
     {
@@ -339,7 +339,7 @@ class ProductController extends Controller
             $product->images()->create(['path' => $path, 'position' => $nextPosition++]);
         }
 
-        return response()->json($product->fresh());
+        return response()->json($product->fresh(Product::DISPLAY_RELATIONS));
     }
 
     public function destroyImage(Request $request, Product $product, ProductImage $image)
@@ -350,7 +350,7 @@ class ProductController extends Controller
         Storage::disk('public')->delete($image->path);
         $image->delete();
 
-        return response()->json($product->fresh());
+        return response()->json($product->fresh(Product::DISPLAY_RELATIONS));
     }
 
     /** Reordena a galeria — recebe a lista de IDs das fotos na nova ordem. */
@@ -370,7 +370,7 @@ class ProductController extends Controller
             ProductImage::where('id', $imageId)->where('product_id', $product->id)->update(['position' => $position]);
         }
 
-        return response()->json($product->fresh());
+        return response()->json($product->fresh(Product::DISPLAY_RELATIONS));
     }
 
     private function validated(Request $request, int $companyId, ?int $ignoreProductId = null, ?Product $current = null): array

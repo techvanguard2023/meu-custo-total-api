@@ -27,7 +27,8 @@ class ProductReviewController extends Controller
         return $request->user()->company->productReviews()
             ->with(['product:id,name', 'quote:id,name'])
             ->latest()
-            ->get();
+            ->get()
+            ->each(fn ($review) => $review->product?->asReference());
     }
 
     /**
@@ -83,7 +84,10 @@ class ProductReviewController extends Controller
 
         $productReview->update(['comment_status' => $data['comment_status']]);
 
-        return response()->json($productReview->fresh()->load(['product:id,name', 'quote:id,name']));
+        $productReview = $productReview->fresh()->load(['product:id,name', 'quote:id,name']);
+        $productReview->product?->asReference();
+
+        return response()->json($productReview);
     }
 
     /**

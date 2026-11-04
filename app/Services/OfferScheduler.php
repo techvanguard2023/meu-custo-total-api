@@ -34,6 +34,7 @@ class OfferScheduler
             ->where('share_in_offers', true)
             ->where('active', true)
             ->where('show_in_catalog', true)
+            ->with('variations') // total_stock
             ->get()
             ->filter(fn (Product $p) => ! $schedule->only_in_stock || $p->made_to_order || $p->total_stock > 0)
             ->sortBy(fn (Product $p) => [$p->offers_last_sent_at?->timestamp ?? 0, $p->id])
