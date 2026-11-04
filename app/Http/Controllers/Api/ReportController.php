@@ -36,17 +36,16 @@ class ReportController extends Controller
         [$prevFrom, $prevTo] = $this->previousRange($data['period'], $from, $to);
 
         $sales = $this->salesBetween($request, $from, $to);
-        $previousSales = $this->salesBetween($request, $prevFrom, $prevTo);
+        // Período anterior: só os totais da comparação, somados no banco (sem carregar as vendas).
+        $previous = $this->previousTotals($request, $prevFrom, $prevTo);
 
         // Cortesia é venda (baixou estoque, passou pela produção), mas não gerou dinheiro: entra na
         // contagem e na tabela, e fica fora de faturamento, lucro e rankings — mesmo critério do
         // Dashboard e da tela de Vendas, pra não haver dois números pro mesmo fato.
         $billable = $sales->reject(fn ($s) => $s->is_courtesy)->values();
         $courtesies = $sales->filter(fn ($s) => $s->is_courtesy)->values();
-        $previousBillable = $previousSales->reject(fn ($s) => $s->is_courtesy)->values();
 
         $summary = $this->summarize($billable);
-        $previousSummary = $this->summarize($previousBillable);
 
         return response()->json([
             'period' => $data['period'],
@@ -66,13 +65,9 @@ class ReportController extends Controller
                     // o que a cortesia custou de material e produção
                     'cost' => round($courtesies->sum(fn ($s) => $this->saleCost($s)), 2),
                 ],
-                'previous' => [
-                    'revenue' => $previousSummary['revenue'],
-                    'profit' => $previousSummary['profit'],
-                    'sales_count' => $previousSales->count(),
-                ],
-                'revenue_change_percent' => $this->changePercent($previousSummary['revenue'], $summary['revenue']),
-                'profit_change_percent' => $this->changePercent($previousSummary['profit'], $summary['profit']),
+                'previous' => $previous,
+                'revenue_change_percent' => $this->changePercent($previous['revenue'], $summary['revenue']),
+                'profit_change_percent' => $this->changePercent($previous['profit'], $summary['profit']),
             ]),
             'costs' => $this->costBreakdown($billable),
             'timeline' => $this->timeline($billable, $data['period'], $from, $to),
@@ -151,15 +146,44 @@ class ReportController extends Controller
         };
     }
 
-    private function salesBetween(Request $request, Carbon $from, Carbon $to): Collection
+    /** Vendas aprovadas da empresa cuja data efetiva (aprovação, ou criação se não houver) cai no período. */
+    private function approvedBetween(Request $request, Carbon $from, Carbon $to)
     {
+        $range = [$from->toDateTimeString(), $to->toDateTimeString()];
+
         return $request->user()->company->quotes()
             ->where('status', 'approved')
-            ->with(['customer', 'items.product'])
-            ->get()
-            ->filter(fn ($sale) => $this->saleDate($sale)->between($from, $to))
-            ->sortBy(fn ($sale) => $this->saleDate($sale))
-            ->values();
+            ->where(fn ($q) => $q->whereBetween('approved_at', $range)
+                ->orWhere(fn ($q) => $q->whereNull('approved_at')->whereBetween('created_at', $range)));
+    }
+
+    private function salesBetween(Request $request, Carbon $from, Carbon $to): Collection
+    {
+        // Só o que o relatório usa: itens (custo, ranking) e o nome do cliente. Nada de produto,
+        // fotos ou variações — o ranking usa a descrição gravada no item.
+        return $this->approvedBetween($request, $from, $to)
+            ->with(['customer:id,name', 'items'])
+            ->orderByRaw('COALESCE(approved_at, created_at)')
+            ->orderBy('id')
+            ->get();
+    }
+
+    /** @return array{revenue: float, profit: float, sales_count: int} */
+    private function previousTotals(Request $request, Carbon $from, Carbon $to): array
+    {
+        // sales_count conta tudo (com cortesia); faturamento e lucro ficam sem cortesia — mesmo critério do período atual.
+        $row = $this->approvedBetween($request, $from, $to)
+            ->toBase()
+            ->selectRaw('COUNT(*) as sales_count')
+            ->selectRaw('COALESCE(SUM(CASE WHEN is_courtesy THEN 0 ELSE final_price END), 0) as revenue')
+            ->selectRaw('COALESCE(SUM(CASE WHEN is_courtesy THEN 0 ELSE profit_amount END), 0) as profit')
+            ->first();
+
+        return [
+            'revenue' => round((float) $row->revenue, 2),
+            'profit' => round((float) $row->profit, 2),
+            'sales_count' => (int) $row->sales_count,
+        ];
     }
 
     private function saleDate($sale): Carbon
