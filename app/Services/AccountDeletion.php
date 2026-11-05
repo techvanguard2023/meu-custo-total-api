@@ -17,8 +17,11 @@ class AccountDeletion
 {
     public function __construct(private WahaClient $waha, private VercelDomains $vercel) {}
 
-    /** Agenda a exclusão. A assinatura é cancelada no fim do período pago, pra não cobrar de novo. */
-    public function schedule(Company $company): void
+    /**
+     * Agenda a exclusão. A assinatura é cancelada no fim do período pago, pra não cobrar de novo.
+     * $byAdmin: agendada pela área admin — a loja não consegue desfazer sozinha.
+     */
+    public function schedule(Company $company, bool $byAdmin = false): void
     {
         $subscription = $company->subscription('default');
         $paused = false;
@@ -31,6 +34,7 @@ class AccountDeletion
         $company->forceFill([
             'deletion_scheduled_for' => now()->addDays((int) config('legal.deletion_grace_days', 7)),
             'deletion_paused_subscription' => $paused,
+            'deletion_by_admin' => $byAdmin,
         ])->save();
     }
 
@@ -46,6 +50,7 @@ class AccountDeletion
         $company->forceFill([
             'deletion_scheduled_for' => null,
             'deletion_paused_subscription' => false,
+            'deletion_by_admin' => false,
         ])->save();
     }
 

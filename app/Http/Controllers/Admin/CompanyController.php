@@ -5,6 +5,9 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Company;
 use App\Models\Quote;
+use App\Models\User;
+use App\Notifications\CompanyDeletedByAdmin;
+use App\Services\AccountDeletion;
 use App\Services\AdminAudit;
 use App\Services\AdminDiscount;
 use App\Services\CompanyMessageNotifier;
@@ -12,6 +15,7 @@ use App\Services\SignupAttribution;
 use App\Services\WahaClient;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Validation\Rule;
 use Throwable;
 
@@ -142,6 +146,7 @@ class CompanyController extends Controller
                 'blocked_at' => $company->blocked_at?->toIso8601String(),
                 'blocked_reason' => $company->blocked_reason,
                 'deletion_scheduled_for' => $company->deletion_scheduled_for?->toIso8601String(),
+                'deletion_by_admin' => (bool) $company->deletion_by_admin,
                 'admin_notes' => $company->admin_notes,
                 'whatsapp_session' => $company->whatsapp_session_name,
                 'whatsapp_status' => $whatsappStatus,
@@ -342,6 +347,68 @@ class CompanyController extends Controller
         AdminAudit::log($request, 'whatsapp.restart', $company->id, null, ['session' => $company->whatsapp_session_name]);
 
         return $this->show($company->fresh(), $waha);
+    }
+
+    /**
+     * Excluir a loja (área admin). schedule = agenda pra daqui a 7 dias (fora do ar, dá pra desfazer na ficha, a loja
+     * não desfaz sozinha); now = apaga na hora, sem volta (contas de teste). Confirmação digitando o nome da loja.
+     */
+    public function deleteCompany(Request $request, Company $company, AccountDeletion $deletion)
+    {
+        $data = $request->validate([
+            'mode' => ['required', Rule::in(['schedule', 'now'])],
+            'confirm_name' => ['required', 'string'],
+            'notify' => ['boolean'],
+            'reason' => ['nullable', 'string', 'max:255'],
+        ]);
+        abort_if($company->id === $request->user()->company_id, 422, 'Essa é a sua própria loja.');
+        abort_unless(mb_strtolower(trim($data['confirm_name'])) === mb_strtolower(trim($company->name)), 422, 'O nome digitado não confere com o da loja.');
+
+        $owner = $company->users()->where('role', 'owner')->orderBy('id')->first();
+        $details = ['mode' => $data['mode'], 'name' => $company->name, 'company_id' => $company->id, 'reason' => $data['reason'] ?? null, 'notified' => (bool) ($data['notify'] ?? false)];
+
+        if ($data['mode'] === 'now') {
+            try {
+                $deletion->purge($company);
+            } catch (Throwable $e) {
+                abort(422, 'Não foi possível excluir agora: '.\Illuminate\Support\Str::limit($e->getMessage(), 200));
+            }
+            // A loja já não existe: a auditoria guarda o nome e o id nos detalhes
+            AdminAudit::log($request, 'company.delete_now', null, null, $details);
+            $this->notifyOwner($owner, $company->name, true, null, $data);
+
+            return response()->json(['deleted' => true]);
+        }
+
+        abort_if($company->isPendingDeletion(), 422, 'A exclusão desta loja já está agendada.');
+        $deletion->schedule($company, byAdmin: true);
+        AdminAudit::log($request, 'company.delete_schedule', $company->id, null, $details + ['date' => $company->deletion_scheduled_for->toDateString()]);
+        $this->notifyOwner($owner, $company->name, false, $company->deletion_scheduled_for->timezone('America/Sao_Paulo')->format('d/m/Y'), $data);
+
+        return $this->show($company->fresh(), app(WahaClient::class));
+    }
+
+    /** Desfaz a exclusão agendada (pela loja ou pelo admin): tudo volta, inclusive a assinatura que tinha sido pausada. */
+    public function cancelDeletion(Request $request, Company $company, AccountDeletion $deletion)
+    {
+        abort_unless($company->isPendingDeletion(), 422, 'Esta loja não tem exclusão agendada.');
+        $byAdmin = (bool) $company->deletion_by_admin;
+        $deletion->cancel($company);
+        AdminAudit::log($request, 'company.delete_cancel', $company->id, null, ['scheduled_by' => $byAdmin ? 'admin' : 'loja']);
+
+        return $this->show($company->fresh(), app(WahaClient::class));
+    }
+
+    private function notifyOwner(?User $owner, string $shopName, bool $immediate, ?string $date, array $data): void
+    {
+        if (! ($data['notify'] ?? false) || ! $owner?->email) {
+            return;
+        }
+        try {
+            Notification::route('mail', $owner->email)->notify(new CompanyDeletedByAdmin($shopName, $owner->name, $immediate, $date, $data['reason'] ?? null));
+        } catch (Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("Aviso de exclusão da loja {$shopName} não enviado: ".$e->getMessage());
+        }
     }
 
     /** Plano de cortesia: vale por cima da assinatura (o maior dos dois) até a data — sem data, até tirar. */

@@ -53,6 +53,8 @@ class AccountController extends Controller
     {
         $company = $request->user()->company;
         abort_unless($company->isPendingDeletion(), 422, 'Não há exclusão agendada para esta conta.');
+        // Agendada pela equipe do Meu Custo Total (área admin): só o admin desfaz
+        abort_if($company->deletion_by_admin, 403, 'A exclusão desta conta foi feita pela equipe do Meu Custo Total. Se acha que foi engano, responda o e-mail que enviamos.');
 
         $deletion->cancel($company);
 

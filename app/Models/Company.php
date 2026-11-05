@@ -82,6 +82,7 @@ class Company extends Model
         'pro_trial_notices' => 'array',
         'signup_attribution' => 'array',
         'deletion_paused_subscription' => 'boolean',
+        'deletion_by_admin' => 'boolean',
     ];
 
     protected $appends = ['logo_url'];
