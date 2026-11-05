@@ -1077,6 +1077,8 @@ class QuoteController extends Controller
             ->with(['variations', 'category'])
             ->whereIn('id', collect($lines)->pluck('product_id'))
             ->get()
+            // A loja já está em mãos (o cálculo pergunta se é Pro pelo produto): sem buscar de novo por produto
+            ->each(fn (Product $p) => $p->setRelation('company', $request->user()->company))
             ->keyBy('id');
 
         return collect($lines)->map(function (array $line) use ($products) {

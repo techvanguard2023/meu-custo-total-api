@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Support\Background;
 use App\Models\Company;
 use App\Models\Quote;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -22,7 +23,7 @@ class QuotePdfNotifier
     /** Chamar depois de vincular o orçamento precificado a uma solicitação do WhatsApp. */
     public function notify(int $quoteId): void
     {
-        dispatch(fn () => app(self::class)->send($quoteId))->afterResponse();
+        Background::run(static fn () => app(self::class)->send($quoteId));
     }
 
     public function send(int $quoteId): void

@@ -15,6 +15,10 @@ return [
 
     'default' => env('QUEUE_CONNECTION', 'database'),
 
+    // true = as tarefas de fundo (App\Support\Background) vão pra fila e o worker do container executa;
+    // false = rodam logo depois da resposta, no mesmo processo (não há worker, ex: ambiente local).
+    'background' => (bool) env('QUEUE_BACKGROUND', false),
+
     /*
     |--------------------------------------------------------------------------
     | Queue Connections
@@ -81,12 +85,11 @@ return [
             'driver' => 'background',
         ],
 
+        // QUEUE_CONNECTION=failover em produção: grava no Redis; se ele cair, no MySQL. O failover só LÊ do
+        // primeiro (Redis), por isso o container roda um worker pra cada (docker/queue-worker.sh).
         'failover' => [
             'driver' => 'failover',
-            'connections' => [
-                'database',
-                'deferred',
-            ],
+            'connections' => array_values(array_filter(array_map('trim', explode(',', (string) env('QUEUE_FAILOVER_CONNECTIONS', 'redis,database'))))),
         ],
 
     ],

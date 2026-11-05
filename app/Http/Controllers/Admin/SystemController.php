@@ -85,6 +85,9 @@ class SystemController extends Controller
                 'coupons_pending' => DB::table('coupons')->whereNotNull('automation')->whereNull('notified_at')->where('active', true)->count(),
                 'jobs' => DB::table('jobs')->count(),
                 'failed_jobs_7d' => DB::table('failed_jobs')->where('failed_at', '>=', now()->subDays(7))->count(),
+                // QUEUE_BACKGROUND: avisos (PDF, etapas, suporte, senha) vão pra fila em vez de rodar depois da resposta
+                'background' => (bool) config('queue.background'),
+                'workers' => $this->workers(),
             ],
             'whatsapp' => $whatsapp,
             'environment' => [
@@ -101,6 +104,34 @@ class SystemController extends Controller
             ],
             'finance_synced_at' => Cache::get('platform_finance_synced_at'),
         ]);
+    }
+
+    /**
+     * Workers da fila (docker/queue-worker.sh): um por conexão lida — com "failover", Redis e MySQL. Sinal de vida
+     * gravado pelo próprio worker (AppServiceProvider::queueHeartbeat); sem sinal há 3 min = parado.
+     */
+    private function workers(): array
+    {
+        $default = config('queue.default');
+        $connections = $default === 'failover' ? (array) config('queue.connections.failover.connections') : [$default];
+
+        return collect($connections)
+            ->reject(fn ($c) => in_array($c, ['sync', 'deferred', 'background', 'null'], true))
+            ->map(function (string $connection) {
+                $heartbeat = Cache::get("queue-worker:{$connection}");
+                try {
+                    $size = \Illuminate\Support\Facades\Queue::connection($connection)->size();
+                } catch (Throwable) {
+                    $size = null; // Redis fora do ar
+                }
+
+                return [
+                    'connection' => $connection,
+                    'last_seen_at' => $heartbeat,
+                    'running' => $heartbeat && Carbon::parse($heartbeat)->gt(now()->subMinutes(3)),
+                    'size' => $size,
+                ];
+            })->values()->all();
     }
 
     /** null = Redis não está em uso; senão se ele responde agora. */

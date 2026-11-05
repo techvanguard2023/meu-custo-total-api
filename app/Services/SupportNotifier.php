@@ -6,17 +6,16 @@ use App\Models\SupportMessage;
 use App\Models\SupportTicket;
 use App\Notifications\SupportReplyToUser;
 use App\Notifications\SupportTicketToAdmin;
+use App\Support\Background;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
-
-use function Illuminate\Support\defer;
 
 /**
  * Avisos dos chamados de suporte. Mensagem da loja → e-mail (PLATFORM_ADMIN_EMAILS) e WhatsApp
  * (PLATFORM_SUPPORT_WHATSAPP, enviado pela sessão PLATFORM_WAHA_SESSION) pra plataforma.
  * Resposta do suporte → e-mail pra quem abriu o chamado (o contador em "Ajuda e suporte" também acende).
- * Tudo roda depois da resposta (defer) e falha em silêncio no log: aviso que não saiu não pode
+ * Tudo roda em segundo plano (Background: fila ou depois da resposta) e falha em silêncio no log: aviso que não saiu não pode
  * impedir a pessoa de abrir o chamado.
  */
 class SupportNotifier
@@ -25,37 +24,58 @@ class SupportNotifier
 
     public function toPlatform(SupportTicket $ticket, SupportMessage $message, bool $isNew): void
     {
-        defer(function () use ($ticket, $message, $isNew) {
-            $ticket->loadMissing(['company:id,name', 'user:id,name,email']);
-
-            $emails = config('services.platform.admin_emails', []);
-            if ($emails) {
-                try {
-                    Notification::route('mail', $emails)->notify(new SupportTicketToAdmin($ticket, $message, $isNew));
-                } catch (\Throwable $e) {
-                    Log::warning("Suporte: e-mail do chamado #{$ticket->id} não enviado: ".$e->getMessage());
-                }
-            }
-
-            $this->whatsappToPlatform($ticket, $message, $isNew);
-        });
+        $ticketId = $ticket->id;
+        $messageId = $message->id;
+        Background::run(static fn () => app(self::class)->sendToPlatform($ticketId, $messageId, $isNew));
     }
 
     public function toUser(SupportTicket $ticket, SupportMessage $message): void
     {
-        defer(function () use ($ticket, $message) {
-            // Quem abriu; se a conta dela foi removida da equipe, o dono da loja
-            $recipient = $ticket->user ?? $ticket->company?->users()->where('role', 'owner')->first();
-            if (! $recipient?->email) {
-                return;
-            }
+        $ticketId = $ticket->id;
+        $messageId = $message->id;
+        Background::run(static fn () => app(self::class)->sendToUser($ticketId, $messageId));
+    }
 
+    /** Roda em segundo plano (fila ou depois da resposta): busca de novo pelo id. */
+    public function sendToPlatform(int $ticketId, int $messageId, bool $isNew): void
+    {
+        $ticket = SupportTicket::with(['company:id,name', 'user:id,name,email'])->find($ticketId);
+        $message = SupportMessage::find($messageId);
+        if (! $ticket || ! $message) {
+            return;
+        }
+
+        $emails = config('services.platform.admin_emails', []);
+        if ($emails) {
             try {
-                $recipient->notify(new SupportReplyToUser($ticket, $message));
+                Notification::route('mail', $emails)->notify(new SupportTicketToAdmin($ticket, $message, $isNew));
             } catch (\Throwable $e) {
-                Log::warning("Suporte: e-mail da resposta do chamado #{$ticket->id} não enviado: ".$e->getMessage());
+                Log::warning("Suporte: e-mail do chamado #{$ticket->id} não enviado: ".$e->getMessage());
             }
-        });
+        }
+
+        $this->whatsappToPlatform($ticket, $message, $isNew);
+    }
+
+    public function sendToUser(int $ticketId, int $messageId): void
+    {
+        $ticket = SupportTicket::with(['company:id,name', 'user'])->find($ticketId);
+        $message = SupportMessage::find($messageId);
+        if (! $ticket || ! $message) {
+            return;
+        }
+
+        // Quem abriu; se a conta dela foi removida da equipe, o dono da loja
+        $recipient = $ticket->user ?? $ticket->company?->users()->where('role', 'owner')->first();
+        if (! $recipient?->email) {
+            return;
+        }
+
+        try {
+            $recipient->notify(new SupportReplyToUser($ticket, $message));
+        } catch (\Throwable $e) {
+            Log::warning("Suporte: e-mail da resposta do chamado #{$ticket->id} não enviado: ".$e->getMessage());
+        }
     }
 
     private function whatsappToPlatform(SupportTicket $ticket, SupportMessage $message, bool $isNew): void

@@ -3,7 +3,9 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Support\Background;
 use Database\Factories\UserFactory;
+use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -43,6 +45,16 @@ class User extends Authenticatable
     public function company(): BelongsTo
     {
         return $this->belongsTo(Company::class);
+    }
+
+    /**
+     * E-mail de "esqueci a senha" em segundo plano (fila, ou logo depois da resposta): o SMTP lento não segura
+     * a tela e o tempo de resposta não denuncia se o e-mail existe. A mensagem em português está no AppServiceProvider.
+     */
+    public function sendPasswordResetNotification(#[\SensitiveParameter] $token): void
+    {
+        $userId = $this->id;
+        Background::run(static fn () => User::find($userId)?->notify(new ResetPassword($token)));
     }
 
     public function isOwner(): bool

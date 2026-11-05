@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Support\Background;
 use App\Models\Company;
 use App\Models\Quote;
 use Illuminate\Support\Facades\Log;
@@ -80,7 +81,7 @@ class ProductionStageNotifier
         }
 
         $quoteId = $quote->id;
-        dispatch(fn () => app(self::class)->send($quoteId, $stage))->afterResponse();
+        Background::run(static fn () => app(self::class)->send($quoteId, $stage));
     }
 
     /**
@@ -101,7 +102,7 @@ class ProductionStageNotifier
         }
 
         $quoteId = $quote->id;
-        dispatch(fn () => app(self::class)->sendPayment($quoteId, $event))->afterResponse();
+        Background::run(static fn () => app(self::class)->sendPayment($quoteId, $event));
     }
 
     public function sendPayment(int $quoteId, string $event): void

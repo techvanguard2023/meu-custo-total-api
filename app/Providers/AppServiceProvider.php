@@ -3,11 +3,17 @@
 namespace App\Providers;
 
 use App\Models\Company;
-use Illuminate\Cache\RateLimiting\Limit;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Auth\Notifications\ResetPassword;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\LazyLoadingViolationException;
+use Illuminate\Http\Request;
 use Illuminate\Notifications\Messages\MailMessage;
+use Illuminate\Queue\Events\Looping;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Cashier\Cashier;
 
@@ -26,6 +32,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        $this->watchLazyLoading();
+        $this->queueHeartbeat();
+
         // Limite de tentativas no login, cadastro e senha (força bruta e cadastro em massa). Por e-mail + IP e
         // por IP, pra uma rede compartilhada (loja com vários caixas) não travar todo mundo por causa de um.
         $tooMany = fn () => response()->json(['message' => 'Muitas tentativas. Aguarde um pouco e tente de novo.'], 429);
@@ -64,6 +73,55 @@ class AppServiceProvider extends ServiceProvider
                 ->line('Este link expira em 60 minutos.')
                 ->line('Se você não solicitou a redefinição, nenhuma ação é necessária.')
                 ->salutation('Equipe Meu Custo Total');
+        });
+    }
+
+    /**
+     * Fora de produção, relação carregada "sob demanda" dentro de um laço (o N+1) é denunciada: nos testes
+     * quebra na hora; no ambiente local vai pro log do container (docker logs) com o model e a relação.
+     * Corrija com with()/load() ou setRelation() — em produção nada muda.
+     */
+    private function watchLazyLoading(): void
+    {
+        if ($this->app->isProduction()) {
+            return;
+        }
+
+        Model::preventLazyLoading();
+        Model::handleLazyLoadingViolationUsing(function (Model $model, string $relation) {
+            if ($this->app->runningUnitTests()) {
+                throw new LazyLoadingViolationException($model, $relation);
+            }
+
+            $where = collect(debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 40))
+                ->first(fn ($f) => isset($f['file']) && str_starts_with($f['file'], app_path()));
+            Log::channel('stderr')->warning(sprintf(
+                'N+1: %s::$%s carregado sob demanda%s',
+                $model::class,
+                $relation,
+                $where ? ' em '.str_replace(base_path().'/', '', $where['file']).':'.$where['line'] : '',
+            ));
+        });
+    }
+
+    /**
+     * Sinal de vida dos workers da fila (Admin → Sistema): a cada volta do worker, no máximo uma vez por
+     * minuto, grava a hora no cache. Sem sinal há alguns minutos = worker parado.
+     */
+    private function queueHeartbeat(): void
+    {
+        Event::listen(Looping::class, function (Looping $event) {
+            static $last = [];
+            if (($last[$event->connectionName] ?? 0) > time() - 60) {
+                return;
+            }
+            $last[$event->connectionName] = time();
+
+            try {
+                Cache::put("queue-worker:{$event->connectionName}", now()->toIso8601String(), 600);
+            } catch (\Throwable) {
+                // Cache fora do ar: o worker segue trabalhando
+            }
         });
     }
 }
