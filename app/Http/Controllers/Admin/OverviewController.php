@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Company;
 use App\Models\Quote;
 use App\Services\ProTrialStats;
+use App\Services\SignupChannelStats;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -75,6 +76,8 @@ class OverviewController extends Controller
             'signups_by_week' => $weeks,
             // Teste grátis do Pro: em andamento, conversão (no teste / depois com a oferta), ativação e coortes
             'pro_trial' => app(ProTrialStats::class)->summary(),
+            // De onde vêm as lojas (90 dias): cadastros, assinaturas e teste por canal; campanhas do Google Ads
+            'signup_channels' => app(SignupChannelStats::class)->summary(),
             // Último acesso só começa a ser registrado com a área admin — antes disso fica vazio
             'tracking_since' => DB::table('users')->min('last_seen_at'),
         ]);

@@ -8,6 +8,7 @@ use App\Models\Quote;
 use App\Services\AdminAudit;
 use App\Services\AdminDiscount;
 use App\Services\CompanyMessageNotifier;
+use App\Services\SignupAttribution;
 use App\Services\WahaClient;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -24,6 +25,7 @@ class CompanyController extends Controller
             'plan' => ['nullable', Rule::in(['free', 'essential', 'pro'])],
             'status' => ['nullable', Rule::in(['blocked', 'comp', 'trial', 'pending_deletion', 'past_due', 'whatsapp'])],
             'sort' => ['nullable', Rule::in(['created', 'last_seen', 'name'])],
+            'channel' => ['nullable', Rule::in([...SignupAttribution::CHANNELS, 'unknown'])],
         ]);
 
         $since30 = now()->subDays(30);
@@ -42,6 +44,10 @@ class CompanyController extends Controller
         }
         if (! empty($data['plan'])) {
             $query->where('plan', $data['plan']);
+        }
+        // Origem do cadastro (Visão geral → "De onde vêm as lojas"); unknown = antes da medição
+        if (! empty($data['channel'])) {
+            $data['channel'] === 'unknown' ? $query->whereNull('signup_channel') : $query->where('signup_channel', $data['channel']);
         }
         match ($data['status'] ?? null) {
             'blocked' => $query->whereNotNull('blocked_at'),
@@ -67,6 +73,7 @@ class CompanyController extends Controller
             'comp_plan' => $c->comp_plan,
             'comp_until' => $c->comp_until?->toDateString(),
             'trial_until' => $c->onProTrial() ? $c->pro_trial_ends_at->toIso8601String() : null,
+            'signup_channel' => $c->signup_channel,
             'blocked' => $c->blocked_at !== null,
             'pending_deletion' => $c->deletion_scheduled_for !== null,
             'subscription_status' => $c->subscription_status,
@@ -120,6 +127,9 @@ class CompanyController extends Controller
                 'comp_until' => $company->comp_until?->toDateString(),
                 'comp_note' => $company->comp_note,
                 // Teste grátis do Pro (sem cartão): começou, até quando, de onde veio e se já acabou
+                // De onde veio no cadastro (null = antes da medição)
+                'signup_channel' => $company->signup_channel,
+                'signup_attribution' => $company->signup_attribution,
                 'pro_trial' => $company->hadProTrial() ? [
                     'started_at' => $company->pro_trial_started_at->toIso8601String(),
                     'ends_at' => $company->pro_trial_ends_at?->toIso8601String(),

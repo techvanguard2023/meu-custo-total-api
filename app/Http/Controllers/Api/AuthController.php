@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Company;
 use App\Models\Setting;
 use App\Models\User;
+use App\Services\SignupAttribution;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -64,6 +65,15 @@ class AuthController extends Controller
             ]);
 
             Setting::create(['company_id' => $company->id]);
+            // De onde a pessoa veio (landing: cookie mct_src; ou as etiquetas do link do cadastro). Formato estranho é
+            // ignorado — origem é informação extra e não pode impedir ninguém de se cadastrar.
+            $raw = $request->input('attribution');
+            $attribution = SignupAttribution::clean(is_array($raw) ? $raw : null);
+            $company->forceFill([
+                'signup_attribution' => $attribution,
+                'signup_channel' => SignupAttribution::channel($attribution),
+            ])->save();
+
             // Teste grátis do Pro (sem cartão): entra já vendo tudo o que o Pro faz
             $company->startProTrial((int) config('services.platform.pro_trial_days'), 'signup');
 
