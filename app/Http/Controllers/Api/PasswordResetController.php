@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
@@ -34,10 +35,11 @@ class PasswordResetController extends Controller
         $request->validate([
             'token' => ['required'],
             'email' => ['required', 'email'],
-            'password' => ['required', 'string', 'min:8', 'confirmed'],
+            // Mesmas regras do cadastro e do convite (User::STRONG_PASSWORD)
+            'password' => [...User::STRONG_PASSWORD, 'confirmed'],
         ], [
             'password.confirmed' => 'A confirmação da nova senha não confere.',
-            'password.min' => 'A nova senha deve ter pelo menos 8 caracteres.',
+            ...User::STRONG_PASSWORD_MESSAGES,
         ]);
 
         $status = Password::reset(

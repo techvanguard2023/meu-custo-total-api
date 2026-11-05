@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
@@ -33,11 +34,12 @@ class ProfileController extends Controller
     {
         $data = $request->validate([
             'current_password' => ['required', 'current_password'],
-            'password' => ['required', 'string', 'min:8', 'confirmed'],
+            // Mesmas regras do cadastro e do convite (User::STRONG_PASSWORD)
+            'password' => [...User::STRONG_PASSWORD, 'confirmed'],
         ], [
             'current_password.current_password' => 'A senha atual está incorreta.',
             'password.confirmed' => 'A confirmação da nova senha não confere.',
-            'password.min' => 'A nova senha deve ter pelo menos 8 caracteres.',
+            ...User::STRONG_PASSWORD_MESSAGES,
         ]);
 
         $request->user()->update([
