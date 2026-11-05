@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\Company;
+use App\Services\AdminDiscount;
 use Illuminate\Console\Command;
 
 /**
@@ -26,6 +27,18 @@ class ExpireProTrials extends Command
                 $company->update(['plan' => $company->planFromBilling()]);
                 $this->line("Empresa #{$company->id}: teste do Pro encerrado ({$from} → {$company->plan})");
             });
+
+        // Desconto pendente com prazo (oferta do fim do teste) que venceu sem a loja assinar: sai da Stripe e da loja
+        Company::whereNotNull('admin_discount')->each(function (Company $company) {
+            if (AdminDiscount::expired($company->admin_discount)) {
+                try {
+                    app(AdminDiscount::class)->remove($company);
+                    $this->line("Empresa #{$company->id}: desconto pendente venceu e foi removido");
+                } catch (\Throwable $e) {
+                    $this->warn("Empresa #{$company->id}: desconto vencido não removido ({$e->getMessage()})");
+                }
+            }
+        });
 
         return self::SUCCESS;
     }

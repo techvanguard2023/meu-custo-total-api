@@ -15,8 +15,11 @@ class AdminDiscount
 {
     public const DURATIONS = ['once', 'repeating', 'forever'];
 
-    /** @param array{type: string, value: float|int, duration: string, months?: int|null, note?: string|null} $data */
-    public function give(Company $company, array $data): array
+    /**
+     * @param array{type: string, value: float|int, duration: string, months?: int|null, note?: string|null} $data
+     * $expiresAt: até quando dá pra usar (só pra loja que ainda não assina — ex: oferta do fim do teste grátis).
+     */
+    public function give(Company $company, array $data, ?\Carbon\CarbonInterface $expiresAt = null, string $source = 'admin'): array
     {
         $stripe = Cashier::stripe();
         $percent = $data['type'] === 'percent';
@@ -29,7 +32,8 @@ class AdminDiscount
             'currency' => $percent ? null : $currency,
             'duration' => $data['duration'],
             'duration_in_months' => $data['duration'] === 'repeating' ? (int) $data['months'] : null,
-            'metadata' => ['company_id' => (string) $company->id, 'source' => 'admin'],
+            'redeem_by' => $expiresAt?->getTimestamp(),
+            'metadata' => ['company_id' => (string) $company->id, 'source' => $source],
         ], fn ($v) => $v !== null));
 
         $previous = $company->admin_discount;
@@ -48,6 +52,9 @@ class AdminDiscount
             'status' => $subscription ? 'applied' : 'pending',
             'created_at' => now()->toIso8601String(),
             'applied_at' => $subscription ? now()->toIso8601String() : null,
+            // Pendente com prazo: some do checkout e da tela de Planos depois disso
+            'expires_at' => $subscription ? null : $expiresAt?->toIso8601String(),
+            'source' => $source,
         ]])->save();
 
         // O cupom anterior sai da Stripe (desconto que já estava numa assinatura foi trocado pelo novo acima)
@@ -56,6 +63,14 @@ class AdminDiscount
         }
 
         return $company->admin_discount;
+    }
+
+    /** Desconto pendente (a loja ainda não assinou) que passou do prazo. */
+    public static function expired(?array $discount): bool
+    {
+        return ($discount['status'] ?? null) === 'pending'
+            && ! empty($discount['expires_at'])
+            && \Illuminate\Support\Carbon::parse($discount['expires_at'])->isPast();
     }
 
     /** Tira o desconto: da assinatura (se estiver nela) e da Stripe. */
@@ -119,7 +134,8 @@ class AdminDiscount
             : 'R$ '.number_format($d['value'], 2, ',', '.');
 
         return $value.' de desconto '.match ($d['duration']) {
-            'once' => 'na próxima fatura',
+            // Pra quem ainda não assina, a "próxima fatura" é a primeira
+            'once' => ($d['status'] ?? null) === 'pending' ? 'no 1º mês' : 'na próxima fatura',
             'repeating' => "por {$d['months']} ".($d['months'] === 1 ? 'mês' : 'meses'),
             default => 'em todas as faturas',
         };

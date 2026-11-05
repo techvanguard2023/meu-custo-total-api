@@ -40,6 +40,8 @@ Schedule::command('tokens:prune')->dailyAt('03:45');
 Schedule::command('admin:expire-comps')->dailyAt('03:15');
 // Teste grátis do Pro: no fim, a loja volta pro plano da assinatura (ou Grátis)
 Schedule::command('trial:expire')->hourly()->withoutOverlapping(10);
+// Mensagens do teste (e-mail; "faltam 3 dias" e "acabou" também no WhatsApp, das 9h às 20h)
+Schedule::command('trial:notify')->everyFifteenMinutes()->withoutOverlapping(14);
 // Financeiro da área admin: cobranças da Stripe, tarifas, custo da OpenAI e cotação do dólar
 Schedule::command('admin:sync-finance')->dailyAt('04:30')->withoutOverlapping(30);
 

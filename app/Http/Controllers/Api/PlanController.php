@@ -35,9 +35,11 @@ class PlanController extends Controller
             // Plano da assinatura em si (no teste o plano em uso é Pro, mas os botões da tela seguem a assinatura)
             'subscription_plan' => Company::planForSubscription($company->subscription('default')),
             // Desconto dado pela plataforma (ficha da loja no admin): a tela de planos mostra
-            'discount' => $company->admin_discount ? [
+            'discount' => $company->admin_discount && ! AdminDiscount::expired($company->admin_discount) ? [
                 'label' => app(AdminDiscount::class)->label($company->admin_discount),
                 'status' => $company->admin_discount['status'],
+                // prazo pra usar (oferta do fim do teste grátis)
+                'expires_at' => $company->admin_discount['expires_at'] ?? null,
             ] : null,
             'limits' => self::FREE_LIMITS,
             'usage' => [
@@ -87,7 +89,8 @@ class PlanController extends Controller
         if ($company->onProTrial() && $company->pro_trial_ends_at->gt(now()->addHours(49))) {
             $builder->trialUntil($company->pro_trial_ends_at);
         }
-        $adminCoupon = ($company->admin_discount['status'] ?? null) === 'pending' ? $company->admin_discount['coupon_id'] : null;
+        $adminCoupon = ($company->admin_discount['status'] ?? null) === 'pending' && ! AdminDiscount::expired($company->admin_discount)
+            ? $company->admin_discount['coupon_id'] : null;
         if ($adminCoupon) {
             // Desconto dado pelo admin (ficha da loja): já entra no checkout. A Stripe não deixa usar junto
             // com o campo de código promocional, então ele some nesse caso.

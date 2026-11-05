@@ -122,6 +122,8 @@ class CompanyController extends Controller
                     'active' => $company->onProTrial(),
                     'days_left' => $company->proTrialDaysLeft(),
                     'source' => $company->pro_trial_source,
+                    // mensagens do teste: etapa → data (ou "skipped:data"); *_whatsapp = como foi o WhatsApp
+                    'notices' => $company->pro_trial_notices ?? [],
                 ] : null,
                 'blocked_at' => $company->blocked_at?->toIso8601String(),
                 'blocked_reason' => $company->blocked_reason,

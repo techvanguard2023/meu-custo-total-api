@@ -79,6 +79,7 @@ class Company extends Model
         'pro_trial_started_at' => 'datetime',
         'pro_trial_ends_at' => 'datetime',
         'pro_trial_ended_at' => 'datetime',
+        'pro_trial_notices' => 'array',
         'deletion_paused_subscription' => 'boolean',
     ];
 
@@ -89,7 +90,7 @@ class Company extends Model
      * (webhook, token antigo do catálogo, Stripe). As telas que precisam deles têm rota própria.
      */
     protected $hidden = [
-        'admin_notes', 'comp_note', 'admin_discount',
+        'admin_notes', 'comp_note', 'admin_discount', 'pro_trial_notices',
         'whatsapp_webhook_url', 'whatsapp_webhook_events', 'catalog_token',
         'stripe_id', 'pm_type', 'pm_last_four', 'trial_ends_at', 'deletion_paused_subscription',
     ];
