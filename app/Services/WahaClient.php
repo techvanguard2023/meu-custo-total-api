@@ -30,12 +30,41 @@ class WahaClient
             ->timeout(15);
     }
 
-    /** Todas as sessões da WAHA (nome => situação) — saúde do sistema na área admin. */
+    /**
+     * Todas as sessões da WAHA — saúde do sistema na área admin.
+     * @return array<string, array{status: string, problem: ?string}> nome => situação e o que ela quer dizer
+     */
     public function listSessions(): array
     {
         return collect($this->http()->timeout(20)->get('/sessions', ['all' => 'true'])->throw()->json() ?? [])
-            ->mapWithKeys(fn ($s) => [(string) ($s['name'] ?? '') => (string) ($s['status'] ?? '?')])
+            ->mapWithKeys(fn ($s) => [(string) ($s['name'] ?? '') => ['status' => (string) ($s['status'] ?? '?'), 'problem' => self::problem($s)]])
             ->all();
+    }
+
+    /**
+     * O que a situação da sessão quer dizer, em português (null = funcionando). FAILED sem conta ("me" vazio) é o
+     * WhatsApp que deslogou o aparelho — removido no celular, celular ~14 dias sem internet, número trocado ou banido:
+     * só lendo o QR de novo. FAILED com a conta ainda lá é falha de conexão: reiniciar costuma resolver.
+     */
+    public static function problem(?array $session): ?string
+    {
+        return match ($session['status'] ?? null) {
+            null => 'Sessão não existe na WAHA',
+            'WORKING' => null,
+            'FAILED' => empty($session['me'])
+                ? 'O WhatsApp desconectou o aparelho (removido no celular, celular muito tempo sem internet ou número trocado) — a loja precisa ler o QR Code de novo'
+                : 'Falha na conexão com o WhatsApp — reiniciar a sessão costuma resolver',
+            'SCAN_QR_CODE' => 'Aguardando a loja ler o QR Code',
+            'STARTING' => 'Iniciando',
+            'STOPPED' => 'Desconectada pela loja',
+            default => 'Situação desconhecida: '.$session['status'],
+        };
+    }
+
+    /** Reinicia a sessão (FAILED → volta a conectar, ou pede QR se a conta deslogou). */
+    public function restartSession(string $name): array
+    {
+        return $this->http()->post("/sessions/{$name}/restart")->throw()->json() ?? [];
     }
 
     /** null quando a sessão nunca foi criada (ou foi deletada). */
@@ -70,7 +99,10 @@ class WahaClient
         } else {
             // Sessão já existe: alinha a configuração com o que está salvo antes de reiniciar.
             $this->updateConfig($name, $config);
-            $response = $this->http()->post("/sessions/{$name}/start");
+            // FAILED (o WhatsApp derrubou o aparelho, por exemplo) não aceita "start": precisa de "restart"
+            $response = ($existing['status'] ?? null) === 'FAILED'
+                ? $this->http()->post("/sessions/{$name}/restart")
+                : $this->http()->post("/sessions/{$name}/start");
         }
 
         $response->throw();

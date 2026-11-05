@@ -282,6 +282,8 @@ class WhatsAppConnectionController extends Controller
             'phone' => $session['me']['id'] ?? null,
             'qr' => $status === 'SCAN_QR_CODE' ? $this->waha->getQrCodeDataUri($session['name']) : null,
             'bot_enabled' => $company?->whatsapp_bot_enabled ?? true,
+            // FAILED: o que aconteceu, pra tela da loja explicar (ex: o WhatsApp desconectou o aparelho)
+            'problem' => $status === 'FAILED' ? WahaClient::problem($session) : null,
         ];
     }
 }

@@ -77,7 +77,14 @@ class SystemController extends Controller
             try {
                 $statuses = $waha->listSessions();
                 $whatsapp['sessions'] = Company::whereNotNull('whatsapp_session_name')->orderBy('name')->get(['id', 'name', 'whatsapp_session_name'])
-                    ->map(fn ($c) => ['company_id' => $c->id, 'company' => $c->name, 'session' => $c->whatsapp_session_name, 'status' => $statuses[$c->whatsapp_session_name] ?? 'NÃO EXISTE NA WAHA'])
+                    ->map(fn ($c) => [
+                        'company_id' => $c->id,
+                        'company' => $c->name,
+                        'session' => $c->whatsapp_session_name,
+                        'status' => $statuses[$c->whatsapp_session_name]['status'] ?? 'NÃO EXISTE NA WAHA',
+                        // o que a situação quer dizer (null = funcionando)
+                        'problem' => isset($statuses[$c->whatsapp_session_name]) ? $statuses[$c->whatsapp_session_name]['problem'] : WahaClient::problem(null),
+                    ])
                     ->values();
             } catch (Throwable $e) {
                 $whatsapp['error'] = mb_substr($e->getMessage(), 0, 200);

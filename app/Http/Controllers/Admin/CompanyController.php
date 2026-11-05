@@ -86,11 +86,15 @@ class CompanyController extends Controller
 
         // WhatsApp: consulta rápida da sessão (sem derrubar a ficha se a WAHA não responder)
         $whatsappStatus = null;
+        $whatsappProblem = null;
         if ($company->whatsapp_session_name && $waha->isConfigured()) {
             try {
-                $whatsappStatus = $waha->getSession($company->whatsapp_session_name)['status'] ?? 'NÃO ENCONTRADA';
+                $session = $waha->getSession($company->whatsapp_session_name);
+                $whatsappStatus = $session['status'] ?? 'NÃO ENCONTRADA';
+                $whatsappProblem = WahaClient::problem($session);
             } catch (Throwable) {
                 $whatsappStatus = 'SEM RESPOSTA';
+                $whatsappProblem = 'A WAHA não respondeu agora';
             }
         }
 
@@ -131,6 +135,7 @@ class CompanyController extends Controller
                 'admin_notes' => $company->admin_notes,
                 'whatsapp_session' => $company->whatsapp_session_name,
                 'whatsapp_status' => $whatsappStatus,
+                'whatsapp_problem' => $whatsappProblem,
             ],
             'subscription' => $subscription ? [
                 'status' => $subscription->stripe_status,
@@ -310,6 +315,23 @@ class CompanyController extends Controller
         AdminAudit::log($request, 'discount.remove', $company->id, null, ['label' => $discounts->label($current)]);
 
         return $this->show($company->fresh(), app(WahaClient::class));
+    }
+
+    /**
+     * Reinicia a sessão do WhatsApp da loja (área admin). Resolve falha de conexão; se o WhatsApp deslogou o aparelho,
+     * a sessão volta pra "aguardando QR Code" e a loja precisa ler de novo em Integrações.
+     */
+    public function restartWhatsapp(Request $request, Company $company, WahaClient $waha)
+    {
+        abort_unless($company->whatsapp_session_name && $waha->isConfigured(), 422, 'Esta loja não tem WhatsApp conectado.');
+        try {
+            $waha->restartSession($company->whatsapp_session_name);
+        } catch (Throwable $e) {
+            abort(422, 'A WAHA não reiniciou a sessão: '.\Illuminate\Support\Str::limit($e->getMessage(), 200));
+        }
+        AdminAudit::log($request, 'whatsapp.restart', $company->id, null, ['session' => $company->whatsapp_session_name]);
+
+        return $this->show($company->fresh(), $waha);
     }
 
     /** Plano de cortesia: vale por cima da assinatura (o maior dos dois) até a data — sem data, até tirar. */

@@ -135,6 +135,7 @@ Route::prefix('v1')->group(function () {
             Route::post('/companies/{company}/block', [AdminCompanyController::class, 'block']);
             Route::delete('/companies/{company}/block', [AdminCompanyController::class, 'unblock']);
             Route::put('/companies/{company}/notes', [AdminCompanyController::class, 'notes']);
+            Route::post('/companies/{company}/whatsapp/restart', [AdminCompanyController::class, 'restartWhatsapp'])->middleware('throttle:10,1');
             Route::post('/companies/{company}/messages', [AdminCompanyController::class, 'sendMessage'])->middleware('throttle:20,1');
             Route::delete('/companies/{company}/messages/{message}', [AdminCompanyController::class, 'deleteMessage'])->whereNumber('message');
             Route::post('/companies/{company}/impersonate', [AdminCompanyController::class, 'impersonate'])->middleware('throttle:10,1');
