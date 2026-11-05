@@ -38,6 +38,8 @@ Schedule::command('tokens:prune')->dailyAt('03:45');
 
 // Área admin: cortesias vencidas voltam pro plano da assinatura
 Schedule::command('admin:expire-comps')->dailyAt('03:15');
+// Teste grátis do Pro: no fim, a loja volta pro plano da assinatura (ou Grátis)
+Schedule::command('trial:expire')->hourly()->withoutOverlapping(10);
 // Financeiro da área admin: cobranças da Stripe, tarifas, custo da OpenAI e cotação do dólar
 Schedule::command('admin:sync-finance')->dailyAt('04:30')->withoutOverlapping(30);
 

@@ -72,6 +72,8 @@ return [
             explode(',', (string) env('PLATFORM_SUPPORT_WHATSAPP', ''))
         ))),
         'support_waha_session' => env('PLATFORM_WAHA_SESSION'),
+        // Teste grátis do Pro pra quem se cadastra (dias; 0 desliga)
+        'pro_trial_days' => (int) env('PRO_TRIAL_DAYS', 14),
     ],
 
     // API de afiliados da Shopee (Achadinhos): endereço oficial do Brasil; trocar só pra testes

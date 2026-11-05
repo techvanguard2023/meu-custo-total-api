@@ -76,6 +76,9 @@ class Company extends Model
         'blocked_at' => 'datetime',
         'comp_until' => 'date:Y-m-d',
         'admin_discount' => 'array',
+        'pro_trial_started_at' => 'datetime',
+        'pro_trial_ends_at' => 'datetime',
+        'pro_trial_ended_at' => 'datetime',
         'deletion_paused_subscription' => 'boolean',
     ];
 
@@ -140,10 +143,51 @@ class Company extends Model
     public function planFromBilling(): string
     {
         $rank = [self::PLAN_FREE => 0, self::PLAN_ESSENTIAL => 1, self::PLAN_PRO => 2];
-        $subscription = self::planForSubscription($this->subscription('default'));
+        $plan = self::planForSubscription($this->subscription('default'));
         $comp = $this->activeCompPlan();
+        if ($comp && $rank[$comp] > $rank[$plan]) {
+            $plan = $comp;
+        }
 
-        return $comp && $rank[$comp] > $rank[$subscription] ? $comp : $subscription;
+        // Teste grátis do Pro valendo: Pro até o fim, mesmo que já tenha assinado o Essencial no meio
+        return $this->onProTrial() ? self::PLAN_PRO : $plan;
+    }
+
+    /** Teste grátis do Pro (sem cartão) valendo agora. */
+    public function onProTrial(): bool
+    {
+        return $this->pro_trial_ends_at !== null && $this->pro_trial_ends_at->isFuture();
+    }
+
+    /** Já usou o teste (um por loja). */
+    public function hadProTrial(): bool
+    {
+        return $this->pro_trial_started_at !== null;
+    }
+
+    /** Dias que faltam do teste, arredondando pra cima (termina hoje à noite = 1). */
+    public function proTrialDaysLeft(): int
+    {
+        return $this->onProTrial() ? (int) ceil(now()->diffInSeconds($this->pro_trial_ends_at) / 86400) : 0;
+    }
+
+    /** Começa o teste grátis do Pro (uma vez por loja) e já passa a loja pro Pro. */
+    public function startProTrial(int $days, string $source): bool
+    {
+        if ($days < 1 || $this->hadProTrial()) {
+            return false;
+        }
+
+        $this->forceFill([
+            'pro_trial_started_at' => now(),
+            // 14 dias contando hoje, até 23:59 de Brasília do último (sem acabar no meio da tarde; a faixa começa em "faltam 14")
+            'pro_trial_ends_at' => now('America/Sao_Paulo')->addDays($days - 1)->endOfDay()->utc(),
+            'pro_trial_ended_at' => null,
+            'pro_trial_source' => $source,
+        ])->save();
+        $this->update(['plan' => $this->planFromBilling()]);
+
+        return true;
     }
 
     protected function logoUrl(): Attribute

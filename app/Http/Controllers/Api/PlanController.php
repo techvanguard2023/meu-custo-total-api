@@ -26,6 +26,14 @@ class PlanController extends Controller
             'essential_price' => self::ESSENTIAL_PRICE,
             'pro_price' => self::PRO_PRICE,
             'stripe_configured' => $this->stripeConfigured(),
+            // Teste grátis do Pro valendo (a faixa do app e a tela de planos mostram quanto falta)
+            'trial' => $company->onProTrial() ? [
+                'ends_at' => $company->pro_trial_ends_at->toIso8601String(),
+                'days_left' => $company->proTrialDaysLeft(),
+            ] : null,
+            'subscribed' => $company->subscribed('default'),
+            // Plano da assinatura em si (no teste o plano em uso é Pro, mas os botões da tela seguem a assinatura)
+            'subscription_plan' => Company::planForSubscription($company->subscription('default')),
             // Desconto dado pela plataforma (ficha da loja no admin): a tela de planos mostra
             'discount' => $company->admin_discount ? [
                 'label' => app(AdminDiscount::class)->label($company->admin_discount),
@@ -74,6 +82,11 @@ class PlanController extends Controller
         $frontend = rtrim(config('services.frontend_url'), '/');
 
         $builder = $company->newSubscription('default', $priceId);
+        // Assinou no meio do teste grátis: a cobrança só começa quando o teste acabar (não perde os dias que faltam).
+        // A Stripe exige pelo menos 48h de teste no checkout; com menos que isso, cobra já.
+        if ($company->onProTrial() && $company->pro_trial_ends_at->gt(now()->addHours(49))) {
+            $builder->trialUntil($company->pro_trial_ends_at);
+        }
         $adminCoupon = ($company->admin_discount['status'] ?? null) === 'pending' ? $company->admin_discount['coupon_id'] : null;
         if ($adminCoupon) {
             // Desconto dado pelo admin (ficha da loja): já entra no checkout. A Stripe não deixa usar junto

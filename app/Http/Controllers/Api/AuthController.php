@@ -64,6 +64,8 @@ class AuthController extends Controller
             ]);
 
             Setting::create(['company_id' => $company->id]);
+            // Teste grátis do Pro (sem cartão): entra já vendo tudo o que o Pro faz
+            $company->startProTrial((int) config('services.platform.pro_trial_days'), 'signup');
 
             $user = User::create([
                 'company_id' => $company->id,

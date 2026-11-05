@@ -22,7 +22,7 @@ class CompanyController extends Controller
         $data = $request->validate([
             'search' => ['nullable', 'string', 'max:100'],
             'plan' => ['nullable', Rule::in(['free', 'essential', 'pro'])],
-            'status' => ['nullable', Rule::in(['blocked', 'comp', 'pending_deletion', 'past_due', 'whatsapp'])],
+            'status' => ['nullable', Rule::in(['blocked', 'comp', 'trial', 'pending_deletion', 'past_due', 'whatsapp'])],
             'sort' => ['nullable', Rule::in(['created', 'last_seen', 'name'])],
         ]);
 
@@ -46,6 +46,7 @@ class CompanyController extends Controller
         match ($data['status'] ?? null) {
             'blocked' => $query->whereNotNull('blocked_at'),
             'comp' => $query->whereNotNull('comp_plan'),
+            'trial' => $query->where('pro_trial_ends_at', '>', now()),
             'pending_deletion' => $query->whereNotNull('deletion_scheduled_for'),
             'past_due' => $query->whereHas('subscriptions', fn ($s) => $s->where('stripe_status', 'past_due')),
             'whatsapp' => $query->whereNotNull('whatsapp_session_name'),
@@ -65,6 +66,7 @@ class CompanyController extends Controller
             'plan' => $c->plan,
             'comp_plan' => $c->comp_plan,
             'comp_until' => $c->comp_until?->toDateString(),
+            'trial_until' => $c->onProTrial() ? $c->pro_trial_ends_at->toIso8601String() : null,
             'blocked' => $c->blocked_at !== null,
             'pending_deletion' => $c->deletion_scheduled_for !== null,
             'subscription_status' => $c->subscription_status,
@@ -113,6 +115,14 @@ class CompanyController extends Controller
                 'comp_plan' => $company->comp_plan,
                 'comp_until' => $company->comp_until?->toDateString(),
                 'comp_note' => $company->comp_note,
+                // Teste grátis do Pro (sem cartão): começou, até quando, de onde veio e se já acabou
+                'pro_trial' => $company->hadProTrial() ? [
+                    'started_at' => $company->pro_trial_started_at->toIso8601String(),
+                    'ends_at' => $company->pro_trial_ends_at?->toIso8601String(),
+                    'active' => $company->onProTrial(),
+                    'days_left' => $company->proTrialDaysLeft(),
+                    'source' => $company->pro_trial_source,
+                ] : null,
                 'blocked_at' => $company->blocked_at?->toIso8601String(),
                 'blocked_reason' => $company->blocked_reason,
                 'deletion_scheduled_for' => $company->deletion_scheduled_for?->toIso8601String(),
