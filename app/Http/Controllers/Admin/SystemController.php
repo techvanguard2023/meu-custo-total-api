@@ -28,8 +28,24 @@ class SystemController extends Controller
 
         $runs = Cache::get('schedule_runs', []);
         $monitorSince = ($since = Cache::get('schedule_monitor_since')) ? Carbon::parse($since) : null;
-        $tasks = collect($schedule->events())->map(function ($event) use ($runs, $monitorSince) {
+        // Quando cada tarefa apareceu pela primeira vez: tarefa nova (deploy recente) não é cobrada pela janela de
+        // antes de existir — senão aparecia "atrasada" até a primeira execução
+        $firstSeen = Cache::get('schedule_first_seen', []);
+        $seenChanged = false;
+        foreach ($schedule->events() as $event) {
             $key = MonitorScheduledTasks::key($event);
+            if (! isset($firstSeen[$key])) {
+                $firstSeen[$key] = now()->toIso8601String();
+                $seenChanged = true;
+            }
+        }
+        if ($seenChanged) {
+            Cache::forever('schedule_first_seen', $firstSeen);
+        }
+
+        $tasks = collect($schedule->events())->map(function ($event) use ($runs, $monitorSince, $firstSeen) {
+            $key = MonitorScheduledTasks::key($event);
+            $watchedSince = $monitorSince ? max($monitorSince, Carbon::parse($firstSeen[$key])) : null;
             $run = $runs[$key] ?? null;
             $timezone = $event->timezone ?: config('app.timezone');
             $previous = Carbon::instance((new CronExpression($event->expression))->getPreviousRunDate(now($timezone), 0, true))->utc();
@@ -37,7 +53,7 @@ class SystemController extends Controller
             // Atrasada: deveria ter terminado bem na última janela (com 3 min de folga) e não terminou — só conta
             // se o monitor já estava registrando naquela hora
             $late = $previous->lt(now()->subMinutes(3))
-                && ($lastOk ? $lastOk->lt($previous->copy()->subMinutes(2)) : ($monitorSince && $monitorSince->lt($previous)));
+                && ($lastOk ? $lastOk->lt($previous->copy()->subMinutes(2)) : ($watchedSince && $watchedSince->lt($previous)));
 
             return [
                 'command' => $key,
