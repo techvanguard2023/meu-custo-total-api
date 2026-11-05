@@ -216,6 +216,8 @@ class PublicCatalogController extends Controller
                     'category_root_label' => $product->category?->parent?->name ?? $product->category?->name,
                     'category_root_slug' => $product->category?->parent?->slug ?? $product->category?->slug,
                     'image_url' => $product->image_url,
+                    // Cópia JPEG da capa pra prévia do link no WhatsApp (as fotos do catálogo são WebP)
+                    'share_image_url' => $product->images->first()?->shareUrl() ?? $product->image_url,
                     'images' => $product->images->map(fn ($image) => $image->image_url)->values(),
                     // Quando há promoção ativa, "price" já é o valor com desconto (é o que o
                     // cliente de fato paga — usado no carrinho, WhatsApp etc). O preço cheio

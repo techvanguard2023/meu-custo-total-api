@@ -18,7 +18,7 @@ class ProductImage extends Model
         return Product::whereKey($this->product_id)->value('company_id');
     }
 
-    protected $fillable = ['product_id', 'path', 'position'];
+    protected $fillable = ['product_id', 'path', 'share_path', 'position'];
 
     protected $casts = [
         'position' => 'integer',
@@ -26,11 +26,21 @@ class ProductImage extends Model
 
     protected $appends = ['image_url'];
 
+    protected $hidden = ['share_path'];
+
     protected function imageUrl(): Attribute
     {
         return Attribute::get(
             fn () => $this->path ? Storage::disk('public')->url($this->path) : null
         );
+    }
+
+    /** Cópia JPEG pra fora do app (prévia de link, WhatsApp); fotos antigas não têm — usa a própria. */
+    public function shareUrl(): ?string
+    {
+        $path = $this->share_path ?: $this->path;
+
+        return $path ? Storage::disk('public')->url($path) : null;
     }
 
     public function product(): BelongsTo

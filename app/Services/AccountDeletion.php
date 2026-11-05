@@ -103,6 +103,7 @@ class AccountDeletion
         return collect([$company->logo_path])
             ->merge(DB::table('products')->where('company_id', $company->id)->whereNotNull('image_path')->pluck('image_path'))
             ->merge(DB::table('product_images')->whereIn('product_id', $productIds)->pluck('path'))
+            ->merge(DB::table('product_images')->whereIn('product_id', $productIds)->whereNotNull('share_path')->pluck('share_path'))
             ->merge(DB::table('catalog_banners')->where('company_id', $company->id)->pluck('image_path'))
             ->merge(DB::table('affiliate_offers')->where('company_id', $company->id)->whereNotNull('image_path')->pluck('image_path'))
             ->merge($collectionBanners)

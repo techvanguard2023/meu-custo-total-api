@@ -142,7 +142,8 @@ class CatalogController extends Controller
             Storage::disk('public')->delete($company->logo_path);
         }
 
-        $path = $request->file('logo')->store('logos', 'public');
+        // PNG se tiver transparência, senão JPEG (a logo vai na prévia do link do WhatsApp)
+        $path = app(\App\Services\ImageOptimizer::class)->store($request->file('logo'), 'logos', 'logo');
         $company->update(['logo_path' => $path]);
 
         return response()->json($this->payload($company->fresh()));
@@ -178,7 +179,7 @@ class CatalogController extends Controller
         $existingCount = $company->banners()->count();
         abort_if($existingCount >= self::MAX_BANNERS, 422, 'Máximo de '.self::MAX_BANNERS.' banners.');
 
-        $path = $request->file('image')->store('banners', 'public');
+        $path = app(\App\Services\ImageOptimizer::class)->store($request->file('image'), 'banners', 'banner');
         $company->banners()->create([
             'image_path' => $path,
             'link_url' => $data['link_url'] ?? null,

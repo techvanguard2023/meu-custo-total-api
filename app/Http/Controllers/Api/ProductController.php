@@ -313,7 +313,7 @@ class ProductController extends Controller
         }
 
         foreach ($product->images as $image) {
-            Storage::disk('public')->delete($image->path);
+            Storage::disk('public')->delete(array_filter([$image->path, $image->share_path]));
         }
 
         $product->delete();
@@ -336,9 +336,11 @@ class ProductController extends Controller
         abort_if($existingCount + count($request->file('images')) > 8, 422, 'Máximo de 8 fotos por produto.');
 
         $nextPosition = $existingCount;
+        $optimizer = app(\App\Services\ImageOptimizer::class);
         foreach ($request->file('images') as $file) {
-            $path = $file->store('products', 'public');
-            $product->images()->create(['path' => $path, 'position' => $nextPosition++]);
+            // WebP leve pro catálogo + cópia JPEG pra prévia de link e WhatsApp
+            $stored = $optimizer->storeProductImage($file);
+            $product->images()->create(['path' => $stored['path'], 'share_path' => $stored['share_path'], 'position' => $nextPosition++]);
         }
 
         return response()->json($product->fresh(Product::DISPLAY_RELATIONS));
@@ -349,7 +351,7 @@ class ProductController extends Controller
         $this->authorizeCompany($request, $product);
         abort_unless($image->product_id === $product->id, 404);
 
-        Storage::disk('public')->delete($image->path);
+        Storage::disk('public')->delete(array_filter([$image->path, $image->share_path]));
         $image->delete();
 
         return response()->json($product->fresh(Product::DISPLAY_RELATIONS));

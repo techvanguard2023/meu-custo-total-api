@@ -563,7 +563,7 @@ class DisplayController extends Controller
     /** Foto de evidência da visita — uma por reposição/conferência, opcional. */
     private function storePhoto(Request $request): ?string
     {
-        return $request->hasFile('photo') ? $request->file('photo')->store('display-visits', 'public') : null;
+        return $request->hasFile('photo') ? app(\App\Services\ImageOptimizer::class)->store($request->file('photo'), 'display-visits', 'visit') : null;
     }
 
     private function photoMessages(): array

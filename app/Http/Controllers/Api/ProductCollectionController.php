@@ -124,7 +124,7 @@ class ProductCollectionController extends Controller
             $generator->delete($productCollection->banner_path);
         }
 
-        $path = $request->file('banner')->store('collections', 'public');
+        $path = app(\App\Services\ImageOptimizer::class)->store($request->file('banner'), 'collections', 'collection');
         $productCollection->update(['banner_path' => $path]);
         // Cópia leve pra prévia do link no WhatsApp; se não der, a prévia usa o banner original
         $generator->generate($path);

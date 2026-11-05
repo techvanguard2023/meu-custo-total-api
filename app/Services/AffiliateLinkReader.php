@@ -161,8 +161,10 @@ class AffiliateLinkReader
             return null;
         }
 
-        $path = "affiliate/{$companyId}/".Str::random(32).".{$ext}";
-        Storage::disk('public')->put($path, $bytes);
+        // JPEG leve (vai direto pro WhatsApp, que não aceita WebP em todo lugar); se o GD não abrir, guarda como veio
+        $optimized = app(ImageOptimizer::class)->optimize($bytes, 'affiliate');
+        $path = "affiliate/{$companyId}/".Str::random(32).'.'.($optimized['ext'] ?? $ext);
+        Storage::disk('public')->put($path, $optimized['bytes'] ?? $bytes);
 
         return $path;
     }

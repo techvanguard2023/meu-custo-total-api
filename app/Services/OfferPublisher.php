@@ -446,7 +446,10 @@ class OfferPublisher
     /** Primeira foto do produto (do disco do sistema). Sem foto, a oferta vai com a prévia do link. */
     private function imageBytes(Product $product): ?array
     {
-        return $this->imageFromPath($product->images->sortBy('position')->first()?->path ?? $product->image_path);
+        $cover = $product->images->sortBy('position')->first();
+
+        // A cópia JPEG da foto (feita no envio) é a que vai pro WhatsApp
+        return $this->imageFromPath($cover?->share_path ?: $cover?->path ?: $product->image_path);
     }
 
     private function imageFromPath(?string $path): ?array
@@ -456,6 +459,14 @@ class OfferPublisher
         }
 
         $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION)) ?: 'jpg';
+
+        // WebP sem cópia JPEG: converte na hora (o WhatsApp não aceita WebP como foto em todo lugar)
+        if ($ext === 'webp') {
+            $jpeg = app(ImageOptimizer::class)->jpegFromPath($path);
+            if ($jpeg) {
+                return ['bytes' => $jpeg, 'mimetype' => 'image/jpeg', 'ext' => 'jpg'];
+            }
+        }
 
         return [
             'bytes' => Storage::disk('public')->get($path),
