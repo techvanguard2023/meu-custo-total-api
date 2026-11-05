@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Company;
 use App\Models\Quote;
 use App\Services\AdminAudit;
+use App\Services\AdminDiscount;
+use App\Services\CompanyMessageNotifier;
 use App\Services\WahaClient;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -99,6 +101,9 @@ class CompanyController extends Controller
                 'slug' => $company->slug,
                 'email' => $company->email,
                 'phone' => $company->phone,
+                // Contatos que a loja mostra no catálogo (podem ser diferentes dos da equipe)
+                'catalog_whatsapp' => $company->catalog_whatsapp,
+                'catalog_email' => $company->catalog_email,
                 'segment' => $company->segment,
                 'logo_url' => $company->logo_url,
                 'plan' => $company->plan,
@@ -122,11 +127,15 @@ class CompanyController extends Controller
                 'ends_at' => $subscription->ends_at?->toIso8601String(),
                 'created_at' => $subscription->created_at?->toIso8601String(),
             ] : null,
+            // Desconto na assinatura dado pelo admin (cupom da Stripe só desta loja)
+            'discount' => app(AdminDiscount::class)->present($company),
+            'stripe_configured' => (bool) config('cashier.secret'),
             'stripe_url' => $company->stripe_id ? "https://dashboard.stripe.com/{$stripeMode}customers/{$company->stripe_id}" : null,
             'users' => $company->users()->orderByRaw("role = 'owner' DESC")->orderBy('id')->get()->map(fn ($u) => [
                 'id' => $u->id,
                 'name' => $u->name,
                 'email' => $u->email,
+                'phone' => $u->phone,
                 'role' => $u->role,
                 'last_seen_at' => $u->last_seen_at?->toIso8601String(),
                 'created_at' => $u->created_at?->toIso8601String(),
@@ -152,6 +161,21 @@ class CompanyController extends Controller
                     ->get(['amount', 'amount_refunded', 'description', 'receipt_url', 'paid_at'])
                     ->map(fn ($p) => ['amount' => (float) $p->amount, 'refunded' => (float) $p->amount_refunded, 'description' => $p->description, 'receipt_url' => $p->receipt_url, 'paid_at' => \Illuminate\Support\Carbon::parse($p->paid_at)->toIso8601String()]),
             ],
+            // Mensagens que o admin mandou pra esta loja (aviso no app + WhatsApp pro dono)
+            'messages' => DB::table('platform_announcements')->where('company_id', $company->id)->latest('id')->limit(20)
+                ->get(['id', 'title', 'message', 'level', 'link_url', 'link_label', 'ends_at', 'read_at', 'whatsapp_status', 'created_at'])
+                ->map(fn ($m) => [
+                    'id' => $m->id,
+                    'title' => $m->title,
+                    'message' => $m->message,
+                    'level' => $m->level,
+                    'link_url' => $m->link_url,
+                    'link_label' => $m->link_label,
+                    'ends_at' => $m->ends_at ? \Illuminate\Support\Carbon::parse($m->ends_at, 'UTC')->toIso8601String() : null,
+                    'read_at' => $m->read_at ? \Illuminate\Support\Carbon::parse($m->read_at, 'UTC')->toIso8601String() : null,
+                    'whatsapp_status' => $m->whatsapp_status,
+                    'created_at' => \Illuminate\Support\Carbon::parse($m->created_at, 'UTC')->toIso8601String(),
+                ]),
             'audit' => DB::table('admin_audit_logs')->where('company_id', $company->id)->latest('id')->limit(20)
                 ->get(['action', 'admin_email', 'details', 'created_at'])
                 ->map(fn ($a) => ['action' => $a->action, 'admin' => $a->admin_email, 'details' => json_decode((string) $a->details, true), 'at' => \Illuminate\Support\Carbon::parse($a->created_at)->toIso8601String()]),
@@ -177,6 +201,103 @@ class CompanyController extends Controller
             'user' => $owner->load('company')->setAttribute('impersonated_by', ['email' => $request->user()->email, 'expires_at' => $expires->toIso8601String()]),
             'expires_at' => $expires->toIso8601String(),
         ]);
+    }
+
+    /**
+     * Mensagem pra esta loja: aviso no topo do app pra toda a equipe (até alguém fechar ou até a data) e, se
+     * marcado, WhatsApp pro dono pelo número da plataforma. Sem resposta pelo sistema (pra conversa, há o suporte).
+     */
+    public function sendMessage(Request $request, Company $company, CompanyMessageNotifier $notifier)
+    {
+        $data = $request->validate([
+            'title' => ['required', 'string', 'max:120'],
+            'message' => ['nullable', 'string', 'max:1000'],
+            'level' => ['required', Rule::in(['info', 'warning', 'success'])],
+            'link_url' => ['nullable', 'string', 'max:500', 'regex:~^(https?://[^\s]+|/(?!/)[^\s]*)$~i'],
+            'link_label' => ['nullable', 'string', 'max:40'],
+            'ends_at' => ['nullable', 'date', 'after:now'],
+            'whatsapp' => ['boolean'],
+        ], [
+            'title.required' => 'Escreva o título da mensagem.',
+            'link_url.regex' => 'Use um endereço completo (https://…) ou uma tela do app começando com / (ex: /plans).',
+            'ends_at.after' => 'A data de fim precisa ser no futuro.',
+        ]);
+
+        $id = DB::table('platform_announcements')->insertGetId([
+            'company_id' => $company->id,
+            'title' => $data['title'],
+            'message' => $data['message'] ?? null,
+            'level' => $data['level'],
+            'audience' => 'all',
+            'link_url' => $data['link_url'] ?? null,
+            'link_label' => $data['link_label'] ?? null,
+            'ends_at' => ! empty($data['ends_at']) ? \Illuminate\Support\Carbon::parse($data['ends_at'])->utc()->format('Y-m-d H:i:s') : null,
+            'active' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        if ($data['whatsapp'] ?? false) {
+            $notifier->notify($id);
+        }
+        AdminAudit::log($request, 'message.send', $company->id, null, ['id' => $id, 'title' => $data['title'], 'whatsapp' => (bool) ($data['whatsapp'] ?? false)]);
+
+        return $this->show($company->fresh(), app(WahaClient::class));
+    }
+
+    /** Tira a mensagem do app da loja (o WhatsApp, se foi, já foi). */
+    public function deleteMessage(Request $request, Company $company, int $message)
+    {
+        $deleted = DB::table('platform_announcements')->where('id', $message)->where('company_id', $company->id)->delete();
+        abort_unless($deleted, 404);
+        AdminAudit::log($request, 'message.delete', $company->id, null, ['id' => $message]);
+
+        return $this->show($company->fresh(), app(WahaClient::class));
+    }
+
+    /**
+     * Desconto na assinatura (ao lado da cortesia): % ou valor fixo, numa fatura, por N meses ou sempre. Loja que
+     * já assina recebe na assinatura agora; a que não assina, no checkout quando assinar.
+     */
+    public function setDiscount(Request $request, Company $company, AdminDiscount $discounts)
+    {
+        abort_unless(config('cashier.secret'), 422, 'A Stripe não está configurada.');
+        $data = $request->validate([
+            'type' => ['required', Rule::in(['percent', 'amount'])],
+            'value' => ['required', 'numeric', 'gt:0', $request->input('type') === 'percent' ? 'max:100' : 'max:10000'],
+            'duration' => ['required', Rule::in(AdminDiscount::DURATIONS)],
+            'months' => ['required_if:duration,repeating', 'nullable', 'integer', 'min:1', 'max:36'],
+            'note' => ['nullable', 'string', 'max:255'],
+        ], [
+            'value.gt' => 'Informe um desconto maior que zero.',
+            'value.max' => $request->input('type') === 'percent' ? 'O desconto vai até 100%.' : 'Valor alto demais.',
+            'months.required_if' => 'Informe por quantos meses.',
+        ]);
+        // A Stripe não aceita valor fixo "pra sempre" numa assinatura
+        abort_if($data['type'] === 'amount' && $data['duration'] === 'forever', 422, 'Valor fixo não pode valer pra sempre (limite da Stripe). Use porcentagem ou um número de meses.');
+
+        try {
+            $result = $discounts->give($company, $data);
+        } catch (\Stripe\Exception\ApiErrorException $e) {
+            abort(422, 'A Stripe recusou o desconto: '.$e->getMessage());
+        }
+        AdminAudit::log($request, 'discount.set', $company->id, null, ['label' => $discounts->label($result), 'status' => $result['status'], 'note' => $data['note'] ?? null]);
+
+        return $this->show($company->fresh(), app(WahaClient::class));
+    }
+
+    public function removeDiscount(Request $request, Company $company, AdminDiscount $discounts)
+    {
+        $current = $company->admin_discount;
+        abort_unless($current, 404, 'Esta loja não tem desconto.');
+
+        try {
+            $discounts->remove($company);
+        } catch (\Stripe\Exception\ApiErrorException $e) {
+            abort(422, 'A Stripe não tirou o desconto: '.$e->getMessage());
+        }
+        AdminAudit::log($request, 'discount.remove', $company->id, null, ['label' => $discounts->label($current)]);
+
+        return $this->show($company->fresh(), app(WahaClient::class));
     }
 
     /** Plano de cortesia: vale por cima da assinatura (o maior dos dois) até a data — sem data, até tirar. */

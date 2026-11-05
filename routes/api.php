@@ -121,6 +121,7 @@ Route::prefix('v1')->group(function () {
         // Sair do "Entrar como" (área admin) e comunicados da plataforma (faixa no app)
         Route::post('/impersonation/stop', [AuthController::class, 'stopImpersonation']);
         Route::get('/announcements', [AdminAnnouncementController::class, 'active']);
+        Route::post('/announcements/{announcement}/seen', [AdminAnnouncementController::class, 'seen'])->whereNumber('announcement');
 
         // Área admin da plataforma (só PLATFORM_ADMIN_EMAILS; para os outros, 404). Toda ação vai pra auditoria.
         Route::prefix('admin')->middleware(EnsurePlatformAdmin::class)->group(function () {
@@ -129,9 +130,13 @@ Route::prefix('v1')->group(function () {
             Route::get('/companies/{company}', [AdminCompanyController::class, 'show']);
             Route::post('/companies/{company}/comp', [AdminCompanyController::class, 'setComp']);
             Route::delete('/companies/{company}/comp', [AdminCompanyController::class, 'removeComp']);
+            Route::post('/companies/{company}/discount', [AdminCompanyController::class, 'setDiscount'])->middleware('throttle:20,1');
+            Route::delete('/companies/{company}/discount', [AdminCompanyController::class, 'removeDiscount']);
             Route::post('/companies/{company}/block', [AdminCompanyController::class, 'block']);
             Route::delete('/companies/{company}/block', [AdminCompanyController::class, 'unblock']);
             Route::put('/companies/{company}/notes', [AdminCompanyController::class, 'notes']);
+            Route::post('/companies/{company}/messages', [AdminCompanyController::class, 'sendMessage'])->middleware('throttle:20,1');
+            Route::delete('/companies/{company}/messages/{message}', [AdminCompanyController::class, 'deleteMessage'])->whereNumber('message');
             Route::post('/companies/{company}/impersonate', [AdminCompanyController::class, 'impersonate'])->middleware('throttle:10,1');
             Route::get('/announcements', [AdminAnnouncementController::class, 'index']);
             Route::post('/announcements', [AdminAnnouncementController::class, 'store']);
@@ -275,6 +280,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/settings', [SettingsController::class, 'show']);
             Route::put('/settings', [SettingsController::class, 'update']);
             Route::put('/settings/segment', [SettingsController::class, 'updateSegment']);
+            Route::put('/settings/name', [SettingsController::class, 'updateName']);
             Route::put('/settings/cashback', [SettingsController::class, 'updateCashback']);
             Route::get('/settings/cashback/retroactive', [SettingsController::class, 'cashbackRetroactivePreview']);
             Route::post('/settings/cashback/retroactive', [SettingsController::class, 'cashbackRetroactiveApply']);
@@ -327,6 +333,8 @@ Route::prefix('v1')->group(function () {
             Route::put('/offers/schedule', [OfferController::class, 'updateSchedule']);
             Route::post('/offers', [OfferController::class, 'store'])->middleware('throttle:10,1');
             Route::post('/offers/post', [OfferController::class, 'post'])->middleware('throttle:30,1');
+            Route::get('/offers/social', [OfferController::class, 'social']);
+            Route::post('/offers/social', [OfferController::class, 'postSocial'])->middleware('throttle:10,1');
             Route::post('/offers/preview', [OfferController::class, 'preview']);
             Route::post('/offers/ai-text', [OfferController::class, 'aiText'])->middleware('throttle:20,1');
             Route::put('/products/{product}/offer-text', [OfferController::class, 'updateProductText']);

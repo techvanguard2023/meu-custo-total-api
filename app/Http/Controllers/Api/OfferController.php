@@ -223,6 +223,48 @@ class OfferController extends Controller
         ]);
     }
 
+    /** Redes sociais nos grupos: texto pronto (com as redes cadastradas no catálogo) e os grupos/canais ativos. */
+    public function social(Request $request)
+    {
+        $this->requirePro($request, 'Grupos de ofertas');
+        $company = $request->user()->company;
+
+        return response()->json([
+            'text' => $this->publisher->socialMessage($company),
+            'targets' => $this->publisher->allTargets($company)->map(fn ($t) => [
+                'key' => $t['key'],
+                'label' => $t['label'],
+                'series' => $t['series']->name,
+                'kind' => $t['series']->kind,
+                'purpose' => $t['series']->purpose,
+            ])->values(),
+        ]);
+    }
+
+    /** Manda o texto (editado na tela) pros grupos/canais escolhidos — sem escolha, todos. */
+    public function postSocial(Request $request)
+    {
+        $this->requirePro($request, 'Grupos de ofertas');
+        $data = $request->validate([
+            'text' => ['required', 'string', 'max:3000'],
+            'targets' => ['nullable', 'array'],
+            'targets.*' => ['string', 'max:20'],
+        ], ['text.required' => 'Escreva a mensagem.']);
+        $company = $request->user()->company;
+
+        $all = $this->publisher->allTargets($company);
+        $targets = empty($data['targets']) ? $all : $all->whereIn('key', $data['targets'])->values();
+        abort_if($all->isEmpty(), 422, 'Crie um grupo ou canal de ofertas antes de enviar.');
+        abort_if($targets->isEmpty(), 422, 'Escolha pelo menos um grupo ou canal.');
+
+        $count = $this->publisher->queueMessage($company, trim($data['text']), $targets, 'Redes sociais');
+
+        return response()->json([
+            'deliveries' => $count,
+            'message' => $count === 1 ? 'Mensagem na fila — sai em até 1 minuto.' : "Mensagem na fila — sai um grupo/canal por minuto ({$count} no total).",
+        ]);
+    }
+
     /** Liga/desliga o produto na divulgação das ofertas. */
     public function toggleProduct(Request $request, Product $product)
     {

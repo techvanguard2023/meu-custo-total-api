@@ -106,6 +106,63 @@ class OfferPublisher
         return $targets->count();
     }
 
+    /**
+     * Todos os grupos e canais ativos (das ofertas da loja e dos achadinhos), cada um com uma chave pra tela
+     * escolher: g{id do grupo} ou c{id da série} (canal).
+     */
+    public function allTargets(Company $company): \Illuminate\Support\Collection
+    {
+        return $this->targets($company, OfferSeries::PURPOSE_STORE)
+            ->concat($this->targets($company, OfferSeries::PURPOSE_AFFILIATE))
+            ->map(fn (array $t) => $t + ['key' => $t['group'] ? 'g'.$t['group']->id : 'c'.$t['series']->id])
+            ->values();
+    }
+
+    /** Recado de texto (ex: links das redes sociais) na mesma fila — um grupo/canal por minuto. */
+    public function queueMessage(Company $company, string $text, \Illuminate\Support\Collection $targets, string $label, string $origin = 'social'): int
+    {
+        if ($targets->isEmpty()) {
+            return 0;
+        }
+
+        $post = OfferPost::create([
+            'company_id' => $company->id,
+            'product_name' => $label,
+            'message' => $text,
+            'origin' => $origin,
+            'code' => $this->uniqueCode(),
+        ]);
+        $this->createDeliveries($company, $post, $targets);
+
+        return $targets->count();
+    }
+
+    /** Texto pronto com as redes da loja e o catálogo (a pessoa edita antes de mandar). Sem rede cadastrada: null. */
+    public function socialMessage(Company $company): ?string
+    {
+        $networks = array_filter([
+            '📸 Instagram' => $company->catalog_instagram_url,
+            '👍 Facebook' => $company->catalog_facebook_url,
+            '🎵 TikTok' => $company->catalog_tiktok_url,
+            '▶️ YouTube' => $company->catalog_youtube_url,
+            '💼 LinkedIn' => $company->catalog_linkedin_url,
+        ]);
+        if (! $networks) {
+            return null;
+        }
+
+        $lines = ["📲 *Siga a {$company->name} nas redes sociais!*", '', 'Novidades, lançamentos e promoções em primeira mão:', ''];
+        foreach ($networks as $label => $url) {
+            $lines[] = "{$label}: {$url}";
+        }
+        if ($company->hasCatalogActive()) {
+            $lines[] = '';
+            $lines[] = '🛍️ Catálogo: '.$company->catalogUrl();
+        }
+
+        return implode("\n", $lines);
+    }
+
     private function createDeliveries(Company $company, OfferPost $post, \Illuminate\Support\Collection $targets): void
     {
         foreach ($targets as $target) {
@@ -143,6 +200,19 @@ class OfferPublisher
             }
 
             return null;
+        }
+
+        // Recado de texto (redes sociais): vai como está, com a prévia do primeiro link
+        if ($delivery->post?->message !== null && $delivery->post?->product_id === null && $delivery->post?->affiliate_offer_id === null && $delivery->post?->coupon_id === null) {
+            try {
+                $this->waha->sendText($session, $delivery->target_jid, $delivery->post->message, true);
+                $delivery->update(['status' => OfferDelivery::STATUS_SENT, 'sent_at' => now(), 'error' => null]);
+            } catch (Throwable $e) {
+                Log::warning("Ofertas: envio do recado {$delivery->id} falhou (empresa {$company->id}): {$e->getMessage()}");
+                $delivery->update(['status' => OfferDelivery::STATUS_FAILED, 'error' => Str::limit($e->getMessage(), 250)]);
+            }
+
+            return $delivery;
         }
 
         // Achadinho: confere de novo na hora de enviar (pode ter vencido, sido desligado ou excluído na fila)

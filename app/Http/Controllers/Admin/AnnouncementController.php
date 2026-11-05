@@ -14,7 +14,8 @@ class AnnouncementController extends Controller
 {
     public function index()
     {
-        return DB::table('platform_announcements')->latest('id')->get()->map(fn ($row) => $this->present($row));
+        // As mensagens pra uma loja só ficam na ficha da loja
+        return DB::table('platform_announcements')->whereNull('company_id')->latest('id')->get()->map(fn ($row) => $this->present($row));
     }
 
     public function store(Request $request)
@@ -45,15 +46,49 @@ class AnnouncementController extends Controller
     /** Pro app (qualquer pessoa logada): os comunicados valendo agora pro plano da loja. */
     public function active(Request $request)
     {
-        $plan = $request->user()->company?->plan ?? 'free';
+        $company = $request->user()->company;
+        $plan = $company?->plan ?? 'free';
 
         return DB::table('platform_announcements')
             ->where('active', true)
             ->where(fn ($q) => $q->whereNull('starts_at')->orWhere('starts_at', '<=', now()))
             ->where(fn ($q) => $q->whereNull('ends_at')->orWhere('ends_at', '>=', now()))
-            ->whereIn('audience', ['all', $plan])
+            // Comunicado geral (pelo plano) ou mensagem do admin pra esta loja
+            ->where(fn ($q) => $q
+                ->where(fn ($g) => $g->whereNull('company_id')->whereIn('audience', ['all', $plan]))
+                ->orWhere('company_id', $company?->id ?? 0))
             ->latest('id')
-            ->get(['id', 'title', 'message', 'level', 'link_url', 'link_label']);
+            ->get(['id', 'company_id', 'title', 'message', 'level', 'link_url', 'link_label'])
+            ->map(fn ($row) => [
+                'id' => $row->id,
+                'title' => $row->title,
+                'message' => $row->message,
+                'level' => $row->level,
+                'link_url' => $row->link_url,
+                'link_label' => $row->link_label,
+                // Mensagem só pra esta loja (o app mostra "Mensagem da equipe Meu Custo Total")
+                'direct' => $row->company_id !== null,
+            ]);
+    }
+
+    /**
+     * Alguém da loja fechou a mensagem que o admin mandou pra ela: marca como lida (a ficha da loja mostra).
+     * Comunicado geral não é marcado — o fechar dele vale só naquele navegador.
+     */
+    public function seen(Request $request, int $announcement)
+    {
+        // "Entrar como" (área admin) não conta como leitura da loja
+        if (str_starts_with((string) $request->user()->currentAccessToken()?->name, 'impersonation:')) {
+            return response()->noContent();
+        }
+
+        DB::table('platform_announcements')
+            ->where('id', $announcement)
+            ->where('company_id', $request->user()->company_id)
+            ->whereNull('read_at')
+            ->update(['read_at' => now()]);
+
+        return response()->noContent();
     }
 
     /** Datas com fuso (o banco guarda em UTC, sem fuso): sem isso a tela mostraria o horário deslocado. */

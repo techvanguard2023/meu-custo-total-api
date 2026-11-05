@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Http\Controllers\Controller;
 use App\Models\Company;
+use App\Services\AdminDiscount;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -25,6 +26,11 @@ class PlanController extends Controller
             'essential_price' => self::ESSENTIAL_PRICE,
             'pro_price' => self::PRO_PRICE,
             'stripe_configured' => $this->stripeConfigured(),
+            // Desconto dado pela plataforma (ficha da loja no admin): a tela de planos mostra
+            'discount' => $company->admin_discount ? [
+                'label' => app(AdminDiscount::class)->label($company->admin_discount),
+                'status' => $company->admin_discount['status'],
+            ] : null,
             'limits' => self::FREE_LIMITS,
             'usage' => [
                 'printers' => $company->printers()->count(),
@@ -67,12 +73,20 @@ class PlanController extends Controller
 
         $frontend = rtrim(config('services.frontend_url'), '/');
 
-        $checkout = $company
-            ->newSubscription('default', $priceId)
+        $builder = $company->newSubscription('default', $priceId);
+        $adminCoupon = ($company->admin_discount['status'] ?? null) === 'pending' ? $company->admin_discount['coupon_id'] : null;
+        if ($adminCoupon) {
+            // Desconto dado pelo admin (ficha da loja): já entra no checkout. A Stripe não deixa usar junto
+            // com o campo de código promocional, então ele some nesse caso.
+            $builder->withCoupon($adminCoupon);
+        } else {
             // Exibe o campo "Adicionar código promocional" na tela da Stripe. Os cupons e
             // códigos são criados no painel da Stripe; a validação (expirado, limite de usos,
             // só para cliente novo) é toda feita lá — nada disso passa pela nossa API.
-            ->allowPromotionCodes()
+            $builder->allowPromotionCodes();
+        }
+
+        $checkout = $builder
             ->checkout([
                 'success_url' => $frontend.'/plans?checkout=success',
                 'cancel_url' => $frontend.'/plans?checkout=cancelled',

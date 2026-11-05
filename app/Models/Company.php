@@ -75,6 +75,7 @@ class Company extends Model
         'deletion_scheduled_for' => 'datetime',
         'blocked_at' => 'datetime',
         'comp_until' => 'date:Y-m-d',
+        'admin_discount' => 'array',
         'deletion_paused_subscription' => 'boolean',
     ];
 
@@ -85,7 +86,7 @@ class Company extends Model
      * (webhook, token antigo do catálogo, Stripe). As telas que precisam deles têm rota própria.
      */
     protected $hidden = [
-        'admin_notes', 'comp_note',
+        'admin_notes', 'comp_note', 'admin_discount',
         'whatsapp_webhook_url', 'whatsapp_webhook_events', 'catalog_token',
         'stripe_id', 'pm_type', 'pm_last_four', 'trial_ends_at', 'deletion_paused_subscription',
     ];

@@ -9,6 +9,7 @@ use App\Services\Cashback;
 use App\Services\CashbackImage;
 use App\Services\CashbackRetroactive;
 use App\Services\ProductRecipe;
+use App\Support\Background;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -68,6 +69,40 @@ class SettingsController extends Controller
         }
 
         return $setting;
+    }
+
+    /**
+     * Nome da loja (errou no cadastro, mudou de nome). O endereço do catálogo, o QR das placas e a sessão do
+     * WhatsApp usam o slug, que fica como está — nenhum link já divulgado quebra.
+     */
+    public function updateName(Request $request)
+    {
+        $data = $request->validate([
+            'name' => ['required', 'string', 'min:3', 'max:255', 'regex:/\p{L}/u'],
+        ], [
+            'name.required' => 'Informe o nome da loja.',
+            'name.min' => 'O nome da loja deve ter pelo menos 3 caracteres.',
+            'name.max' => 'O nome da loja pode ter no máximo 255 caracteres.',
+            'name.regex' => 'Informe um nome de loja válido.',
+        ]);
+
+        $company = $request->user()->company;
+        $company->update(['name' => trim($data['name'])]);
+
+        // Nome nas faturas e recibos da Stripe (sem travar a tela se a Stripe não responder)
+        if ($company->stripe_id) {
+            $companyId = $company->id;
+            Background::run(static function () use ($companyId) {
+                try {
+                    $company = Company::find($companyId);
+                    $company?->updateStripeCustomer(['name' => $company->name]);
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::warning("Nome da loja {$companyId} não atualizado na Stripe: ".$e->getMessage());
+                }
+            });
+        }
+
+        return response()->json(['name' => $company->name]);
     }
 
     /** Nicho da empresa: só muda nomes nas telas e as categorias padrão sugeridas — nada do que já foi cadastrado. */
