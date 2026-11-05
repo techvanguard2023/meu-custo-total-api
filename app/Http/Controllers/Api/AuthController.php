@@ -8,6 +8,7 @@ use App\Models\Setting;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -28,6 +29,7 @@ class AuthController extends Controller
             'accept_terms' => ['accepted'],
         ], [
             'accept_terms.accepted' => 'Para criar a conta, aceite os Termos de Uso e a Política de Privacidade.',
+            'email.unique' => 'Este e-mail já está cadastrado. Entre com ele ou use "Esqueci a senha".',
             'company_name.min' => 'O nome da empresa deve ter pelo menos 3 caracteres.',
             'company_name.regex' => 'Informe um nome de empresa válido.',
             'name.min' => 'O nome deve ter pelo menos 3 caracteres.',
@@ -35,7 +37,26 @@ class AuthController extends Controller
             ...User::STRONG_PASSWORD_MESSAGES,
         ]);
 
-        $user = DB::transaction(function () use ($data, $request) {
+        // Tudo ou nada: se algo falhar no meio, não sobra empresa sem usuário
+        try {
+            $user = $this->createAccount($data, $request);
+        } catch (UniqueConstraintViolationException) {
+            // Dois cadastros simultâneos com o mesmo e-mail (ou clique duplo): os dois passam pela validação e o
+            // segundo esbarra no índice único — a transação desfaz a empresa e a resposta é a mesma da validação
+            throw ValidationException::withMessages(['email' => ['Este e-mail já está cadastrado. Entre com ele ou use "Esqueci a senha".']]);
+        }
+
+        $token = $user->createToken('api')->plainTextToken;
+
+        return response()->json([
+            'user' => $user->load('company'),
+            'token' => $token,
+        ], 201);
+    }
+
+    private function createAccount(array $data, Request $request): User
+    {
+        return DB::transaction(function () use ($data, $request) {
             $company = Company::create([
                 'name' => $data['company_name'],
                 'slug' => Str::slug($data['company_name']).'-'.Str::random(6),
@@ -55,13 +76,6 @@ class AuthController extends Controller
 
             return $user;
         });
-
-        $token = $user->createToken('api')->plainTextToken;
-
-        return response()->json([
-            'user' => $user->load('company'),
-            'token' => $token,
-        ], 201);
     }
 
     public function login(Request $request)
