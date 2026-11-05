@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Company;
 use App\Models\Quote;
+use App\Services\ProTrialStats;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -72,6 +73,8 @@ class OverviewController extends Controller
                 'coupon_orders' => Quote::whereNotNull('coupon_id')->where('created_at', '>=', $since30)->count(),
             ],
             'signups_by_week' => $weeks,
+            // Teste grátis do Pro: em andamento, conversão (no teste / depois com a oferta), ativação e coortes
+            'pro_trial' => app(ProTrialStats::class)->summary(),
             // Último acesso só começa a ser registrado com a área admin — antes disso fica vazio
             'tracking_since' => DB::table('users')->min('last_seen_at'),
         ]);
