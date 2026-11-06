@@ -36,7 +36,10 @@ class PlatformFeedbackController extends Controller
         // Só aceita a pesquisa que está valendo pra pessoa (não dá pra mandar NPS a qualquer hora pela API).
         // A avaliação de chamado tem rota própria (POST /support/{ticket}/rating).
         abort_if($data['kind'] === PlatformFeedback::KIND_SUPPORT_CSAT, 422, 'Avalie o atendimento pela tela do chamado.');
-        abort_unless($this->feedback->due($user) === $data['kind'], 422, 'Esta pesquisa não está disponível agora.');
+        $prompt = $this->feedback->prompt($user);
+        abort_unless(($prompt['kind'] ?? null) === $data['kind'], 422, 'Esta pesquisa não está disponível agora.');
+        // "Foi fácil?": só do passo que está sendo perguntado
+        abort_if($data['kind'] === PlatformFeedback::KIND_CES && ($prompt['milestone'] ?? null) !== $data['reason'], 422, 'Esta pesquisa não está disponível agora.');
 
         $about = $data['kind'] === PlatformFeedback::KIND_CANCEL_EXIT
             ? ['subscription_id' => $this->feedback->cancelExitSubscription($user->company, now())?->stripe_id]
@@ -54,8 +57,9 @@ class PlatformFeedbackController extends Controller
         $data = $request->validate([
             'kind' => ['required', Rule::in(PlatformFeedback::KINDS)],
             'ticket_id' => ['nullable', 'integer'],
+            'milestone' => ['nullable', 'string', 'max:20'],
         ]);
-        $this->feedback->dismiss($request->user(), $data['kind'], $data['ticket_id'] ?? null);
+        $this->feedback->dismiss($request->user(), $data['kind'], $data['ticket_id'] ?? null, null, $data['milestone'] ?? null);
 
         return response()->noContent();
     }

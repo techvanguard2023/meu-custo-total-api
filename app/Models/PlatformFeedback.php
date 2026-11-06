@@ -10,7 +10,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  *  - nps: "de 0 a 10, quanto indicaria" + comentário opcional;
  *  - trial_exit: por que não assinou quando o teste grátis do Pro acabou (uma por loja; pelo app ou pelo e-mail);
  *  - support_csat: nota de 1 a 5 do atendimento num chamado resolvido (uma por chamado);
- *  - cancel_exit: por que cancelou a assinatura (uma por assinatura; context.subscription_id).
+ *  - cancel_exit: por que cancelou a assinatura (uma por assinatura; context.subscription_id);
+ *  - ces: "foi fácil?" (1 difícil · 2 mais ou menos · 3 fácil) depois de um primeiro passo — reason = o passo.
  */
 class PlatformFeedback extends Model
 {
@@ -24,7 +25,16 @@ class PlatformFeedback extends Model
 
     public const KIND_CANCEL_EXIT = 'cancel_exit';
 
-    public const KINDS = [self::KIND_NPS, self::KIND_TRIAL_EXIT, self::KIND_SUPPORT_CSAT, self::KIND_CANCEL_EXIT];
+    public const KIND_CES = 'ces';
+
+    public const KINDS = [self::KIND_NPS, self::KIND_TRIAL_EXIT, self::KIND_SUPPORT_CSAT, self::KIND_CANCEL_EXIT, self::KIND_CES];
+
+    /** Primeiros passos que perguntam "foi fácil?", na ordem — os mesmos de src/lib/feedback.ts. */
+    public const CES_MILESTONES = [
+        'products' => 'Cadastrar o primeiro produto',
+        'quotes' => 'Fazer o primeiro orçamento',
+        'whatsapp' => 'Conectar o WhatsApp',
+    ];
 
     /** Motivos do fim do teste — os mesmos textos estão em src/lib/feedback.ts no frontend. */
     public const TRIAL_EXIT_REASONS = [
@@ -63,6 +73,7 @@ class PlatformFeedback extends Model
         return match ($kind) {
             self::KIND_TRIAL_EXIT => self::TRIAL_EXIT_REASONS,
             self::KIND_CANCEL_EXIT => self::CANCEL_EXIT_REASONS,
+            self::KIND_CES => self::CES_MILESTONES,
             default => [],
         };
     }
@@ -73,6 +84,7 @@ class PlatformFeedback extends Model
         return match ($kind) {
             self::KIND_NPS => [0, 10],
             self::KIND_SUPPORT_CSAT => [1, 5],
+            self::KIND_CES => [1, 3],
             default => null,
         };
     }
@@ -92,13 +104,14 @@ class PlatformFeedback extends Model
         return $this->belongsTo(SupportTicket::class);
     }
 
-    /** Pede conversa: fim do teste, cancelamento, NPS 0–6 ou atendimento 1–2. */
+    /** Pede conversa: fim do teste, cancelamento, NPS 0–6, atendimento 1–2 ou "achei difícil". */
     public function isNegative(): bool
     {
         return match ($this->kind) {
             self::KIND_TRIAL_EXIT, self::KIND_CANCEL_EXIT => true,
             self::KIND_NPS => $this->score !== null && $this->score <= 6,
             self::KIND_SUPPORT_CSAT => $this->score !== null && $this->score <= 2,
+            self::KIND_CES => $this->score === 1,
             default => false,
         };
     }

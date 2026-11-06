@@ -42,6 +42,8 @@ Schedule::command('admin:expire-comps')->dailyAt('03:15');
 Schedule::command('trial:expire')->hourly()->withoutOverlapping(10);
 // Mensagens do teste (e-mail; "faltam 3 dias" e "acabou" também no WhatsApp, das 9h às 20h)
 Schedule::command('trial:notify')->everyFifteenMinutes()->withoutOverlapping(14);
+// Indique e ganhe: indicada que pagou a primeira vez → 1 mês de Pro pra quem indicou
+Schedule::command('referrals:reward')->hourlyAt(20)->withoutOverlapping(30);
 // Financeiro da área admin: cobranças da Stripe, tarifas, custo da OpenAI e cotação do dólar
 Schedule::command('admin:sync-finance')->dailyAt('04:30')->withoutOverlapping(30);
 

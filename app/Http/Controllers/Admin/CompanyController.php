@@ -5,12 +5,14 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Company;
 use App\Models\PlatformFeedback;
+use App\Models\PlatformTestimonial;
 use App\Models\Quote;
 use App\Models\User;
 use App\Notifications\CompanyDeletedByAdmin;
 use App\Services\AccountDeletion;
 use App\Services\AdminAudit;
 use App\Services\AdminDiscount;
+use App\Services\ChurnRisk;
 use App\Services\CompanyMessageNotifier;
 use App\Services\SignupAttribution;
 use App\Services\WahaClient;
@@ -209,6 +211,16 @@ class CompanyController extends Controller
                     'whatsapp_status' => $m->whatsapp_status,
                     'created_at' => \Illuminate\Support\Carbon::parse($m->created_at, 'UTC')->toIso8601String(),
                 ]),
+            // Risco de cancelar (só pagantes) e Indique e ganhe
+            'churn_risk' => app(ChurnRisk::class)->forCompany($company),
+            'referral' => [
+                'referred_by' => $company->referredBy ? ['id' => $company->referredBy->id, 'name' => $company->referredBy->name] : null,
+                'rewarded_at' => $company->referral_rewarded_at?->toIso8601String(),
+                'reward' => $company->referral_reward,
+                'referred_count' => $company->referrals()->count(),
+                'referred_paid' => $company->referrals()->whereIn('id', DB::table('platform_payments')->whereRaw('amount - amount_refunded > 0')->select('company_id'))->count(),
+            ],
+            'testimonial' => ($t = PlatformTestimonial::where('company_id', $company->id)->first()) ? ['text' => $t->text, 'author_name' => $t->author_name, 'status' => $t->status] : null,
             // Opinião da loja sobre a plataforma (NPS e fim do teste)
             'feedback' => PlatformFeedback::with(['user:id,name,email', 'company:id,name,plan', 'supportTicket:id,subject'])->where('company_id', $company->id)->latest('id')->limit(10)->get()
                 ->map(fn (PlatformFeedback $f) => FeedbackController::row($f)),

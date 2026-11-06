@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Models\Concerns\BustsCatalogCache;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Cashier\Billable;
@@ -83,6 +84,8 @@ class Company extends Model
         'signup_attribution' => 'array',
         'deletion_paused_subscription' => 'boolean',
         'deletion_by_admin' => 'boolean',
+        'referral_rewarded_at' => 'datetime',
+        'referral_reward' => 'array',
     ];
 
     protected $appends = ['logo_url'];
@@ -92,6 +95,7 @@ class Company extends Model
      * (webhook, token antigo do catálogo, Stripe). As telas que precisam deles têm rota própria.
      */
     protected $hidden = [
+        'referral_reward', 'referred_by_company_id', 'referral_rewarded_at',
         'admin_notes', 'comp_note', 'admin_discount', 'pro_trial_notices', 'signup_attribution',
         'whatsapp_webhook_url', 'whatsapp_webhook_events', 'catalog_token',
         'stripe_id', 'pm_type', 'pm_last_four', 'trial_ends_at', 'deletion_paused_subscription',
@@ -298,6 +302,18 @@ class Company extends Model
     public function users(): HasMany
     {
         return $this->hasMany(User::class);
+    }
+
+    /** Loja que indicou esta (programa de indicação, ver App\Services\Referrals). */
+    public function referredBy(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'referred_by_company_id');
+    }
+
+    /** Lojas que esta indicou. */
+    public function referrals(): HasMany
+    {
+        return $this->hasMany(self::class, 'referred_by_company_id');
     }
 
     public function materials(): HasMany

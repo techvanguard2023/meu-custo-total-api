@@ -78,6 +78,10 @@ class AccountExport
             'chamados_de_suporte_mensagens' => DB::table('support_messages')
                 ->whereIn('support_ticket_id', DB::table('support_tickets')->where('company_id', $companyId)->select('id'))
                 ->orderBy('id'),
+            // Opinião sobre o sistema (sem a anotação interna da equipe) e o depoimento
+            'opinioes_sobre_o_sistema' => DB::table('platform_feedback')->where('company_id', $companyId)
+                ->select(['id', 'user_id', 'support_ticket_id', 'kind', 'score', 'reason', 'comment', 'channel', 'created_at', 'updated_at'])->orderBy('id'),
+            'depoimento' => $byCompany('platform_testimonials'),
         ];
     }
 

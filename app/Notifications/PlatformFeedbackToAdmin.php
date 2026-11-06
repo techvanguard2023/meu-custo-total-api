@@ -29,11 +29,12 @@ class PlatformFeedbackToAdmin extends Notification
         $app = rtrim((string) config('services.frontend_url'), '/');
 
         $mail = (new MailMessage)
-            ->subject(trim(preg_replace('/^\X\s/u', '', $title)).($f->reason ? ': '.$f->reasonLabel() : ''))
+            ->subject(trim(preg_replace('/^\X\s/u', '', $title)).($f->reason && $f->kind !== PlatformFeedback::KIND_CES ? ': '.$f->reasonLabel() : ''))
             ->greeting(match ($f->kind) {
                 PlatformFeedback::KIND_TRIAL_EXIT => 'Uma loja disse por que não assinou',
                 PlatformFeedback::KIND_CANCEL_EXIT => 'Uma loja cancelou a assinatura',
                 PlatformFeedback::KIND_SUPPORT_CSAT => 'Avaliação de atendimento',
+                PlatformFeedback::KIND_CES => 'Primeiros passos: foi fácil?',
                 default => 'Nova resposta no NPS',
             })
             ->line("**Loja:** {$shop}")
@@ -43,7 +44,7 @@ class PlatformFeedbackToAdmin extends Notification
             $mail->line("**Chamado:** #{$f->supportTicket->id} — {$f->supportTicket->subject}");
         }
         if ($f->reason) {
-            $mail->line("**Motivo:** {$f->reasonLabel()}");
+            $mail->line(($f->kind === PlatformFeedback::KIND_CES ? '**Passo:** ' : '**Motivo:** ').$f->reasonLabel());
         }
         if ($f->score !== null) {
             $mail->line('**Nota:** '.$f->score.' de '.(PlatformFeedback::scoreRange($f->kind)[1] ?? 10));

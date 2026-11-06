@@ -23,6 +23,8 @@ use Throwable;
  *    No app o motivo já é perguntado na hora de cancelar; quem pulou ali não é perguntado de novo.
  *  - trial_exit (dono): o teste grátis do Pro acabou há até 30 dias e a loja não assinou — "o que pesou?". Uma vez
  *    por loja (também pelo link do e-mail de fim do teste).
+ *  - ces (dono): "foi fácil?" depois de cada primeiro passo (produto, orçamento, WhatsApp), em lojas com até 60 dias;
+ *    um passo de cada vez, com 2 dias de intervalo. Fechar = não pergunta mais daquele passo.
  *  - nps (dono): loja com 30+ dias, fora do teste, sem NPS nos últimos 90 dias e sem resposta da loja nos últimos 30.
  *  "Agora não" adia 7 dias; na segunda vez seguida, 90 dias (users.feedback_state).
  *
@@ -43,6 +45,10 @@ class PlatformFeedbackService
 
     public const SUPPORT_CSAT_WINDOW_DAYS = 14;
 
+    public const CES_MAX_ACCOUNT_DAYS = 60;
+
+    public const CES_GAP_DAYS = 2;
+
     public const LINK_DAYS = 30;
 
     public function __construct(private PlatformWhatsApp $whatsapp) {}
@@ -50,7 +56,7 @@ class PlatformFeedbackService
     /**
      * Pergunta que o card do app mostra agora, ou null.
      *
-     * @return array{kind: string, ticket?: array{id: int, subject: string}}|null
+     * @return array{kind: string, ticket?: array{id: int, subject: string}, milestone?: string}|null
      */
     public function prompt(User $user, ?Carbon $now = null): ?array
     {
@@ -74,6 +80,10 @@ class PlatformFeedbackService
 
         if ($this->trialExitDue($company, $now) && ! $this->snoozed($user, PlatformFeedback::KIND_TRIAL_EXIT, $now)) {
             return ['kind' => PlatformFeedback::KIND_TRIAL_EXIT];
+        }
+
+        if ($milestone = $this->cesMilestone($user, $company, $now)) {
+            return ['kind' => PlatformFeedback::KIND_CES, 'milestone' => $milestone];
         }
 
         return $this->npsDue($user, $company, $now) ? ['kind' => PlatformFeedback::KIND_NPS] : null;
@@ -103,11 +113,42 @@ class PlatformFeedbackService
             return false;
         }
 
-        // Respondeu outra coisa há pouco (fim do teste, cancelamento): espera. A avaliação de chamado não conta.
+        // Respondeu outra coisa há pouco (fim do teste, cancelamento): espera. Avaliação de chamado e "foi fácil?" não contam.
         return ! PlatformFeedback::where('company_id', $company->id)
-            ->where('kind', '!=', PlatformFeedback::KIND_SUPPORT_CSAT)
+            ->whereNotIn('kind', [PlatformFeedback::KIND_SUPPORT_CSAT, PlatformFeedback::KIND_CES])
             ->where('created_at', '>', $now->copy()->subDays(self::GLOBAL_GAP_DAYS))
             ->exists();
+    }
+
+    /** Primeiro passo já feito que ainda não perguntou "foi fácil?" (loja nova; um de cada vez, com intervalo). */
+    public function cesMilestone(User $user, Company $company, Carbon $now): ?string
+    {
+        if ($company->created_at->lt($now->copy()->subDays(self::CES_MAX_ACCOUNT_DAYS))) {
+            return null;
+        }
+        $state = $user->feedback_state[PlatformFeedback::KIND_CES] ?? [];
+        if (! empty($state['last_at']) && Carbon::parse($state['last_at'])->gt($now->copy()->subDays(self::CES_GAP_DAYS))) {
+            return null;
+        }
+        $skipped = $state['skipped'] ?? [];
+        $answered = PlatformFeedback::where('company_id', $company->id)->where('kind', PlatformFeedback::KIND_CES)->pluck('reason')->all();
+
+        foreach (array_keys(PlatformFeedback::CES_MILESTONES) as $milestone) {
+            if (in_array($milestone, $skipped, true) || in_array($milestone, $answered, true)) {
+                continue;
+            }
+            $done = match ($milestone) {
+                'products' => $company->products()->exists(),
+                'quotes' => $company->quotes()->exists(),
+                'whatsapp' => $company->whatsapp_session_name !== null,
+                default => false,
+            };
+            if ($done) {
+                return $milestone;
+            }
+        }
+
+        return null;
     }
 
     /** Chamado que a pessoa abriu, resolvido há pouco, sem nota e que ela não dispensou no card. */
@@ -160,12 +201,18 @@ class PlatformFeedbackService
     }
 
     /** "Agora não" / fechou: 7 dias; na segunda vez seguida, 90. No chamado, não pergunta mais daquele chamado. */
-    public function dismiss(User $user, string $kind, ?int $ticketId = null, ?Carbon $now = null): void
+    public function dismiss(User $user, string $kind, ?int $ticketId = null, ?Carbon $now = null, ?string $milestone = null): void
     {
         $now ??= now();
         $state = $user->feedback_state ?? [];
 
-        if ($kind === PlatformFeedback::KIND_SUPPORT_CSAT) {
+        if ($kind === PlatformFeedback::KIND_CES) {
+            $skipped = $state[$kind]['skipped'] ?? [];
+            if ($milestone && isset(PlatformFeedback::CES_MILESTONES[$milestone])) {
+                $skipped[] = $milestone;
+            }
+            $state[$kind] = ['skipped' => array_values(array_unique($skipped)), 'last_at' => $now->toIso8601String()];
+        } elseif ($kind === PlatformFeedback::KIND_SUPPORT_CSAT) {
             if ($ticketId) {
                 $tickets = $state[$kind]['tickets'] ?? [];
                 $tickets[] = $ticketId;
@@ -219,6 +266,7 @@ class PlatformFeedbackService
             PlatformFeedback::KIND_TRIAL_EXIT => PlatformFeedback::where('company_id', $company->id)->where('kind', $kind)->first(),
             PlatformFeedback::KIND_SUPPORT_CSAT => $ticket ? PlatformFeedback::where('support_ticket_id', $ticket->id)->first() : null,
             PlatformFeedback::KIND_CANCEL_EXIT => $subscriptionId ? $this->cancelFeedback($company, $subscriptionId) : null,
+            PlatformFeedback::KIND_CES => PlatformFeedback::where('company_id', $company->id)->where('kind', $kind)->where('reason', $data['reason'])->first(),
             default => null,
         };
 
@@ -234,7 +282,12 @@ class PlatformFeedbackService
             ]);
         }
 
-        if ($user && $kind !== PlatformFeedback::KIND_SUPPORT_CSAT) {
+        if ($user && $kind === PlatformFeedback::KIND_CES) {
+            // Próximo "foi fácil?" só depois do intervalo
+            $state = $user->feedback_state ?? [];
+            $state[$kind] = [...($state[$kind] ?? []), 'last_at' => now()->toIso8601String()];
+            $user->forceFill(['feedback_state' => $state])->save();
+        } elseif ($user && $kind !== PlatformFeedback::KIND_SUPPORT_CSAT) {
             $state = $user->feedback_state ?? [];
             unset($state[$kind]); // respondeu: zera os "agora não"
             $user->forceFill(['feedback_state' => $state ?: null])->save();
@@ -261,7 +314,8 @@ class PlatformFeedbackService
             ->where('created_at', '>=', now()->subDays(60))
             ->where(fn ($q) => $q->whereIn('kind', [PlatformFeedback::KIND_TRIAL_EXIT, PlatformFeedback::KIND_CANCEL_EXIT])
                 ->orWhere(fn ($q) => $q->where('kind', PlatformFeedback::KIND_NPS)->where('score', '<=', 6))
-                ->orWhere(fn ($q) => $q->where('kind', PlatformFeedback::KIND_SUPPORT_CSAT)->where('score', '<=', 2)));
+                ->orWhere(fn ($q) => $q->where('kind', PlatformFeedback::KIND_SUPPORT_CSAT)->where('score', '<=', 2))
+                ->orWhere(fn ($q) => $q->where('kind', PlatformFeedback::KIND_CES)->where('score', 1)));
     }
 
     /** Roda em segundo plano: e-mail (PLATFORM_ADMIN_EMAILS) + WhatsApp (PLATFORM_SUPPORT_WHATSAPP). */
@@ -293,6 +347,7 @@ class PlatformFeedbackService
             PlatformFeedback::KIND_TRIAL_EXIT => "🧪 Teste acabou sem assinar — {$shop}",
             PlatformFeedback::KIND_CANCEL_EXIT => "💔 Cancelou a assinatura — {$shop}",
             PlatformFeedback::KIND_SUPPORT_CSAT => ($feedback->score <= 2 ? '🔴' : ($feedback->score === 3 ? '🟡' : '🟢'))." Atendimento {$feedback->score}/5 — {$shop}",
+            PlatformFeedback::KIND_CES => ($feedback->score === 1 ? '😣 Achou difícil' : ($feedback->score === 2 ? '😐 Mais ou menos' : '😄 Achou fácil')).": {$feedback->reasonLabel()} — {$shop}",
             default => ($feedback->score <= 6 ? '🔴' : ($feedback->score <= 8 ? '🟡' : '🟢'))." NPS {$feedback->score}/10 — {$shop}",
         };
     }
@@ -305,7 +360,7 @@ class PlatformFeedbackService
         return implode("\n", array_filter([
             '*'.self::alertTitle($feedback).'*',
             $ticket ? "Chamado #{$ticket->id}: {$ticket->subject}" : null,
-            $feedback->reason ? 'Motivo: '.$feedback->reasonLabel() : null,
+            $feedback->reason && $feedback->kind !== PlatformFeedback::KIND_CES ? 'Motivo: '.$feedback->reasonLabel() : null,
             $feedback->comment ? '"'.Str::limit($feedback->comment, 600).'"' : null,
             ($feedback->user?->name ?? 'Dono').($days !== null ? " · {$days} dias de conta" : '').($feedback->channel === 'email' ? ' · pelo e-mail' : ''),
             '',

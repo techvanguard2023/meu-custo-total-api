@@ -11,7 +11,7 @@ use Illuminate\Support\Str;
 class SignupAttribution
 {
     public const CHANNELS = [
-        'google_ads', 'meta_ads', 'organic_search', 'instagram', 'facebook', 'whatsapp', 'youtube', 'tiktok', 'email', 'referral_site', 'other', 'direct',
+        'referral', 'google_ads', 'meta_ads', 'organic_search', 'instagram', 'facebook', 'whatsapp', 'youtube', 'tiktok', 'email', 'referral_site', 'other', 'direct',
     ];
 
     /** Só os campos conhecidos, texto curto e sem espaço sobrando. */
@@ -32,6 +32,10 @@ class SignupAttribution
         }
         if (! empty($raw['fbclid'])) {
             $data['fbclid'] = true;
+        }
+        // Código de indicação de outra loja (Indique e ganhe)
+        if ($ref = Referrals::normalizeCode(is_string($raw['ref'] ?? null) ? $raw['ref'] : null)) {
+            $data['ref'] = $ref;
         }
         if (! empty($raw['captured_at'])) {
             $data['captured_at'] = Str::limit((string) $raw['captured_at'], 40, '');
@@ -55,6 +59,7 @@ class SignupAttribution
         $meta = $from(['facebook', 'instagram']) || $is(['fb', 'ig', 'meta']);
 
         return match (true) {
+            ! empty($a['ref']) => 'referral',
             ! empty($a['gclid']) || ($paid && $from(['google', 'adwords'])) => 'google_ads',
             $paid && (! empty($a['fbclid']) || $meta) => 'meta_ads',
             $from(['instagram']) || $is(['ig']) => 'instagram',

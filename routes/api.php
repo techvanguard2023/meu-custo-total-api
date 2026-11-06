@@ -21,6 +21,8 @@ use App\Http\Controllers\Api\MaterialCategoryController;
 use App\Http\Controllers\Api\PasswordResetController;
 use App\Http\Controllers\Api\PlanController;
 use App\Http\Controllers\Api\PlatformFeedbackController;
+use App\Http\Controllers\Api\ReferralController;
+use App\Http\Controllers\Api\TestimonialController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\ProductReviewController;
 use App\Http\Controllers\Api\PublicCatalogController;
@@ -51,6 +53,7 @@ use App\Http\Controllers\Admin\OverviewController as AdminOverviewController;
 use App\Http\Controllers\Admin\UserController as AdminUserController;
 use App\Http\Controllers\Admin\SupportController as AdminSupportController;
 use App\Http\Controllers\Admin\FeedbackController as AdminFeedbackController;
+use App\Http\Controllers\Admin\TestimonialController as AdminTestimonialController;
 use App\Http\Controllers\Api\SupportTicketController;
 use App\Http\Controllers\Api\AffiliateOfferController;
 use App\Http\Controllers\Api\AffiliateIntegrationController;
@@ -114,6 +117,8 @@ Route::prefix('v1')->group(function () {
     // Opinião sobre a plataforma pelo link do e-mail (fim do teste grátis), sem login
     Route::get('/public/feedback/{token}', [PlatformFeedbackController::class, 'publicShow'])->middleware('throttle:30,1');
     Route::post('/public/feedback/{token}', [PlatformFeedbackController::class, 'publicStore'])->middleware('throttle:10,1');
+    // Depoimentos aprovados (seção da landing)
+    Route::get('/public/testimonials', [TestimonialController::class, 'publicIndex'])->middleware('throttle:60,1');
 
     Route::get('/public/review/{token}', [PublicReviewController::class, 'show'])
         ->middleware('throttle:60,1');
@@ -166,6 +171,8 @@ Route::prefix('v1')->group(function () {
             Route::patch('/support/{ticket}/status', [AdminSupportController::class, 'status']);
             Route::get('/feedback', [AdminFeedbackController::class, 'index']);
             Route::patch('/feedback/{feedback}', [AdminFeedbackController::class, 'update'])->whereNumber('feedback');
+            Route::get('/testimonials', [AdminTestimonialController::class, 'index']);
+            Route::patch('/testimonials/{testimonial}', [AdminTestimonialController::class, 'update'])->whereNumber('testimonial');
         });
 
         // Ajuda e suporte: fora do bloqueio da conta — loja suspensa ou com exclusão agendada também pede ajuda
@@ -190,6 +197,11 @@ Route::prefix('v1')->group(function () {
             Route::get('/feedback/prompt', [PlatformFeedbackController::class, 'prompt']);
             Route::post('/feedback', [PlatformFeedbackController::class, 'store'])->middleware('throttle:10,1');
             Route::post('/feedback/dismiss', [PlatformFeedbackController::class, 'dismiss'])->middleware('throttle:10,1');
+            // Indique e ganhe e depoimento (só o dono)
+            Route::get('/referrals', [ReferralController::class, 'show']);
+            Route::get('/testimonial', [TestimonialController::class, 'show']);
+            Route::put('/testimonial', [TestimonialController::class, 'save'])->middleware('throttle:10,1');
+            Route::delete('/testimonial', [TestimonialController::class, 'destroy']);
 
             Route::get('/materials/{material}/movements', [MaterialController::class, 'movements']);
             Route::apiResource('materials', MaterialController::class);

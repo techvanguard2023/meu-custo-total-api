@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\PlatformTestimonial;
 use App\Models\SupportTicket;
 use App\Services\AdminAudit;
 use App\Services\PlatformFeedbackService;
@@ -62,7 +63,8 @@ class SupportController extends Controller
         return [
             'unread' => SupportTicket::where('unread_by_admin', true)->count(),
             // Opiniões que pedem conversa (fim do teste ou NPS 0–6 sem retorno): contador de Admin → Opiniões
-            'feedback_pending' => PlatformFeedbackService::pendingQuery()->count(),
+            'feedback_pending' => PlatformFeedbackService::pendingQuery()->count()
+                + PlatformTestimonial::where('status', PlatformTestimonial::STATUS_PENDING)->count(), // depoimento esperando aprovação
         ];
     }
 

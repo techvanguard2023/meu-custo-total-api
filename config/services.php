@@ -90,4 +90,7 @@ return [
 
     'frontend_url' => env('FRONTEND_URL', 'http://localhost:3000'),
 
+    // Site de apresentação (links de indicação: LANDING_URL/?ref=CODIGO)
+    'landing_url' => env('LANDING_URL', 'https://www.meucustototal.com.br'),
+
 ];

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Company;
 use App\Models\Setting;
 use App\Models\User;
+use App\Services\Referrals;
 use App\Services\SignupAttribution;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -85,6 +86,9 @@ class AuthController extends Controller
                 'password' => Hash::make($data['password']),
             ]);
             $user->acceptTerms($request->ip());
+
+            // Indique e ganhe: veio pelo link de outra loja (?ref=CODIGO, guardado junto com a origem)
+            app(Referrals::class)->attach($company, $attribution['ref'] ?? null, $data['email'], $data['phone'] ?? null);
 
             return $user;
         });

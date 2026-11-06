@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Company;
 use App\Models\Quote;
+use App\Services\ChurnRisk;
 use App\Services\PlatformFeedbackStats;
 use App\Services\ProTrialStats;
 use App\Services\SignupChannelStats;
@@ -81,6 +82,13 @@ class OverviewController extends Controller
             'signup_channels' => app(SignupChannelStats::class)->summary(),
             // Opinião das lojas: NPS (90 dias), motivos de quem não assinou depois do teste, últimos comentários
             'platform_feedback' => app(PlatformFeedbackStats::class)->summary(),
+            // Pagantes com risco de cancelar (sinais: acesso, orçamentos, NPS, suporte, pagamento)
+            'churn_risk' => app(ChurnRisk::class)->list(),
+            // Indique e ganhe: cadastros por indicação (90 dias) e quantos já renderam recompensa
+            'referrals' => [
+                'signups_90d' => Company::whereNotNull('referred_by_company_id')->where('created_at', '>=', now()->subDays(90))->count(),
+                'rewarded_total' => Company::whereNotNull('referral_rewarded_at')->where('referral_reward->type', '!=', 'none')->count(),
+            ],
             // Último acesso só começa a ser registrado com a área admin — antes disso fica vazio
             'tracking_since' => DB::table('users')->min('last_seen_at'),
         ]);
