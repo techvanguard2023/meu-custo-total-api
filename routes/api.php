@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\MaterialController;
 use App\Http\Controllers\Api\MaterialCategoryController;
 use App\Http\Controllers\Api\PasswordResetController;
 use App\Http\Controllers\Api\PlanController;
+use App\Http\Controllers\Api\PlatformFeedbackController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\ProductReviewController;
 use App\Http\Controllers\Api\PublicCatalogController;
@@ -49,6 +50,7 @@ use App\Http\Controllers\Admin\FinanceController as AdminFinanceController;
 use App\Http\Controllers\Admin\OverviewController as AdminOverviewController;
 use App\Http\Controllers\Admin\UserController as AdminUserController;
 use App\Http\Controllers\Admin\SupportController as AdminSupportController;
+use App\Http\Controllers\Admin\FeedbackController as AdminFeedbackController;
 use App\Http\Controllers\Api\SupportTicketController;
 use App\Http\Controllers\Api\AffiliateOfferController;
 use App\Http\Controllers\Api\AffiliateIntegrationController;
@@ -109,6 +111,10 @@ Route::prefix('v1')->group(function () {
     // Cupom no carrinho do catálogo (limite baixo: ninguém fica chutando códigos)
     Route::post('/public/catalog/{token}/coupon', [CouponController::class, 'publicCheck'])->middleware('throttle:30,1');
 
+    // Opinião sobre a plataforma pelo link do e-mail (fim do teste grátis), sem login
+    Route::get('/public/feedback/{token}', [PlatformFeedbackController::class, 'publicShow'])->middleware('throttle:30,1');
+    Route::post('/public/feedback/{token}', [PlatformFeedbackController::class, 'publicStore'])->middleware('throttle:10,1');
+
     Route::get('/public/review/{token}', [PublicReviewController::class, 'show'])
         ->middleware('throttle:60,1');
     Route::post('/public/review/{token}', [PublicReviewController::class, 'store'])
@@ -158,6 +164,8 @@ Route::prefix('v1')->group(function () {
             Route::get('/support/{ticket}', [AdminSupportController::class, 'show']);
             Route::post('/support/{ticket}/reply', [AdminSupportController::class, 'reply']);
             Route::patch('/support/{ticket}/status', [AdminSupportController::class, 'status']);
+            Route::get('/feedback', [AdminFeedbackController::class, 'index']);
+            Route::patch('/feedback/{feedback}', [AdminFeedbackController::class, 'update'])->whereNumber('feedback');
         });
 
         // Ajuda e suporte: fora do bloqueio da conta — loja suspensa ou com exclusão agendada também pede ajuda
@@ -176,6 +184,11 @@ Route::prefix('v1')->group(function () {
         // Todo o resto fica parado enquanto a exclusão estiver agendada (inclui o bot, que usa token de integração)
         Route::middleware(EnsureAccountActive::class)->group(function () {
             Route::post('/account/deletion', [AccountController::class, 'requestDeletion'])->middleware('throttle:5,1');
+
+            // Opinião sobre a plataforma (NPS / fim do teste) — só o dono (sem regra em TeamAccess)
+            Route::get('/feedback/prompt', [PlatformFeedbackController::class, 'prompt']);
+            Route::post('/feedback', [PlatformFeedbackController::class, 'store'])->middleware('throttle:10,1');
+            Route::post('/feedback/dismiss', [PlatformFeedbackController::class, 'dismiss'])->middleware('throttle:10,1');
 
             Route::get('/materials/{material}/movements', [MaterialController::class, 'movements']);
             Route::apiResource('materials', MaterialController::class);

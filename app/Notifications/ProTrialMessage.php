@@ -3,6 +3,7 @@
 namespace App\Notifications;
 
 use App\Models\Company;
+use App\Models\PlatformFeedback;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
@@ -12,7 +13,7 @@ use Illuminate\Notifications\Notification;
  */
 class ProTrialMessage extends Notification
 {
-    /** @param array{until: string, days_left: int, total_days: int, offer_until: ?string, offer_label: ?string, domain: ?string} $info */
+    /** @param array{until: string, days_left: int, total_days: int, offer_until: ?string, offer_label: ?string, domain: ?string, feedback_url?: string} $info */
     public function __construct(private string $stage, private Company $company, private array $info) {}
 
     public function via(object $notifiable): array
@@ -79,6 +80,13 @@ class ProTrialMessage extends Notification
                             ->action('Assinar com desconto', $app.'/plans');
                     } else {
                         $m->action('Ver os planos', $app.'/plans');
+                    }
+                    // "O que pesou?" em 1 clique: cada motivo abre /opiniao/{token} já marcado (confirma lá, com comentário opcional)
+                    if (! empty($this->info['feedback_url'])) {
+                        $m->line('**Se não for continuar, pode contar o que pesou?** É um clique e nos ajuda muito a melhorar:');
+                        foreach (PlatformFeedback::TRIAL_EXIT_REASONS as $reason => $label) {
+                            $m->line("• [{$label}]({$this->info['feedback_url']}?r={$reason})");
+                        }
                     }
                 }),
 

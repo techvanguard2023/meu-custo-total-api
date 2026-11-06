@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\SupportTicket;
 use App\Services\AdminAudit;
+use App\Services\PlatformFeedbackService;
 use App\Services\SupportNotifier;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -58,7 +59,11 @@ class SupportController extends Controller
     /** Contador do menu admin: chamados com mensagem da loja ainda não lida. */
     public function summary()
     {
-        return ['unread' => SupportTicket::where('unread_by_admin', true)->count()];
+        return [
+            'unread' => SupportTicket::where('unread_by_admin', true)->count(),
+            // Opiniões que pedem conversa (fim do teste ou NPS 0–6 sem retorno): contador de Admin → Opiniões
+            'feedback_pending' => PlatformFeedbackService::pendingQuery()->count(),
+        ];
     }
 
     public function show(SupportTicket $ticket)

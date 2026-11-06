@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Company;
 use App\Models\Quote;
+use App\Services\PlatformFeedbackStats;
 use App\Services\ProTrialStats;
 use App\Services\SignupChannelStats;
 use Illuminate\Support\Carbon;
@@ -78,6 +79,8 @@ class OverviewController extends Controller
             'pro_trial' => app(ProTrialStats::class)->summary(),
             // De onde vêm as lojas (90 dias): cadastros, assinaturas e teste por canal; campanhas do Google Ads
             'signup_channels' => app(SignupChannelStats::class)->summary(),
+            // Opinião das lojas: NPS (90 dias), motivos de quem não assinou depois do teste, últimos comentários
+            'platform_feedback' => app(PlatformFeedbackStats::class)->summary(),
             // Último acesso só começa a ser registrado com a área admin — antes disso fica vazio
             'tracking_since' => DB::table('users')->min('last_seen_at'),
         ]);

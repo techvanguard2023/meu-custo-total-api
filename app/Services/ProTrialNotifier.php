@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Company;
+use App\Models\PlatformFeedback;
 use App\Notifications\ProTrialMessage;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
@@ -89,6 +90,10 @@ class ProTrialNotifier
 
         $info = $this->info($company, $now, $stage);
         $owner = $company->users()->where('role', 'owner')->orderBy('id')->first();
+        // Fim do teste: o e-mail pergunta em 1 clique o que pesou (link sem login, /opiniao/{token})
+        if ($stage === 'ended' && $owner) {
+            $info['feedback_url'] = app(PlatformFeedbackService::class)->linkUrl($owner, PlatformFeedback::KIND_TRIAL_EXIT);
+        }
         if ($owner?->email) {
             $owner->notify(new ProTrialMessage($stage, $company, $info));
         }

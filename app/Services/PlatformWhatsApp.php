@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Company;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
@@ -37,5 +38,30 @@ class PlatformWhatsApp
         } catch (Throwable $e) {
             return ['sent' => false, 'status' => 'Falhou: '.$e->getMessage()];
         }
+    }
+
+    /** Aviso interno pra equipe da plataforma (números de PLATFORM_SUPPORT_WHATSAPP). Devolve quantos receberam. */
+    public function sendToPlatformTeam(string $text): int
+    {
+        $session = (string) config('services.platform.support_waha_session');
+        $numbers = config('services.platform.support_whatsapp', []);
+        if ($session === '' || ! $numbers || ! $this->waha->isConfigured()) {
+            return 0;
+        }
+
+        $sent = 0;
+        foreach ($numbers as $number) {
+            try {
+                $chatId = $this->waha->chatIdFor($session, $number);
+                if ($chatId) {
+                    $this->waha->sendText($session, $chatId, $text);
+                    $sent++;
+                }
+            } catch (Throwable $e) {
+                Log::warning("WhatsApp da plataforma: aviso pra {$number} não enviado: ".$e->getMessage());
+            }
+        }
+
+        return $sent;
     }
 }
