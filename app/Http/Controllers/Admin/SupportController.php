@@ -120,7 +120,7 @@ class SupportController extends Controller
 
     private function detail(SupportTicket $t): array
     {
-        $t->loadMissing(['company:id,name,plan,slug,blocked_at', 'user:id,name,email,role,phone', 'messages.user:id,name']);
+        $t->loadMissing(['company:id,name,plan,slug,blocked_at', 'user:id,name,email,role,phone', 'messages.user:id,name', 'rating']);
 
         return [
             'id' => $t->id,
@@ -131,6 +131,8 @@ class SupportController extends Controller
             'context' => $t->context,
             'created_at' => $t->created_at?->toIso8601String(),
             'resolved_at' => $t->resolved_at?->toIso8601String(),
+            // Avaliação do atendimento dada pela loja (1–5)
+            'rating' => $t->rating ? ['score' => $t->rating->score, 'comment' => $t->rating->comment, 'at' => $t->rating->updated_at?->toIso8601String()] : null,
             'company' => $t->company ? [
                 'id' => $t->company->id,
                 'name' => $t->company->name,

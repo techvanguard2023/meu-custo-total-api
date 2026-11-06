@@ -175,6 +175,7 @@ Route::prefix('v1')->group(function () {
         Route::get('/support/{ticket}', [SupportTicketController::class, 'show']);
         Route::post('/support/{ticket}/reply', [SupportTicketController::class, 'reply'])->middleware('throttle:30,1');
         Route::post('/support/{ticket}/resolve', [SupportTicketController::class, 'resolve']);
+        Route::post('/support/{ticket}/rating', [SupportTicketController::class, 'rate'])->middleware('throttle:10,1');
 
         // LGPD — liberadas mesmo com a exclusão da conta agendada (baixar os dados, desfazer a exclusão)
         Route::post('/account/accept-terms', [AccountController::class, 'acceptTerms']);

@@ -24,19 +24,24 @@ class PlatformFeedbackController extends Controller
             return ['kind' => null];
         }
 
-        return ['kind' => $this->feedback->due($request->user())];
+        return $this->feedback->prompt($request->user()) ?? ['kind' => null];
     }
 
     public function store(Request $request)
     {
         abort_if($this->impersonating($request), 403, 'Você está dentro da loja pela área admin — a opinião é só do lojista.');
-        $data = $this->validated($request, true);
+        $data = self::validated($request);
         $user = $request->user();
 
-        // Só aceita a pesquisa que está valendo pra pessoa (não dá pra mandar NPS a qualquer hora pela API)
+        // Só aceita a pesquisa que está valendo pra pessoa (não dá pra mandar NPS a qualquer hora pela API).
+        // A avaliação de chamado tem rota própria (POST /support/{ticket}/rating).
+        abort_if($data['kind'] === PlatformFeedback::KIND_SUPPORT_CSAT, 422, 'Avalie o atendimento pela tela do chamado.');
         abort_unless($this->feedback->due($user) === $data['kind'], 422, 'Esta pesquisa não está disponível agora.');
 
-        $feedback = $this->feedback->record($user->company, $user, $data);
+        $about = $data['kind'] === PlatformFeedback::KIND_CANCEL_EXIT
+            ? ['subscription_id' => $this->feedback->cancelExitSubscription($user->company, now())?->stripe_id]
+            : [];
+        $feedback = $this->feedback->record($user->company, $user, $data, 'app', $about);
 
         return response()->json(['id' => $feedback->id], 201);
     }
@@ -46,8 +51,11 @@ class PlatformFeedbackController extends Controller
         if ($this->impersonating($request)) {
             return response()->noContent();
         }
-        $data = $request->validate(['kind' => ['required', Rule::in(PlatformFeedback::KINDS)]]);
-        $this->feedback->dismiss($request->user(), $data['kind']);
+        $data = $request->validate([
+            'kind' => ['required', Rule::in(PlatformFeedback::KINDS)],
+            'ticket_id' => ['nullable', 'integer'],
+        ]);
+        $this->feedback->dismiss($request->user(), $data['kind'], $data['ticket_id'] ?? null);
 
         return response()->noContent();
     }
@@ -73,23 +81,26 @@ class PlatformFeedbackController extends Controller
         $link = $this->feedback->parseToken($token);
         abort_unless($link && $link['kind'] === PlatformFeedback::KIND_TRIAL_EXIT, 404, 'Este link venceu ou não é válido.');
 
-        $data = $this->validated($request->merge(['kind' => $link['kind']]), false);
+        $data = self::validated($request->merge(['kind' => $link['kind']]), false);
         $this->feedback->record($link['user']->company, $link['user'], $data, 'email');
 
         return response()->json(['ok' => true], 201);
     }
 
-    private function validated(Request $request, bool $withKind): array
+    /** Valida nota (faixa do tipo), motivo (lista do tipo) e comentário. Também usado na avaliação do chamado. */
+    public static function validated(Request $request, bool $withKind = true): array
     {
-        $kind = $request->input('kind');
+        $kind = (string) $request->input('kind');
+        $range = PlatformFeedback::scoreRange($kind);
+        $reasons = array_keys(PlatformFeedback::reasonsFor($kind));
 
         return $request->validate([
             'kind' => [$withKind ? 'required' : 'nullable', Rule::in(PlatformFeedback::KINDS)],
-            'score' => [Rule::requiredIf($kind === PlatformFeedback::KIND_NPS), 'nullable', 'integer', 'between:0,10'],
-            'reason' => [Rule::requiredIf($kind === PlatformFeedback::KIND_TRIAL_EXIT), 'nullable', Rule::in(array_keys(PlatformFeedback::TRIAL_EXIT_REASONS))],
+            'score' => [Rule::requiredIf($range !== null), 'nullable', 'integer', 'between:'.($range[0] ?? 0).','.($range[1] ?? 10)],
+            'reason' => [Rule::requiredIf($reasons !== []), 'nullable', Rule::in($reasons)],
             'comment' => ['nullable', 'string', 'max:1000'],
         ], [
-            'score.*' => 'Escolha uma nota de 0 a 10.',
+            'score.*' => 'Escolha uma nota.',
             'reason.*' => 'Escolha um motivo.',
             'comment.max' => 'O comentário pode ter até 1000 letras.',
         ]);

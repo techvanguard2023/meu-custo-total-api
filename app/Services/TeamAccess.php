@@ -35,6 +35,9 @@ class TeamAccess
 
         // Ajuda e suporte: qualquer pessoa da equipe abre chamado (o controller limita aos próprios)
         ['*', 'support*', self::ALL],
+        // Card de opinião: a equipe só recebe a avaliação dos chamados que abriu (o resto é do dono)
+        ['GET', 'feedback/prompt', self::ALL],
+        ['POST', 'feedback/dismiss', self::ALL],
 
         // Linha de produção (vendas também acompanha e move os pedidos)
         ['GET', 'quotes', self::ALL],

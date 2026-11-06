@@ -3,7 +3,11 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\PlatformFeedback;
+use App\Services\AdminAudit;
+use App\Services\PlatformFeedbackService;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Laravel\Cashier\Cashier;
 use Laravel\Cashier\Subscription;
 
@@ -25,15 +29,34 @@ class SubscriptionController extends Controller
         ]);
     }
 
-    /** Cancela ao fim do período já pago (o webhook rebaixa o plano quando expirar). */
-    public function cancel(Request $request)
+    /**
+     * Cancela ao fim do período já pago (o webhook rebaixa o plano quando expirar). O motivo (opcional) vira uma
+     * opinião cancel_exit; quem pula não é perguntado de novo pelo card do app.
+     */
+    public function cancel(Request $request, PlatformFeedbackService $feedback)
     {
-        $subscription = $request->user()->company->subscription('default');
+        $user = $request->user();
+        $company = $user->company;
+        $subscription = $company->subscription('default');
 
         abort_unless($subscription && $subscription->valid(), 422, 'Nenhuma assinatura ativa para cancelar.');
         abort_if($subscription->onGracePeriod(), 422, 'A assinatura já está com cancelamento agendado.');
 
+        $exit = $request->validate([
+            'reason' => ['nullable', Rule::in(array_keys(PlatformFeedback::CANCEL_EXIT_REASONS))],
+            'comment' => ['nullable', 'string', 'max:1000'],
+        ], ['reason.*' => 'Escolha um motivo.', 'comment.max' => 'O comentário pode ter até 1000 letras.']);
+
         $subscription->cancel();
+
+        // No "Entrar como" o admin cancela pela loja, mas o motivo não é dele
+        if (AdminAudit::impersonatorId($user->currentAccessToken()) === null) {
+            if (! empty($exit['reason'])) {
+                $feedback->record($company, $user, ['kind' => PlatformFeedback::KIND_CANCEL_EXIT, ...$exit], 'app', ['subscription_id' => $subscription->stripe_id]);
+            } else {
+                $feedback->snooze($user, PlatformFeedback::KIND_CANCEL_EXIT, PlatformFeedbackService::CANCEL_EXIT_WINDOW_DAYS + 1);
+            }
+        }
 
         $endsAt = $subscription->ends_at?->format('d/m/Y');
 

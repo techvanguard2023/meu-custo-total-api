@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /** Chamado de suporte aberto por alguém da loja ("Ajuda e suporte"), respondido na área admin. */
 class SupportTicket extends Model
@@ -57,5 +58,11 @@ class SupportTicket extends Model
     public function categoryLabel(): string
     {
         return self::CATEGORY_LABELS[$this->category] ?? $this->category;
+    }
+
+    /** Avaliação do atendimento (nota 1–5), dada pela loja depois de resolvido. */
+    public function rating(): HasOne
+    {
+        return $this->hasOne(PlatformFeedback::class)->where('kind', PlatformFeedback::KIND_SUPPORT_CSAT);
     }
 }

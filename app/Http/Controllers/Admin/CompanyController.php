@@ -210,7 +210,7 @@ class CompanyController extends Controller
                     'created_at' => \Illuminate\Support\Carbon::parse($m->created_at, 'UTC')->toIso8601String(),
                 ]),
             // Opinião da loja sobre a plataforma (NPS e fim do teste)
-            'feedback' => PlatformFeedback::with(['user:id,name,email', 'company:id,name,plan'])->where('company_id', $company->id)->latest('id')->limit(10)->get()
+            'feedback' => PlatformFeedback::with(['user:id,name,email', 'company:id,name,plan', 'supportTicket:id,subject'])->where('company_id', $company->id)->latest('id')->limit(10)->get()
                 ->map(fn (PlatformFeedback $f) => FeedbackController::row($f)),
             'audit' => DB::table('admin_audit_logs')->where('company_id', $company->id)->latest('id')->limit(20)
                 ->get(['action', 'admin_email', 'details', 'created_at'])

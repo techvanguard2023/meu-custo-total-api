@@ -3,8 +3,10 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\PlatformFeedback;
 use App\Models\SupportTicket;
 use App\Services\AdminAudit;
+use App\Services\PlatformFeedbackService;
 use App\Services\SupportNotifier;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -139,6 +141,19 @@ class SupportTicketController extends Controller
         return $this->detail($ticket->fresh());
     }
 
+    /** Avaliação do atendimento (1–5 + comentário), depois de resolvido. Avaliar de novo atualiza a nota. */
+    public function rate(Request $request, SupportTicket $ticket, PlatformFeedbackService $feedback)
+    {
+        $this->authorizeTicket($request, $ticket);
+        $this->refuseImpersonation($request);
+        abort_unless($ticket->status === SupportTicket::STATUS_RESOLVED, 422, 'Dá pra avaliar depois que o chamado for resolvido.');
+
+        $data = PlatformFeedbackController::validated($request->merge(['kind' => PlatformFeedback::KIND_SUPPORT_CSAT]));
+        $feedback->record($request->user()->company, $request->user(), $data, 'app', ['ticket' => $ticket]);
+
+        return $this->detail($ticket->fresh());
+    }
+
     /** Chamados que a pessoa enxerga: dono, todos da loja; equipe, só os próprios. */
     private function visible(Request $request)
     {
@@ -184,11 +199,13 @@ class SupportTicketController extends Controller
 
     private function detail(SupportTicket $t): array
     {
-        $t->loadMissing(['user:id,name', 'messages.user:id,name']);
+        $t->loadMissing(['user:id,name', 'messages.user:id,name', 'rating']);
 
         return [
             ...$this->row($t),
             'resolved_at' => $t->resolved_at?->toIso8601String(),
+            // Avaliação do atendimento (depois de resolvido)
+            'rating' => $t->rating ? ['score' => $t->rating->score, 'comment' => $t->rating->comment] : null,
             'messages' => $t->messages->map(fn ($m) => [
                 'id' => $m->id,
                 'from_admin' => $m->from_admin,

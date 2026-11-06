@@ -9,7 +9,7 @@ use App\Services\PlatformFeedbackService;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
-/** Área admin → Opiniões: respostas do NPS e do fim do teste, com o "conversei com a loja". */
+/** Área admin → Opiniões: NPS, fim do teste, avaliação do atendimento e cancelamento, com o "conversei com a loja". */
 class FeedbackController extends Controller
 {
     public function index(Request $request)
@@ -22,7 +22,7 @@ class FeedbackController extends Controller
         ]);
 
         $query = ($request->boolean('pending') ? PlatformFeedbackService::pendingQuery() : PlatformFeedback::query())
-            ->with(['company:id,name,plan', 'user:id,name,email'])
+            ->with(['company:id,name,plan', 'user:id,name,email', 'supportTicket:id,subject'])
             ->when($data['kind'] ?? null, fn ($q, $kind) => $q->where('kind', $kind))
             ->when($data['company_id'] ?? null, fn ($q, $id) => $q->where('company_id', $id))
             ->when($data['group'] ?? null, fn ($q, $group) => $q->where('kind', PlatformFeedback::KIND_NPS)->where(fn ($q) => match ($group) {
@@ -51,7 +51,7 @@ class FeedbackController extends Controller
             'followed_up' => $data['followed_up'],
         ]);
 
-        return self::row($feedback->load(['company:id,name,plan', 'user:id,name,email']));
+        return self::row($feedback->load(['company:id,name,plan', 'user:id,name,email', 'supportTicket:id,subject']));
     }
 
     public static function row(PlatformFeedback $f): array
@@ -71,6 +71,7 @@ class FeedbackController extends Controller
             'created_at' => $f->created_at?->toIso8601String(),
             'company' => $f->company ? ['id' => $f->company->id, 'name' => $f->company->name, 'plan' => $f->company->plan] : null,
             'user' => $f->user ? ['name' => $f->user->name, 'email' => $f->user->email] : null,
+            'ticket' => $f->support_ticket_id && $f->supportTicket ? ['id' => $f->supportTicket->id, 'subject' => $f->supportTicket->subject] : null,
         ];
     }
 }
