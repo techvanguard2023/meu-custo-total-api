@@ -138,6 +138,7 @@ class PlatformFinance
             'stripe_fees' => fn () => $this->syncStripeFees($costsFrom),
             'openai' => fn () => $this->syncOpenAi($costsFrom),
             'usd_rate' => fn () => $this->usdRate(fresh: true),
+            'prices' => fn () => $this->refreshPrices(),
         ] as $name => $job) {
             try {
                 $result[$name] = $job() ?? true;
@@ -151,11 +152,17 @@ class PlatformFinance
         return $result;
     }
 
-    /** Cotação do dólar (AwesomeAPI), guardada por 12h; sem resposta, usa a última que deu certo. */
-    public function usdRate(bool $fresh = false): ?float
+    /**
+     * Cotação do dólar (AwesomeAPI), guardada por 12h; sem resposta, usa a última que deu certo.
+     * $network = false (tela do financeiro): só o que está guardado — a tela nunca espera serviço de fora.
+     */
+    public function usdRate(bool $fresh = false, bool $network = true): ?float
     {
         if (! $fresh && ($rate = Cache::get('usd_brl_rate'))) {
             return (float) $rate;
+        }
+        if (! $network) {
+            return isset(Cache::get('usd_brl_rate_last')['rate']) ? (float) Cache::get('usd_brl_rate_last')['rate'] : null;
         }
 
         try {
@@ -175,34 +182,57 @@ class PlatformFinance
 
     /* ---------- Números ---------- */
 
-    /** Valor mensal de um preço da Stripe (anual vira 1/12), guardado por 1 dia. */
-    private function monthlyPrice(string $priceId): float
+    /**
+     * Valor mensal dos preços da Stripe (anual vira 1/12), guardado sem prazo e renovado pela sincronização (comando
+     * diário, "Atualizar agora" ou em segundo plano quando a tela encontra um preço que ainda não conhece).
+     * Só guarda o que a Stripe respondeu — falha não vira "R$ 0" guardado.
+     */
+    public function refreshPrices(): int
     {
-        return Cache::remember("stripe_price_monthly:{$priceId}", now()->addDay(), function () use ($priceId) {
+        $ids = DB::table('subscriptions')->where('type', 'default')->distinct()->pluck('stripe_price')
+            ->merge([config('services.stripe.price_essential'), config('services.stripe.price_pro')])
+            ->filter()->unique();
+        $done = 0;
+        foreach ($ids as $priceId) {
             try {
                 $price = Cashier::stripe()->prices->retrieve($priceId);
-                $amount = ((int) $price->unit_amount) / 100;
-                $interval = $price->recurring->interval ?? 'month';
-                $count = max(1, (int) ($price->recurring->interval_count ?? 1));
+            } catch (Throwable $e) {
+                Log::info("Financeiro: preço {$priceId} não lido na Stripe: {$e->getMessage()}");
 
-                return round(match ($interval) {
-                    'year' => $amount / (12 * $count),
-                    'week' => $amount * 52 / 12 / $count,
-                    'day' => $amount * 365 / 12 / $count,
-                    default => $amount / $count,
-                }, 2);
-            } catch (Throwable) {
-                return 0.0;
+                continue;
             }
-        });
+            $amount = ((int) $price->unit_amount) / 100;
+            $interval = $price->recurring->interval ?? 'month';
+            $count = max(1, (int) ($price->recurring->interval_count ?? 1));
+            Cache::forever("stripe_price_monthly:{$priceId}", round(match ($interval) {
+                'year' => $amount / (12 * $count),
+                'week' => $amount * 52 / 12 / $count,
+                'day' => $amount * 365 / 12 / $count,
+                default => $amount / $count,
+            }, 2));
+            $done++;
+        }
+
+        return $done;
     }
 
+    /** MRR só com os preços já guardados; os que faltam vão em missing_prices (a tela pede a atualização). */
     public function mrr(): array
     {
         $subs = DB::table('subscriptions')->where('type', 'default')->whereIn('stripe_status', self::MRR_STATUSES)->get(['stripe_price', 'quantity']);
-        $mrr = $subs->sum(fn ($s) => $this->monthlyPrice((string) $s->stripe_price) * max(1, (int) $s->quantity));
+        $missing = [];
+        $mrr = $subs->sum(function ($s) use (&$missing) {
+            $monthly = Cache::get("stripe_price_monthly:{$s->stripe_price}");
+            if ($monthly === null) {
+                $missing[] = (string) $s->stripe_price;
 
-        return ['mrr' => round($mrr, 2), 'paying' => $subs->count()];
+                return 0;
+            }
+
+            return (float) $monthly * max(1, (int) $s->quantity);
+        });
+
+        return ['mrr' => round($mrr, 2), 'paying' => $subs->count(), 'missing_prices' => array_values(array_unique($missing))];
     }
 
     /** Cancelamentos no mês ÷ assinaturas ativas no começo do mês. */
@@ -220,7 +250,7 @@ class PlatformFinance
     /** Receita, custos e lucro dos últimos 12 meses (o atual por último). */
     public function monthly(): array
     {
-        $rate = $this->usdRate();
+        $rate = $this->usdRate(network: false);
         $from = now()->subMonths(11)->startOfMonth();
         $payments = DB::table('platform_payments')->where('paid_at', '>=', $from)
             ->selectRaw("DATE_FORMAT(paid_at, '%Y-%m') AS month, SUM(amount) AS revenue, SUM(amount_refunded) AS refunds, SUM(COALESCE(fee, 0)) AS fees")

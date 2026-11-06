@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Services\AdminAudit;
 use App\Services\PlatformFinance;
+use App\Support\Background;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -22,6 +23,17 @@ class FinanceController extends Controller
         $previous = $months[count($months) - 2] ?? null;
         $mrr = $this->finance->mrr();
         $lastRate = Cache::get('usd_brl_rate_last');
+
+        // A tela só lê o que está guardado (nunca espera a Stripe ou a cotação). Faltou preço de plano ou a cotação
+        // venceu: atualiza em segundo plano e o número certo aparece no próximo carregamento.
+        $stale = $mrr['missing_prices'] || ! Cache::has('usd_brl_rate');
+        if ($stale && Cache::add('platform_finance_quick_refresh', true, now()->addMinutes(10))) {
+            Background::run(static function () {
+                $finance = app(PlatformFinance::class);
+                $finance->refreshPrices();
+                $finance->usdRate(fresh: true);
+            });
+        }
 
         return response()->json([
             'mrr' => $mrr['mrr'],
@@ -51,7 +63,9 @@ class FinanceController extends Controller
             'costs' => DB::table('platform_costs')->orderBy('name')->get(),
             'sources' => [
                 'openai_configured' => (bool) config('services.openai.admin_key'),
-                'usd_rate' => $this->finance->usdRate(),
+                'usd_rate' => $this->finance->usdRate(network: false),
+                // Assinaturas cujo preço ainda não foi lido na Stripe (o MRR sai sem elas até a atualização)
+                'mrr_pending_prices' => count($mrr['missing_prices']),
                 'usd_rate_at' => $lastRate['at'] ?? null,
                 'synced_at' => Cache::get('platform_finance_synced_at'),
                 'payments_total' => DB::table('platform_payments')->count(),
