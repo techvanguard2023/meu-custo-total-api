@@ -35,6 +35,8 @@ class PlatformFeedbackStats
                 'rate' => $csatTotal ? (int) round((int) $csat->satisfied / $csatTotal * 100) : null,
                 'average' => $csatTotal ? round((float) $csat->average, 1) : null,
             ],
+            // "Foi fácil?" por passo: quantos responderam, % de "fácil" e quantos acharam difícil
+            'ces' => $this->ces($since),
             'pending' => PlatformFeedbackService::pendingQuery()->count(),
             'recent_comments' => PlatformFeedback::with('company:id,name')->whereNotNull('comment')->latest('id')->limit(5)->get()
                 ->map(fn (PlatformFeedback $f) => [
@@ -48,6 +50,20 @@ class PlatformFeedbackStats
                     'created_at' => $f->created_at?->toIso8601String(),
                 ]),
         ];
+    }
+
+    private function ces($since): array
+    {
+        $rows = PlatformFeedback::where('kind', PlatformFeedback::KIND_CES)->where('created_at', '>=', $since)
+            ->groupBy('reason')->selectRaw('reason, COUNT(*) AS total, SUM(score = 3) AS easy, SUM(score = 1) AS hard')->get()->keyBy('reason');
+
+        return collect(PlatformFeedback::CES_MILESTONES)->map(fn ($label, $key) => [
+            'milestone' => $key,
+            'label' => $label,
+            'total' => (int) ($rows[$key]->total ?? 0),
+            'easy_rate' => ($rows[$key]->total ?? 0) ? (int) round($rows[$key]->easy / $rows[$key]->total * 100) : null,
+            'hard' => (int) ($rows[$key]->hard ?? 0),
+        ])->values()->all();
     }
 
     /** Motivos de um tipo (fim do teste, cancelamento) no período, do mais citado ao menos. */
