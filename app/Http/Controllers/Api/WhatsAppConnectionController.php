@@ -169,7 +169,7 @@ class WhatsAppConnectionController extends Controller
     {
         return collect(array_keys(ProductionStageNotifier::events()))
             ->mapWithKeys(fn ($stage) => [$stage => [
-                'enabled' => (bool) ($input[$stage]['enabled'] ?? true),
+                'enabled' => (bool) ($input[$stage]['enabled'] ?? ! in_array($stage, ProductionStageNotifier::OFF_BY_DEFAULT, true)),
                 'message' => trim((string) ($input[$stage]['message'] ?? '')) ?: null,
             ]])
             ->all();

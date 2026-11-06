@@ -72,6 +72,48 @@ class SettingsController extends Controller
     }
 
     /**
+     * Agenda (Pro): regras de entrega — dias em que a loja trabalha, antecedência mínima, limite de pedidos por dia,
+     * datas bloqueadas, formas oferecidas e se o cliente escolhe a data no catálogo e no bot.
+     */
+    public function updateDelivery(Request $request)
+    {
+        $this->requirePro($request, 'Agenda');
+        $data = $request->validate([
+            'weekdays' => ['required', 'array', 'min:1', 'max:7'],
+            'weekdays.*' => ['integer', 'between:0,6', 'distinct'],
+            'min_days' => ['required', 'integer', 'min:0', 'max:60'],
+            'daily_limit' => ['nullable', 'integer', 'min:1', 'max:500'],
+            'blocked_dates' => ['sometimes', 'array', 'max:120'],
+            'blocked_dates.*' => ['date_format:Y-m-d', 'distinct'],
+            'methods' => ['required', 'array', 'min:1'],
+            'methods.*' => [\Illuminate\Validation\Rule::in(\App\Support\Delivery::METHODS), 'distinct'],
+            'customer_chooses' => ['required', 'boolean'],
+        ], [
+            'weekdays.required' => 'Marque pelo menos um dia em que a loja trabalha.',
+            'weekdays.min' => 'Marque pelo menos um dia em que a loja trabalha.',
+            'methods.required' => 'Escolha pelo menos uma forma de entrega.',
+            'methods.min' => 'Escolha pelo menos uma forma de entrega.',
+        ]);
+
+        $today = now(\App\Support\Delivery::TZ)->toDateString();
+        $rules = [
+            'weekdays' => collect($data['weekdays'])->map(fn ($d) => (int) $d)->unique()->sort()->values()->all(),
+            'min_days' => (int) $data['min_days'],
+            'daily_limit' => $data['daily_limit'] ? (int) $data['daily_limit'] : null,
+            // Datas passadas não servem pra nada: saem da lista
+            'blocked_dates' => collect($data['blocked_dates'] ?? [])->filter(fn ($d) => $d >= $today)->unique()->sort()->values()->all(),
+            'methods' => array_values(array_intersect(\App\Support\Delivery::METHODS, $data['methods'])),
+            'customer_chooses' => (bool) $data['customer_chooses'],
+        ];
+        $setting = $request->user()->company->setting;
+        $setting->update(['delivery_rules' => $rules]);
+        // O catálogo público guarda a página por alguns minutos: a pergunta da data entra ou sai na hora
+        \App\Services\CatalogCache::forget($setting->company_id);
+
+        return $setting->fresh();
+    }
+
+    /**
      * Nome da loja (errou no cadastro, mudou de nome). O endereço do catálogo, o QR das placas e a sessão do
      * WhatsApp usam o slug, que fica como está — nenhum link já divulgado quebra.
      */

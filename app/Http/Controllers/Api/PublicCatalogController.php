@@ -310,6 +310,10 @@ class PublicCatalogController extends Controller
             'coupons_enabled' => $company->isPro() && $company->coupons()->where('active', true)
                 ->where(fn ($q) => $q->whereNull('ends_on')->orWhere('ends_on', '>=', now($company->timezone ?: 'America/Sao_Paulo')->toDateString()))
                 ->exists(),
+            // Agenda (Pro): o carrinho pergunta a data e a forma de entrega (as datas vêm de /delivery-dates)
+            'delivery_booking' => \App\Services\DeliveryCalendar::customerChooses($company) ? [
+                'methods' => array_values(array_intersect(\App\Support\Delivery::METHODS, \App\Services\DeliveryCalendar::rules($company)['methods'])),
+            ] : null,
             // Desconto por valor do pedido (Pro): não vale para itens que já estão em promoção
             'order_discount_tiers' => $volumePricing ? array_values($company->setting?->order_discount_tiers ?? []) : [],
             // Coleções de campanha (Natal, Réveillon...) ativas e com pelo menos um

@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\Api\AccountController;
+use App\Http\Controllers\Api\AgendaController;
+use App\Http\Controllers\Api\DeliveryDatesController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CatalogController;
 use App\Http\Controllers\Api\CustomerController;
@@ -117,6 +119,8 @@ Route::prefix('v1')->group(function () {
     // Opinião sobre a plataforma pelo link do e-mail (fim do teste grátis), sem login
     Route::get('/public/feedback/{token}', [PlatformFeedbackController::class, 'publicShow'])->middleware('throttle:30,1');
     Route::post('/public/feedback/{token}', [PlatformFeedbackController::class, 'publicStore'])->middleware('throttle:10,1');
+    // Carrinho do catálogo: próximas datas de entrega livres (quando a loja deixa o cliente escolher)
+    Route::get('/public/catalog/{token}/delivery-dates', [DeliveryDatesController::class, 'publicDates'])->middleware('throttle:60,1');
     // Depoimentos aprovados (seção da landing)
     Route::get('/public/testimonials', [TestimonialController::class, 'publicIndex'])->middleware('throttle:60,1');
 
@@ -297,6 +301,13 @@ Route::prefix('v1')->group(function () {
             Route::patch('/quotes/{quote}/reject', [QuoteController::class, 'reject']);
             Route::patch('/quotes/{quote}/cancel', [QuoteController::class, 'cancel']);
             Route::patch('/quotes/{quote}/payment', [QuoteController::class, 'updatePayment']);
+            Route::patch('/quotes/{quote}/delivery', [QuoteController::class, 'updateDelivery']);
+            // Agenda (Pro): entregas por período + atrasadas
+            Route::get('/agenda', [AgendaController::class, 'index']);
+            Route::get('/agenda/availability', [DeliveryDatesController::class, 'availability']);
+            Route::put('/settings/delivery', [SettingsController::class, 'updateDelivery']);
+            // Bot do WhatsApp: próximas datas livres (token de integração — está em RestrictIntegrationTokens::ALLOWED)
+            Route::get('/whatsapp/delivery-dates', [DeliveryDatesController::class, 'botDates']);
             Route::patch('/quotes/{quote}/pause', [QuoteController::class, 'pause']);
             Route::patch('/quotes/{quote}/resume', [QuoteController::class, 'resume']);
             Route::patch('/quotes/{quote}/production-status', [QuoteController::class, 'updateProductionStatus']);

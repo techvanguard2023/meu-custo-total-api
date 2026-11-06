@@ -20,6 +20,7 @@ class Setting extends Model
         'company_id', 'electricity_rate_kwh', 'labor_hour_rate',
         'default_failure_rate', 'default_markup', 'minimum_order_price', 'order_discount_tiers',
         'cashback_enabled', 'cashback_purchase_percent', 'cashback_review_percent', 'cashback_referral_percent', 'cashback_max_redeem_percent', 'cashback_validity_months',
+        'delivery_rules',
     ];
 
     protected $casts = [
@@ -28,6 +29,7 @@ class Setting extends Model
         'default_failure_rate' => 'decimal:2',
         'default_markup' => 'decimal:2',
         'cashback_enabled' => 'boolean',
+        'delivery_rules' => 'array',
         'cashback_purchase_percent' => 'decimal:2',
         'cashback_review_percent' => 'decimal:2',
         'cashback_referral_percent' => 'decimal:2',

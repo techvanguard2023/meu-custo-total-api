@@ -77,7 +77,13 @@ $brl = fn ($v) => 'R$ '.number_format((float) $v, 2, ',', '.');
         </tbody>
     </table>
 
-    @if($quote->delivery_days)
+    @if($quote->delivery_date || $quote->delivery_method)
+        <div class="section-title">Entrega</div>
+        <div>{{ \App\Support\Delivery::label($quote) }}</div>
+        @if($quote->delivery_address)
+            <div>{{ $quote->delivery_address }}</div>
+        @endif
+    @elseif($quote->delivery_days)
         <div class="section-title">Prazo de entrega</div>
         <div>{{ $quote->delivery_days }} {{ $quote->delivery_days == 1 ? 'dia' : 'dias' }} após a confirmação</div>
     @endif

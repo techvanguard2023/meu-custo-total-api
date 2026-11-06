@@ -16,6 +16,7 @@ use App\Models\Quote;
 use App\Models\SalesChannel;
 use App\Services\Cashback;
 use App\Services\Coupons;
+use App\Services\DeliveryCalendar;
 use App\Services\DisplayQr;
 use App\Services\DisplaySales;
 use App\Services\MaterialStock;
@@ -24,6 +25,7 @@ use App\Services\ProductRecipe;
 use App\Services\QuoteCalculatorService;
 use App\Services\QuoteListing;
 use App\Services\QuotePdfNotifier;
+use App\Support\Delivery;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
@@ -380,7 +382,23 @@ class QuoteController extends Controller
             'notes' => ['sometimes', 'nullable', 'string', 'max:1000'],
             // Código do expositor de onde o cliente veio (QR da placa: "Expositor CODIGO" na mensagem)
             'origin_display_code' => ['sometimes', 'nullable', 'string', 'max:60'],
+            // Agenda: data desejada (AAAA-MM-DD ou DD/MM/AAAA), hora, forma (retirada/entrega/envio) e endereço
+            'delivery_date' => ['sometimes', 'nullable', 'string', 'max:20'],
+            'delivery_time' => ['sometimes', 'nullable', 'date_format:H:i'],
+            'delivery_method' => ['sometimes', 'nullable', Rule::in(Delivery::METHODS)],
+            'delivery_address' => ['sometimes', 'nullable', 'string', 'max:500'],
+        ], [
+            'delivery_time.date_format' => 'Hora de entrega inválida (use HH:MM, ex: 15:00).',
+            'delivery_method.in' => 'Forma de entrega inválida: use pickup (retirada), local (entrega) ou shipping (envio).',
         ]);
+        $data['delivery_date'] = $this->parseBotDate($data['delivery_date'] ?? null);
+        $data = self::normalizeDelivery($data);
+        // Regras da agenda da loja (dias de trabalho, antecedência, limite por dia, datas bloqueadas): o bot recebe o
+        // motivo e as próximas datas livres pra oferecer ao cliente
+        if (! empty($data['delivery_date'])) {
+            $refusal = app(DeliveryCalendar::class)->refusal($request->user()->company, $data['delivery_date'], collect($data['products'])->pluck('product_id')->all());
+            abort_if($refusal !== null, 422, $refusal ?? '');
+        }
 
         if (! empty($data['external_reference'])) {
             $existing = $request->user()->company->quotes()
@@ -418,6 +436,10 @@ class QuoteController extends Controller
             'sales_channel_id' => $data['sales_channel_id'] ?? null,
             'origin_display_id' => $originDisplay?->id,
             'notes' => trim((string) ($data['notes'] ?? '')) ?: null,
+            'delivery_date' => $data['delivery_date'] ?? null,
+            'delivery_time' => $data['delivery_time'] ?? null,
+            'delivery_method' => $data['delivery_method'] ?? null,
+            'delivery_address' => $data['delivery_address'] ?? null,
         ];
 
         // Cashback vai todo na primeira parte do pedido (a pronta, quando houver) — o teto de X% vale nela
@@ -498,6 +520,25 @@ class QuoteController extends Controller
         }
 
         return [$ready, $backorder];
+    }
+
+    /** Data mandada pelo bot: AAAA-MM-DD ou DD/MM/AAAA; não pode ser no passado (mensagem clara pro agente). */
+    private function parseBotDate(?string $raw): ?string
+    {
+        $raw = trim((string) $raw);
+        if ($raw === '') {
+            return null;
+        }
+        $parts = match (true) {
+            (bool) preg_match('/^(\d{4})-(\d{1,2})-(\d{1,2})$/', $raw, $m) => [(int) $m[1], (int) $m[2], (int) $m[3]],
+            (bool) preg_match('#^(\d{1,2})/(\d{1,2})/(\d{4})$#', $raw, $m) => [(int) $m[3], (int) $m[2], (int) $m[1]],
+            default => null,
+        };
+        abort_unless($parts && checkdate($parts[1], $parts[2], $parts[0]), 422, 'Data de entrega inválida: use AAAA-MM-DD (ex: '.now(Delivery::TZ)->addDays(3)->format('Y-m-d').').');
+        $date = \Illuminate\Support\Carbon::create($parts[0], $parts[1], $parts[2], 0, 0, 0, Delivery::TZ);
+        abort_if($date->lt(now(Delivery::TZ)->startOfDay()), 422, 'A data de entrega já passou. Hoje é '.now(Delivery::TZ)->format('d/m/Y').'.');
+
+        return $date->toDateString();
     }
 
     private function createQuickSaleQuote(
@@ -634,6 +675,55 @@ class QuoteController extends Controller
             'approved_at' => now(),
             'payment_method' => $paymentMethod,
         ]);
+
+        $this->scheduleDelivery($quote, $productionStatus);
+    }
+
+    /**
+     * Na aprovação, o pedido ganha a data de entrega: a marcada vale; senão, o prazo em dias vira data; senão, sob
+     * encomenda usa o maior prazo de produção dos produtos (dias úteis ou corridos, como no catálogo).
+     */
+    private function scheduleDelivery(Quote $quote, string $productionStatus): void
+    {
+        if ($quote->delivery_date) {
+            return;
+        }
+        if ($quote->delivery_days) {
+            $quote->update(['delivery_date' => Delivery::fromDays((int) $quote->delivery_days)->toDateString()]);
+
+            return;
+        }
+        if ($productionStatus !== Quote::PRODUCTION_PENDING) {
+            return;
+        }
+
+        $latest = Product::whereIn('id', $quote->items()->where('type', 'product')->whereNotNull('product_id')->pluck('product_id'))
+            ->where('made_to_order', true)->where('lead_time_days', '>', 0)
+            ->get(['lead_time_days', 'lead_time_days_type'])
+            ->map(fn (Product $p) => Delivery::fromDays((int) $p->lead_time_days, $p->lead_time_days_type === 'business'))
+            ->max();
+        if ($latest) {
+            $quote->update(['delivery_date' => $latest->toDateString()]);
+        }
+    }
+
+    /**
+     * Remarcar a entrega de um pedido (data, hora, forma, endereço) — vale para vendas já aprovadas, inclusive
+     * pela Linha de Produção. Data vazia tira o pedido da agenda.
+     */
+    public function updateDelivery(Request $request, Quote $quote)
+    {
+        $this->authorizeCompany($request, $quote);
+        abort_if(in_array($quote->status, [Quote::STATUS_REJECTED, Quote::STATUS_CANCELLED], true), 422, 'Este pedido foi cancelado ou recusado.');
+
+        $data = self::normalizeDelivery($request->validate(self::deliveryRules(), [
+            'delivery_date.date_format' => 'Data inválida.',
+            'delivery_time.date_format' => 'Hora inválida (use HH:MM).',
+            'delivery_method.in' => 'Forma de entrega inválida.',
+        ]));
+        $quote->update($data);
+
+        return response()->json($quote->fresh()->load(self::detailRelations()));
     }
 
     /**
@@ -736,6 +826,8 @@ class QuoteController extends Controller
 
         $quote->update([
             'delivery_days' => (int) $quote->delivery_days + max(0, $pausedDays),
+            // A data marcada anda junto com a pausa
+            'delivery_date' => $quote->delivery_date && $pausedDays > 0 ? $quote->delivery_date->copy()->addDays($pausedDays)->toDateString() : $quote->delivery_date,
             'paused_at' => null,
             'pause_reason' => null,
         ]);
@@ -1129,9 +1221,36 @@ class QuoteController extends Controller
      * Margem, taxa de falha e custo extra são do dono: quem é da equipe não vê nem mexe — vale o padrão
      * das configurações (orçamento novo) ou o que o orçamento já tinha (edição).
      */
+    /** Campos da entrega (pedido no app, remarcar e pedido do bot). */
+    private static function deliveryRules(): array
+    {
+        return [
+            'delivery_date' => ['sometimes', 'nullable', 'date_format:Y-m-d'],
+            'delivery_time' => ['sometimes', 'nullable', 'date_format:H:i'],
+            'delivery_method' => ['sometimes', 'nullable', Rule::in(Delivery::METHODS)],
+            'delivery_address' => ['sometimes', 'nullable', 'string', 'max:500'],
+        ];
+    }
+
+    /** Retirada não tem endereço; hora sem data não faz sentido. */
+    private static function normalizeDelivery(array $data): array
+    {
+        if (array_key_exists('delivery_address', $data)) {
+            $data['delivery_address'] = trim((string) $data['delivery_address']) ?: null;
+        }
+        if (($data['delivery_method'] ?? null) === Delivery::METHOD_PICKUP) {
+            $data['delivery_address'] = null;
+        }
+        if (array_key_exists('delivery_time', $data) && empty($data['delivery_date'])) {
+            $data['delivery_time'] = null;
+        }
+
+        return $data;
+    }
+
     private function validated(Request $request, ?Quote $quote = null): array
     {
-        $data = $this->validatedInput($request);
+        $data = self::normalizeDelivery($this->validatedInput($request));
 
         if (! $request->user()->seesCosts()) {
             foreach (['markup_percent', 'failure_rate_percent', 'extra_costs'] as $field) {
@@ -1165,6 +1284,8 @@ class QuoteController extends Controller
             // Cupom de desconto da loja (Pro) — conferido em withCoupon()
             'coupon_code' => ['sometimes', 'nullable', 'string', 'max:30'],
             'delivery_days' => ['nullable', 'integer', 'min:1', 'max:365'],
+            // Agenda: data marcada (vale mais que o prazo em dias), hora opcional, forma e endereço
+            ...self::deliveryRules(),
             'model_urls' => ['sometimes', 'nullable', 'array', 'max:10'],
             'model_urls.*' => ['url', 'max:2048'],
             'notes' => ['nullable', 'string', 'max:2000'],

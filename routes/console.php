@@ -44,6 +44,8 @@ Schedule::command('trial:expire')->hourly()->withoutOverlapping(10);
 Schedule::command('trial:notify')->everyFifteenMinutes()->withoutOverlapping(14);
 // Indique e ganhe: indicada que pagou a primeira vez → 1 mês de Pro pra quem indicou
 Schedule::command('referrals:reward')->hourlyAt(20)->withoutOverlapping(30);
+// Agenda: lembrete ao cliente na véspera da entrega (só lojas que ligaram o aviso; das 9h às 19h)
+Schedule::command('deliveries:remind')->hourlyAt(5)->withoutOverlapping(30);
 // Financeiro da área admin: cobranças da Stripe, tarifas, custo da OpenAI e cotação do dólar
 Schedule::command('admin:sync-finance')->dailyAt('04:30')->withoutOverlapping(30);
 

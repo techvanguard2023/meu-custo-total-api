@@ -7,6 +7,7 @@ use App\Models\CashbackEntry;
 use App\Models\Company;
 use App\Models\Customer;
 use App\Models\Quote;
+use App\Support\Delivery;
 use App\Services\Cashback;
 use App\Services\CustomerPortal;
 use Illuminate\Http\Request;
@@ -216,6 +217,13 @@ class CustomerPortalController extends Controller
                 'at' => isset($reachedAt[$stage]) ? \Illuminate\Support\Carbon::parse($reachedAt[$stage])->toIso8601String() : null,
             ])->values(),
             'items' => $quote->soldLines(),
+            // Agenda: forma e data combinadas (a hora e o endereço vão juntos; null = a combinar)
+            'delivery' => $quote->delivery_date || $quote->delivery_method ? [
+                'label' => Delivery::label($quote),
+                'date' => $quote->delivery_date?->toDateString(),
+                'time' => $quote->delivery_time,
+                'method' => $quote->delivery_method,
+            ] : null,
             // Entregue e ainda sem avaliação: o cliente avalia direto daqui
             'review_url' => $quote->production_status === Quote::PRODUCTION_DELIVERED && $quote->review_token && $quote->reviews_count === 0
                 ? $company->publicOrigin().'/avaliar/'.$quote->review_token

@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Support\Background;
 use App\Models\Company;
 use App\Models\Quote;
+use App\Support\Delivery;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -27,6 +28,14 @@ class ProductionStageNotifier
         'payment_paid' => 'Recebi tudo',
     ];
 
+    /** Lembrete na véspera da entrega (Agenda) — comando deliveries:remind. Começa desligado: a loja liga. */
+    public const REMINDER_EVENTS = [
+        'delivery_reminder' => 'Lembrete na véspera da entrega',
+    ];
+
+    /** Avisos que começam desligados (mensagem nova pros clientes só depois que a loja decidir). */
+    public const OFF_BY_DEFAULT = ['delivery_reminder'];
+
     public const PLACEHOLDERS = [
         '{cliente}' => 'Primeiro nome do cliente',
         '{pedido}' => 'Número do pedido (ex: #123)',
@@ -35,14 +44,16 @@ class ProductionStageNotifier
         '{total}' => 'Valor total do pedido',
         '{recebido}' => 'Quanto já foi recebido',
         '{restante}' => 'Quanto ainda falta receber',
+        '{entrega}' => 'Forma e data de entrega (ex: Retirada · sáb, 15/11 às 15:00) — "a combinar" se não tiver',
     ];
 
     private const DEFAULT_MESSAGES = [
-        Quote::PRODUCTION_IN_PRODUCTION => 'Olá, {cliente}! Seu pedido *{pedido}* ({itens}) começou a ser produzido aqui na {loja}. Avisamos por aqui quando ficar pronto.',
+        Quote::PRODUCTION_IN_PRODUCTION => 'Olá, {cliente}! Seu pedido *{pedido}* ({itens}) começou a ser produzido aqui na {loja}. Entrega: {entrega}. Avisamos por aqui quando ficar pronto.',
         Quote::PRODUCTION_FINISHED => 'Olá, {cliente}! Seu pedido *{pedido}* ({itens}) está pronto! Vamos combinar a entrega ou retirada.',
         Quote::PRODUCTION_DELIVERED => 'Olá, {cliente}! Seu pedido *{pedido}* foi entregue. Obrigado por comprar na {loja}! Qualquer dúvida é só chamar.',
         'payment_partial' => 'Olá, {cliente}! Recebemos {recebido} do seu pedido *{pedido}* (total {total}). Ainda falta {restante}. Obrigado!',
         'payment_paid' => 'Olá, {cliente}! Recebemos o pagamento do seu pedido *{pedido}* ({total}). Muito obrigado por comprar na {loja}!',
+        'delivery_reminder' => 'Olá, {cliente}! Passando para lembrar: seu pedido *{pedido}* ({itens}) está marcado para amanhã — {entrega}. Qualquer mudança é só avisar por aqui. {loja}',
     ];
 
     public function __construct(private WahaClient $waha) {}
@@ -54,8 +65,8 @@ class ProductionStageNotifier
 
         return collect(self::events())->map(fn ($label, $event) => [
             'label' => $label,
-            'group' => array_key_exists($event, self::PAYMENT_EVENTS) ? 'payment' : 'stage',
-            'enabled' => (bool) ($saved[$event]['enabled'] ?? true),
+            'group' => array_key_exists($event, self::PAYMENT_EVENTS) ? 'payment' : (array_key_exists($event, self::REMINDER_EVENTS) ? 'reminder' : 'stage'),
+            'enabled' => (bool) ($saved[$event]['enabled'] ?? ! in_array($event, self::OFF_BY_DEFAULT, true)),
             'message' => trim((string) ($saved[$event]['message'] ?? '')) ?: self::DEFAULT_MESSAGES[$event],
         ])->all();
     }
@@ -63,7 +74,7 @@ class ProductionStageNotifier
     /** Todos os avisos configuráveis: etapas do Kanban e recebimentos. */
     public static function events(): array
     {
-        return self::STAGES + self::PAYMENT_EVENTS;
+        return self::STAGES + self::PAYMENT_EVENTS + self::REMINDER_EVENTS;
     }
 
     public static function defaultMessage(string $stage): string
@@ -143,6 +154,30 @@ class ProductionStageNotifier
         }
     }
 
+    /**
+     * Lembrete da véspera (comando deliveries:remind): uma vez por data marcada — se a entrega for remarcada, o
+     * novo dia ganha lembrete. Devolve true se enviou.
+     */
+    public function sendReminder(Quote $quote): bool
+    {
+        $key = 'reminder:'.$quote->delivery_date?->toDateString();
+        if (! $quote->delivery_date || in_array($key, $quote->notified_stages ?? [], true)) {
+            return false;
+        }
+        try {
+            if (! $this->deliver($quote, 'delivery_reminder')) {
+                return false;
+            }
+        } catch (\Throwable $e) {
+            Log::warning("Lembrete de entrega não enviado (venda {$quote->id}): ".$e->getMessage());
+
+            return false;
+        }
+        $quote->forceFill(['notified_stages' => array_values(array_unique([...($quote->notified_stages ?? []), $key]))])->save();
+
+        return true;
+    }
+
     /** Envia o aviso do evento se tudo permitir (Pro, WhatsApp conectado, telefone, etapa ligada). true = enviou. */
     private function deliver(Quote $quote, string $event): bool
     {
@@ -190,6 +225,7 @@ class ProductionStageNotifier
             '{total}' => $this->brl($quote->final_price),
             '{recebido}' => $this->brl($quote->amount_paid),
             '{restante}' => $this->brl($quote->amount_due),
+            '{entrega}' => Delivery::label($quote) ?? 'a combinar',
         ]);
     }
 }
