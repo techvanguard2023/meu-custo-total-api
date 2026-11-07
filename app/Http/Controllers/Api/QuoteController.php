@@ -311,10 +311,14 @@ class QuoteController extends Controller
             }
 
             if ($backorderLines) {
-                // O desconto e o cashback (se houver) já foram aplicados na venda entregue
-                // na hora acima — aqui sai pelo preço cheio, sem descontar de novo. Sem parte
-                // entregue na hora (tudo sob encomenda), valem aqui, senão se perdiam.
-                $backorderData = $readyLines ? array_diff_key($data, ['discount_amount' => null, 'cashback_amount' => null]) : $data;
+                // O desconto já foi aplicado na venda entregue na hora acima — aqui não desconta de novo.
+                // O cashback que não coube nela (teto de X% de cada parte) passa para esta, como a tela
+                // do Caixa mostra. Sem parte entregue na hora (tudo sob encomenda), os dois valem aqui.
+                $backorderData = $data;
+                if ($readyLines) {
+                    unset($backorderData['discount_amount']);
+                    $backorderData['cashback_amount'] = $this->cashbackLeft($data['cashback_amount'] ?? 0, $created[0]);
+                }
                 // O cupom vai na primeira parte (a entregue na hora, quando houver)
                 $backorderData['coupon'] = $readyLines ? null : $data['coupon'];
                 $created[] = $this->createQuickSaleQuote(
@@ -443,7 +447,7 @@ class QuoteController extends Controller
             'delivery_address' => $data['delivery_address'] ?? null,
         ];
 
-        // Cashback vai todo na primeira parte do pedido (a pronta, quando houver) — o teto de X% vale nela
+        // Cashback vai primeiro na parte pronta (quando houver); o que não couber no teto de X% dela vai na outra
         $cashback = ! empty($data['use_cashback']) && empty($data['sales_channel_id']) && Cashback::isActive($request->user()->company)
             ? app(Cashback::class)->balance($customer)
             : 0.0;
@@ -482,7 +486,7 @@ class QuoteController extends Controller
 
             if ($backorderLines) {
                 $created[] = $this->createQuickSaleQuote(
-                    $request, $orderData + ['cashback_amount' => $readyLines ? 0 : $cashback, 'coupon' => $readyLines ? null : $coupon], $backorderLines, $setting, isCourtesy: false,
+                    $request, $orderData + ['cashback_amount' => $readyLines ? $this->cashbackLeft($cashback, $created[0]) : $cashback, 'coupon' => $readyLines ? null : $coupon], $backorderLines, $setting, isCourtesy: false,
                     productionStatus: Quote::PRODUCTION_PENDING, payFull: false,
                 );
             }
@@ -504,6 +508,12 @@ class QuoteController extends Controller
     }
 
     /** Separa as linhas com estoque suficiente das que dependem de produção sob encomenda. */
+    /** Saldo de cashback que sobrou depois da primeira parte de um pedido dividido (pronto + sob encomenda). */
+    private function cashbackLeft(float|int|string $requested, Quote $firstPart): float
+    {
+        return max(0, round((float) $requested - (float) $firstPart->cashback_amount, 2));
+    }
+
     private function splitByAvailability(array $productLines): array
     {
         $ready = [];
