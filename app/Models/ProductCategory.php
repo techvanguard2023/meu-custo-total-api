@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Str;
 
 class ProductCategory extends Model
 {
@@ -16,6 +17,33 @@ class ProductCategory extends Model
     public function catalogCompanyId(): ?int
     {
         return $this->company_id;
+    }
+
+    /**
+     * Slug único por grupo (empresa + pai) — "Carros" pode existir em Chaveiros e em Miniaturas. Categoria e produto
+     * dividem o mesmo espaço de nomes na URL do catálogo, então nenhum pode repetir o slug do outro na empresa.
+     */
+    public static function uniqueSlug(string $name, int $companyId, ?int $parentId): string
+    {
+        $base = Str::slug($name) ?: 'categoria';
+        $slug = $base;
+
+        for ($suffix = 2; self::slugTaken($slug, $companyId, $parentId); $suffix++) {
+            $slug = "{$base}-{$suffix}";
+        }
+
+        return $slug;
+    }
+
+    private static function slugTaken(string $slug, int $companyId, ?int $parentId): bool
+    {
+        $categoryTaken = self::visibleTo($companyId)
+            ->where('slug', $slug)
+            ->when($parentId === null, fn ($q) => $q->whereNull('parent_id'))
+            ->when($parentId !== null, fn ($q) => $q->where('parent_id', $parentId))
+            ->exists();
+
+        return $categoryTaken || Product::where('company_id', $companyId)->where('slug', $slug)->exists();
     }
 
     protected $fillable = ['company_id', 'parent_id', 'name', 'slug'];

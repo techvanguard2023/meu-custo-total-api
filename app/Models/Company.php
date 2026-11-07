@@ -52,6 +52,14 @@ class Company extends Model
     public const PLAN_ESSENTIAL = 'essential';
     public const PLAN_PRO = 'pro';
 
+    /** Limites do plano Grátis (Essencial e Pro são ilimitados) — ver EnforcesPlanLimits. */
+    public const FREE_LIMITS = [
+        'printers' => 1,
+        'products' => 5,
+        'customers' => 10,
+        'quotes_per_month' => 10,
+    ];
+
     protected $fillable = [
         'name', 'slug', 'plan', 'segment', 'email', 'phone', 'currency', 'timezone',
         'catalog_token', 'catalog_enabled', 'catalog_whatsapp', 'catalog_disclaimer', 'logo_path',

@@ -8,14 +8,12 @@ use App\Models\Material;
 use App\Models\MaterialMovement;
 use App\Models\Printer;
 use App\Models\Product;
-use App\Models\ProductCategory;
 use App\Models\ProductImage;
 use App\Models\ProductVariation;
 use App\Services\ProductRecipe;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 class ProductController extends Controller
@@ -57,28 +55,10 @@ class ProductController extends Controller
         throw new \RuntimeException('Não foi possível gerar um código único de produto.');
     }
 
-    /** Slug único por empresa (não globalmente) — duas lojas podem ter cada uma o seu "vaso-azul". */
+    /** Slug único por empresa — a regra fica em Product::uniqueSlug (a importação de planilha usa a mesma). */
     private function generateUniqueSlug(string $name, int $companyId): string
     {
-        $base = Str::slug($name) ?: 'produto';
-        $slug = $base;
-
-        for ($suffix = 2; $this->slugConflicts($slug, $companyId); $suffix++) {
-            $slug = "{$base}-{$suffix}";
-        }
-
-        return $slug;
-    }
-
-    /**
-     * Produto e categoria dividem o mesmo espaço de nomes na URL do catálogo —
-     * o último segmento do link pode ser de qualquer um dos dois — então
-     * nenhum pode repetir o slug do outro dentro da mesma empresa.
-     */
-    private function slugConflicts(string $slug, int $companyId): bool
-    {
-        return Product::where('company_id', $companyId)->where('slug', $slug)->exists()
-            || ProductCategory::visibleTo($companyId)->where('slug', $slug)->exists();
+        return Product::uniqueSlug($name, $companyId);
     }
 
     public function store(Request $request)

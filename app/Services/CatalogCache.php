@@ -16,6 +16,9 @@ class CatalogCache
 {
     private const TTL_MINUTES = 10;
 
+    /** Lojas a limpar no fim do lote em andamento (null = fora de um lote). */
+    private static ?array $batched = null;
+
     public static function remember(int $companyId, Closure $build): array
     {
         return Cache::remember(self::key($companyId), now()->addMinutes(self::TTL_MINUTES), $build);
@@ -36,9 +39,35 @@ class CatalogCache
         if (! $companyId) {
             return;
         }
+        if (self::$batched !== null) {
+            self::$batched[$companyId] = true;
+
+            return;
+        }
 
         Cache::forget(self::key($companyId));
         DB::afterCommit(fn () => Cache::forget(self::key($companyId)));
+    }
+
+    /**
+     * Junta as limpezas de um lote grande (ex: importar 2000 produtos de planilha): uma por loja no fim, em vez de
+     * uma por registro gravado.
+     */
+    public static function batch(Closure $work): mixed
+    {
+        if (self::$batched !== null) {
+            return $work();
+        }
+        self::$batched = [];
+        try {
+            return $work();
+        } finally {
+            $companyIds = array_keys(self::$batched);
+            self::$batched = null;
+            foreach ($companyIds as $companyId) {
+                self::forget($companyId);
+            }
+        }
     }
 
     private static function key(int $companyId): string

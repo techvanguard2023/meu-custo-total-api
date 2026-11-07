@@ -3,10 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\Product;
 use App\Models\ProductCategory;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 /**
@@ -115,33 +113,10 @@ class ProductCategoryController extends Controller
             });
     }
 
-    /** Slug único por grupo (empresa + pai) — "Carros" pode existir em Chaveiros e em Miniaturas. */
+    /** Slug único por grupo (empresa + pai) — a regra fica em ProductCategory::uniqueSlug (a importação usa a mesma). */
     private function generateUniqueSlug(string $name, int $companyId, ?int $parentId): string
     {
-        $base = Str::slug($name) ?: 'categoria';
-        $slug = $base;
-
-        for ($suffix = 2; $this->slugConflicts($slug, $companyId, $parentId); $suffix++) {
-            $slug = "{$base}-{$suffix}";
-        }
-
-        return $slug;
-    }
-
-    /**
-     * Categoria e produto dividem o mesmo espaço de nomes na URL do catálogo —
-     * o último segmento do link pode ser de qualquer um dos dois — então
-     * nenhum pode repetir o slug do outro dentro da mesma empresa.
-     */
-    private function slugConflicts(string $slug, int $companyId, ?int $parentId): bool
-    {
-        $categoryTaken = ProductCategory::visibleTo($companyId)
-            ->where('slug', $slug)
-            ->when($parentId === null, fn ($q) => $q->whereNull('parent_id'))
-            ->when($parentId !== null, fn ($q) => $q->where('parent_id', $parentId))
-            ->exists();
-
-        return $categoryTaken || Product::where('company_id', $companyId)->where('slug', $slug)->exists();
+        return ProductCategory::uniqueSlug($name, $companyId, $parentId);
     }
 
     private function intOrNull($value): ?int

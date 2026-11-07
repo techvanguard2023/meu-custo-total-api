@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class Product extends Model
 {
@@ -18,6 +19,31 @@ class Product extends Model
     public function catalogCompanyId(): ?int
     {
         return $this->company_id;
+    }
+
+    /**
+     * Slug único por empresa (não globalmente) — duas lojas podem ter cada uma o seu "vaso-azul". Gerado uma vez,
+     * no cadastro, e nunca regerado (senão os links já compartilhados quebrariam). Produto e categoria dividem o
+     * mesmo espaço de nomes na URL do catálogo, então nenhum pode repetir o slug do outro dentro da empresa.
+     */
+    public static function uniqueSlug(string $name, int $companyId, ?callable $taken = null): string
+    {
+        // $taken: quem grava em lote (importação) confere numa lista em memória em vez de consultar o banco a cada slug
+        $taken ??= fn (string $slug) => self::slugTaken($slug, $companyId);
+        $base = Str::slug($name) ?: 'produto';
+        $slug = $base;
+
+        for ($suffix = 2; $taken($slug); $suffix++) {
+            $slug = "{$base}-{$suffix}";
+        }
+
+        return $slug;
+    }
+
+    private static function slugTaken(string $slug, int $companyId): bool
+    {
+        return self::where('company_id', $companyId)->where('slug', $slug)->exists()
+            || ProductCategory::visibleTo($companyId)->where('slug', $slug)->exists();
     }
 
     protected $fillable = [

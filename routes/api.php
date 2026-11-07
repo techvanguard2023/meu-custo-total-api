@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\CustomerPortalController;
 use App\Http\Controllers\Api\PartnerPortalController;
 use App\Http\Controllers\Api\DisplayQrController;
 use App\Http\Controllers\Api\IntegrationTokenController;
+use App\Http\Controllers\Api\ImportController;
 use App\Http\Controllers\Api\InvitationController;
 use App\Http\Controllers\Api\CouponAutomationController;
 use App\Http\Controllers\Api\CouponController;
@@ -207,6 +208,11 @@ Route::prefix('v1')->group(function () {
             Route::put('/testimonial', [TestimonialController::class, 'save'])->middleware('throttle:10,1');
             Route::delete('/testimonial', [TestimonialController::class, 'destroy']);
 
+            // Importar planilha (produtos e insumos: só o dono; clientes: dono e vendas — ver TeamAccess)
+            Route::post('/products/import', [ImportController::class, 'products'])->middleware('throttle:30,1');
+            Route::get('/products/import/photos/{batch}', [ImportController::class, 'photos']);
+            Route::post('/materials/import', [ImportController::class, 'materials'])->middleware('throttle:30,1');
+            Route::post('/customers/import', [ImportController::class, 'customers'])->middleware('throttle:30,1');
             Route::get('/materials/{material}/movements', [MaterialController::class, 'movements']);
             Route::apiResource('materials', MaterialController::class);
             Route::apiResource('printers', PrinterController::class);

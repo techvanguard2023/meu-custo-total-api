@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\AffiliateOffer;
+use App\Support\PublicUrl;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -172,25 +173,11 @@ class AffiliateLinkReader
     /** Recusa endereço que não seja http(s) público — senão o servidor viraria ponte pra rede interna. */
     public function assertPublicUrl(string $url): void
     {
-        $parts = parse_url($url);
-        $scheme = strtolower($parts['scheme'] ?? '');
-        $host = strtolower(trim($parts['host'] ?? '', '[]'));
-
-        $fail = fn () => throw ValidationException::withMessages(['url' => 'Cole o link completo do produto (começando com https://).']);
-
-        if (! in_array($scheme, ['http', 'https'], true) || $host === '' || isset($parts['user']) || in_array($parts['port'] ?? null, [22, 25, 3306, 6379], true)) {
-            $fail();
-        }
-
-        $ips = filter_var($host, FILTER_VALIDATE_IP) ? [$host] : (gethostbynamel($host) ?: []);
-        if (! $ips) {
-            throw ValidationException::withMessages(['url' => 'Não encontramos esse endereço. Confira o link.']);
-        }
-        foreach ($ips as $ip) {
-            if (! filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
-                $fail();
-            }
-        }
+        match (PublicUrl::problem($url)) {
+            null => null,
+            'not_found' => throw ValidationException::withMessages(['url' => 'Não encontramos esse endereço. Confira o link.']),
+            default => throw ValidationException::withMessages(['url' => 'Cole o link completo do produto (começando com https://).']),
+        };
     }
 
     private function meta(string $html, string $property): ?string

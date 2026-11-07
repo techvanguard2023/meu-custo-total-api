@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Concerns;
 
+use App\Models\Company;
 use Illuminate\Http\Request;
 
 /**
@@ -13,13 +14,8 @@ use Illuminate\Http\Request;
  */
 trait EnforcesPlanLimits
 {
-    /** Limites do plano gratuito. */
-    public const FREE_LIMITS = [
-        'printers' => 1,
-        'products' => 5,
-        'customers' => 10,
-        'quotes_per_month' => 10,
-    ];
+    /** Limites do plano gratuito (definidos em Company — a importação de planilha também usa). */
+    public const FREE_LIMITS = Company::FREE_LIMITS;
 
     private function isPro(Request $request): bool
     {

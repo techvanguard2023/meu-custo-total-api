@@ -311,9 +311,10 @@ class QuoteController extends Controller
             }
 
             if ($backorderLines) {
-                // O desconto (se houver) já foi todo aplicado na venda entregue na
-                // hora acima — aqui sai pelo preço cheio, sem descontar de novo.
-                $backorderData = array_diff_key($data, ['discount_amount' => null, 'cashback_amount' => null]);
+                // O desconto e o cashback (se houver) já foram aplicados na venda entregue
+                // na hora acima — aqui sai pelo preço cheio, sem descontar de novo. Sem parte
+                // entregue na hora (tudo sob encomenda), valem aqui, senão se perdiam.
+                $backorderData = $readyLines ? array_diff_key($data, ['discount_amount' => null, 'cashback_amount' => null]) : $data;
                 // O cupom vai na primeira parte (a entregue na hora, quando houver)
                 $backorderData['coupon'] = $readyLines ? null : $data['coupon'];
                 $created[] = $this->createQuickSaleQuote(
