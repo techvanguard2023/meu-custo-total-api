@@ -21,8 +21,10 @@ trait FindsCustomerByPhone
             ->get(['id', 'name', 'phone'])
             ->first(fn ($c) => Customer::phoneKey($c->phone) === $key);
 
+        // A busca acima traz só id/nome/telefone (para comparar rápido): devolve o cadastro completo, senão quem usa
+        // depois fica sem company_id, indicação, etc. (ex.: a indicação do pedido do bot quebrava com 500).
         if ($customer) {
-            return $customer;
+            return $company->customers()->findOrFail($customer->id);
         }
 
         return $company->customers()->create([
