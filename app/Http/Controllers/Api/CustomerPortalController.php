@@ -7,9 +7,12 @@ use App\Models\CashbackEntry;
 use App\Models\Company;
 use App\Models\Customer;
 use App\Models\Quote;
+use App\Models\PaymentCharge;
 use App\Support\Delivery;
 use App\Services\Cashback;
 use App\Services\CustomerPortal;
+use App\Services\MercadoPagoAccounts;
+use App\Services\PixCharges;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 
@@ -72,9 +75,12 @@ class CustomerPortalController extends Controller
             ->get();
 
         // O bot separa num pedido só a parte pronta e a sob encomenda (mesma referência): pro cliente é um pedido
+        $online = $this->onlinePaymentReady($company);
         $orders = $quotes
             ->groupBy(fn (Quote $q) => $q->external_reference ?: 'q'.$q->id)
             ->map(fn (Collection $group) => $this->orderPayload($company, $group->sortBy('id')->values()))
+            // Pagar o que falta pelo Mercado Pago (Pix ou cartão), direto da tela
+            ->map(fn (array $order) => $order + ['pay_online' => $online && $order['due'] >= PixCharges::MIN_AMOUNT && $order['payment_status'] !== 'cancelled'])
             ->values();
 
         return response()->json([
@@ -87,6 +93,69 @@ class CustomerPortalController extends Controller
             ]),
             'cashback' => $this->cashbackPayload($company, $customerIds),
         ]);
+    }
+
+    /**
+     * "Pagar agora" de um pedido (Pro, Mercado Pago conectado): Pix (QR + copia e cola) ou link do cartão pelo que
+     * falta de todas as partes do pedido. Devolve a cobrança aberta se já existir uma igual.
+     */
+    public function payOrder(Request $request, string $token, string $key)
+    {
+        $company = $this->company($token);
+        $customerIds = $this->customerIdsOrFail($company, $request);
+        $data = $request->validate(['method' => ['required', 'in:pix,link']]);
+        abort_unless($this->onlinePaymentReady($company), 422, 'Esta loja não recebe pagamento online. Fale com ela pelo WhatsApp.');
+
+        $quotes = $this->orderQuotes($company, $customerIds, $key);
+        abort_if($quotes->isEmpty(), 404, 'Pedido não encontrado.');
+        $parts = $quotes->mapWithKeys(fn (Quote $q) => [$q->id => $q->amount_due])->filter(fn ($due) => $due > 0)->all();
+        abort_if(! $parts, 422, 'Este pedido já está pago.');
+
+        try {
+            $charge = app(PixCharges::class)->createFor($company, $parts, $data['method'], 'portal');
+        } catch (\RuntimeException $e) {
+            abort(422, $e->getMessage());
+        }
+
+        return response()->json(app(PixCharges::class)->present($charge), 201);
+    }
+
+    /** Situação do pagamento aberto (a tela consulta enquanto o Pix está na tela). */
+    public function charge(Request $request, string $token, int $charge)
+    {
+        $company = $this->company($token);
+        $customerIds = $this->customerIdsOrFail($company, $request);
+        $model = PaymentCharge::where('company_id', $company->id)->find($charge);
+        abort_unless($model && Quote::whereIn('id', array_keys($model->parts()))->whereIn('customer_id', $customerIds)->exists(), 404, 'Pagamento não encontrado.');
+
+        return response()->json(app(PixCharges::class)->present(app(PixCharges::class)->sync($model)));
+    }
+
+    private function onlinePaymentReady(Company $company): bool
+    {
+        return $company->isPro() && app(MercadoPagoAccounts::class)->ready($company);
+    }
+
+    private function customerIdsOrFail(Company $company, Request $request): Collection
+    {
+        $phoneKey = $this->portal->phoneKeyForToken($company, $request->header('X-Customer-Token'));
+        abort_unless($phoneKey, 401, 'Sua sessão expirou. Entre de novo com o código do WhatsApp.');
+
+        return $this->portal->customerIds($company, $phoneKey);
+    }
+
+    /** As partes ativas (aprovadas, sem cortesia) de um pedido do cliente pela chave da tela (referência ou "q{id}"). */
+    private function orderQuotes(Company $company, Collection $customerIds, string $key): Collection
+    {
+        $query = Quote::where('company_id', $company->id)->whereIn('customer_id', $customerIds)
+            ->where('status', Quote::STATUS_APPROVED)->whereNull('cancelled_at')->where('is_courtesy', false);
+        if (preg_match('/^q(\d+)$/', $key, $m)) {
+            $query->whereKey((int) $m[1])->whereNull('external_reference');
+        } else {
+            $query->where('external_reference', $key);
+        }
+
+        return $query->orderBy('id')->get();
     }
 
     /** Saldo e extrato do cashback (só quando a loja tem o programa ligado). */

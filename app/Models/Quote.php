@@ -169,6 +169,19 @@ class Quote extends Model
     protected static function booted(): void
     {
         static::created(fn (Quote $quote) => $quote->recordStage());
+
+        // Registro de pagamentos: toda mudança no valor recebido vira uma linha (ver QuotePayments)
+        // ("created" e "updated" separados: wasRecentlyCreated continua true nas gravações seguintes do mesmo objeto)
+        static::created(function (Quote $quote) {
+            if ((float) $quote->amount_paid != 0) {
+                app(\App\Services\QuotePayments::class)->recordChange($quote, 0.0, (float) $quote->amount_paid);
+            }
+        });
+        static::updated(function (Quote $quote) {
+            if ($quote->wasChanged('amount_paid')) {
+                app(\App\Services\QuotePayments::class)->recordChange($quote, (float) $quote->getOriginal('amount_paid'), (float) $quote->amount_paid);
+            }
+        });
         static::updated(function (Quote $quote) {
             if ($quote->wasChanged('production_status')) {
                 $quote->recordStage();
@@ -203,6 +216,18 @@ class Quote extends Model
     public function stageEvents(): HasMany
     {
         return $this->hasMany(QuoteStageEvent::class);
+    }
+
+    /** Registro de pagamentos (ver App\Services\QuotePayments) */
+    public function payments(): HasMany
+    {
+        return $this->hasMany(QuotePayment::class)->orderBy('id');
+    }
+
+    /** Pix gerados pelo sistema (Mercado Pago) */
+    public function charges(): HasMany
+    {
+        return $this->hasMany(PaymentCharge::class)->latest('id');
     }
 
     public function items(): HasMany

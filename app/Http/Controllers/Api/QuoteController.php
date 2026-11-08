@@ -12,6 +12,7 @@ use App\Models\MaterialMovement;
 use App\Models\Printer;
 use App\Models\Product;
 use App\Models\ProductVariation;
+use App\Models\PaymentCharge;
 use App\Models\Quote;
 use App\Models\SalesChannel;
 use App\Services\Cashback;
@@ -20,6 +21,7 @@ use App\Services\DeliveryCalendar;
 use App\Services\DisplayQr;
 use App\Services\DisplaySales;
 use App\Services\MaterialStock;
+use App\Services\PixCharges;
 use App\Services\ProductionStageNotifier;
 use App\Services\ProductRecipe;
 use App\Services\QuoteCalculatorService;
@@ -412,7 +414,14 @@ class QuoteController extends Controller
                 ->get();
 
             if ($existing->isNotEmpty()) {
-                return response()->json($existing->values(), 200);
+                // Reenvio do mesmo pedido: devolve também o Pix que já foi gerado (se ainda vale)
+                $payload = $existing->values()->toArray();
+                $charge = PaymentCharge::whereIn('quote_id', $existing->pluck('id'))->where('origin', 'bot')->latest('id')->first();
+                if ($charge && ($pix = $this->botPixPayload($charge))) {
+                    $payload[0]['pix'] = $pix;
+                }
+
+                return response()->json($payload, 200);
             }
         }
 
@@ -503,17 +512,51 @@ class QuoteController extends Controller
         if ($couponRejected) {
             $payload[0]['coupon_rejected'] = $couponRejected;
         }
+        // Pagamento online (Pro, Mercado Pago conectado): Pix do pedido pela regra da loja — o bot manda ao cliente
+        $charge = app(PixCharges::class)->forBotOrder($request->user()->company, collect($quotes)->map->fresh());
+        if ($charge) {
+            $payload[0]['pix'] = $this->botPixPayload($charge);
+        }
 
         return response()->json($payload, 201);
     }
 
-    /** Separa as linhas com estoque suficiente das que dependem de produção sob encomenda. */
+    /**
+     * Pix do pedido para o bot mandar: o código vai numa mensagem só dele (o cliente segura e copia) e `message` é o
+     * texto que vai antes. `deposit` = é sinal (o resto fica para depois).
+     */
+    private function botPixPayload(PaymentCharge $charge): ?array
+    {
+        $charge->refresh();
+        if (! $charge->isOpen() || ! $charge->qr_code) {
+            return null;
+        }
+        $due = round(Quote::whereIn('id', array_keys($charge->parts()))->get()->sum(fn (Quote $q) => $q->amount_due), 2);
+        $amount = (float) $charge->amount;
+        $deposit = $amount + 0.009 < $due;
+        $fmt = fn (float $v) => 'R$ '.number_format($v, 2, ',', '.');
+        $until = $charge->expires_at->copy()->timezone('America/Sao_Paulo')->format('d/m \à\s H:i');
+
+        return [
+            'amount' => $amount,
+            'deposit' => $deposit,
+            'remaining_after' => $deposit ? round($due - $amount, 2) : 0.0,
+            'copia_e_cola' => $charge->qr_code,
+            'expires_at' => $charge->expires_at->toIso8601String(),
+            'message' => ($deposit
+                ? "Para confirmar o pedido, pague o sinal de {$fmt($amount)} pelo Pix (o restante, {$fmt($due - $amount)}, fica para depois)."
+                : "Para confirmar o pedido, pague {$fmt($amount)} pelo Pix.")
+                ." Copie o código da próxima mensagem e cole no app do seu banco em Pix → Copia e Cola. Vale até {$until}. Assim que o pagamento cair, eu te confirmo por aqui.",
+        ];
+    }
+
     /** Saldo de cashback que sobrou depois da primeira parte de um pedido dividido (pronto + sob encomenda). */
     private function cashbackLeft(float|int|string $requested, Quote $firstPart): float
     {
         return max(0, round((float) $requested - (float) $firstPart->cashback_amount, 2));
     }
 
+    /** Separa as linhas com estoque suficiente das que dependem de produção sob encomenda. */
     private function splitByAvailability(array $productLines): array
     {
         $ready = [];

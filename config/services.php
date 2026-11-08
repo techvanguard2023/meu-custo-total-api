@@ -88,6 +88,19 @@ return [
         'team_id' => env('VERCEL_TEAM_ID'),
     ],
 
+    // Pagamento online (Pro): app da plataforma no Mercado Pago. Cada loja conecta a própria conta pelo botão
+    // "Conectar com Mercado Pago" (OAuth) — o dinheiro cai direto na conta da loja.
+    'mercadopago' => [
+        'client_id' => env('MERCADOPAGO_CLIENT_ID'),
+        'client_secret' => env('MERCADOPAGO_CLIENT_SECRET'),
+        // Assinatura secreta dos webhooks (confere o x-signature de cada aviso)
+        'webhook_secret' => env('MERCADOPAGO_WEBHOOK_SECRET'),
+        // Precisa ser igual à "URL de redirecionamento" cadastrada no app
+        'redirect_uri' => env('MERCADOPAGO_REDIRECT_URI', rtrim((string) env('APP_URL', 'http://localhost'), '/').'/api/v1/mercadopago/callback'),
+        // Só para testes locais: Access Token de uma conta de teste vendedora (dispensa o OAuth)
+        'test_access_token' => env('MERCADOPAGO_TEST_ACCESS_TOKEN'),
+    ],
+
     'frontend_url' => env('FRONTEND_URL', 'http://localhost:3000'),
 
     // Site de apresentação (links de indicação: LANDING_URL/?ref=CODIGO)

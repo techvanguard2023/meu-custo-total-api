@@ -43,6 +43,9 @@ class TeamAccess
         ['GET', 'agenda', self::ALL],
         ['GET', 'agenda/availability', self::SALES],
 
+        // Pix da venda pelo Mercado Pago (gerar e acompanhar); conectar a conta é só do dono
+        ['*', 'quotes/{quote}/pix*', self::SALES],
+
         // Linha de produção (vendas também acompanha e move os pedidos)
         ['GET', 'quotes', self::ALL],
         // Painel da equipe: só as contagens (o Dashboard com valores, quotes/dashboard, é só do dono)

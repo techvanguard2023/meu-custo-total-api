@@ -11,6 +11,9 @@ use App\Http\Controllers\Api\PartnerPortalController;
 use App\Http\Controllers\Api\DisplayQrController;
 use App\Http\Controllers\Api\IntegrationTokenController;
 use App\Http\Controllers\Api\ImportController;
+use App\Http\Controllers\Api\MercadoPagoController;
+use App\Http\Controllers\Api\MercadoPagoWebhookController;
+use App\Http\Controllers\Api\PixChargeController;
 use App\Http\Controllers\Api\InvitationController;
 use App\Http\Controllers\Api\CouponAutomationController;
 use App\Http\Controllers\Api\CouponController;
@@ -88,6 +91,9 @@ Route::prefix('v1')->group(function () {
     Route::get('/public/catalog/{token}/account/orders', [CustomerPortalController::class, 'orders'])->middleware('throttle:60,1');
     Route::post('/public/catalog/{token}/account/logout', [CustomerPortalController::class, 'logout'])->middleware('throttle:30,1');
     Route::get('/public/catalog/{token}/account/cashback', [CustomerPortalController::class, 'cashback'])->middleware('throttle:60,1');
+    // Pagar o pedido pelo Mercado Pago (Pix ou link do cartão) e acompanhar o pagamento
+    Route::post('/public/catalog/{token}/account/orders/{key}/pay', [CustomerPortalController::class, 'payOrder'])->middleware('throttle:10,1');
+    Route::get('/public/catalog/{token}/account/charges/{charge}', [CustomerPortalController::class, 'charge'])->where('charge', '[0-9]+')->middleware('throttle:60,1');
     Route::get('/public/catalog/{token}/referral/{code}', [CustomerPortalController::class, 'referral'])->middleware('throttle:30,1');
 
     // QR Code da placa do expositor: registra o escaneamento e diz pra onde levar o cliente
@@ -124,6 +130,10 @@ Route::prefix('v1')->group(function () {
     Route::get('/public/catalog/{token}/delivery-dates', [DeliveryDatesController::class, 'publicDates'])->middleware('throttle:60,1');
     // Depoimentos aprovados (seção da landing)
     Route::get('/public/testimonials', [TestimonialController::class, 'publicIndex'])->middleware('throttle:60,1');
+
+    // Pagamento online: volta do "Conectar com Mercado Pago" (navegador do lojista) e avisos do Mercado Pago
+    Route::get('/mercadopago/callback', [MercadoPagoController::class, 'callback'])->middleware('throttle:30,1');
+    Route::post('/webhooks/mercadopago', MercadoPagoWebhookController::class)->middleware('throttle:300,1');
 
     Route::get('/public/review/{token}', [PublicReviewController::class, 'show'])
         ->middleware('throttle:60,1');
@@ -278,6 +288,15 @@ Route::prefix('v1')->group(function () {
             // Cobrança de venda entregue a receber (junta as do mesmo cliente)
             Route::get('/quotes/{quote}/charge', [QuoteChargeController::class, 'show']);
             Route::post('/quotes/charge', [QuoteChargeController::class, 'send'])->middleware('throttle:30,1');
+            // Pix pelo Mercado Pago (Pro): conexão da conta (só o dono) e Pix da venda (dono e vendas)
+            Route::get('/payments/mercadopago', [MercadoPagoController::class, 'show']);
+            Route::post('/payments/mercadopago/connect', [MercadoPagoController::class, 'connect'])->middleware('throttle:10,1');
+            Route::delete('/payments/mercadopago', [MercadoPagoController::class, 'disconnect']);
+            Route::get('/quotes/{quote}/pix', [PixChargeController::class, 'index']);
+            Route::post('/quotes/{quote}/pix', [PixChargeController::class, 'store'])->middleware('throttle:20,1');
+            Route::get('/quotes/{quote}/pix/{charge}', [PixChargeController::class, 'show'])->middleware('throttle:120,1');
+            Route::post('/quotes/{quote}/pix/{charge}/refund', [PixChargeController::class, 'refund'])->middleware('throttle:10,1');
+            Route::put('/payments/mercadopago/rules', [MercadoPagoController::class, 'updateRules']);
 
             Route::get('/quote-requests', [QuoteRequestController::class, 'index']);
             Route::get('/quote-requests/{quoteRequest}', [QuoteRequestController::class, 'show']);
