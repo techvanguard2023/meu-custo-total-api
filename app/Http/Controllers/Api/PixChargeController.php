@@ -7,6 +7,7 @@ use App\Models\PaymentCharge;
 use App\Models\Quote;
 use App\Models\QuotePayment;
 use App\Services\PixCharges;
+use App\Services\WhatsAppMessenger;
 use Illuminate\Http\Request;
 use RuntimeException;
 
@@ -76,6 +77,29 @@ class PixChargeController extends Controller
         return response()->json($this->pix->present($charge) + [
             'quote' => ['amount_paid' => (float) $quote->amount_paid, 'amount_due' => $quote->amount_due, 'payment_status' => $quote->payment_status],
         ]);
+    }
+
+    /**
+     * "Enviar pelo WhatsApp": manda a cobrança aberta ao cliente pelo WhatsApp conectado da loja (Pix = QR Code +
+     * código sozinho; link = o link). sent=false + reason quando não dá (sem telefone, WhatsApp desconectado...) —
+     * a tela oferece o wa.me como alternativa.
+     */
+    public function send(Request $request, Quote $quote, PaymentCharge $charge, WhatsAppMessenger $messenger)
+    {
+        $this->authorizeCompany($request, $quote);
+        abort_unless($charge->quote_id === $quote->id, 404);
+        abort_unless($charge->isOpen() && ($charge->method === PaymentCharge::METHOD_LINK ? $charge->ticket_url : $charge->qr_code), 422, 'Esta cobrança não está mais aberta. Gere outra.');
+
+        $quote->loadMissing(['company', 'customer']);
+        $result = $messenger->deliverMessages($quote->company, $quote->customer?->phone, $this->pix->shareMessages($charge));
+
+        return response()->json($result + ['message' => match ($result['reason']) {
+            null => 'Enviado pelo WhatsApp da loja.',
+            'no_phone' => 'O cliente desta venda não tem telefone cadastrado.',
+            'not_on_whatsapp' => 'Este telefone não tem WhatsApp.',
+            'not_connected' => 'O WhatsApp da loja não está conectado.',
+            default => 'Não consegui enviar agora pelo WhatsApp da loja.',
+        }]);
     }
 
     /** Estorno pelo sistema (só o dono): devolve ao cliente pelo Mercado Pago e tira do recebido da venda. */

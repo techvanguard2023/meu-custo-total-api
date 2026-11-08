@@ -252,6 +252,37 @@ class PixCharges
         return $messages;
     }
 
+    /**
+     * Mensagens da cobrança que a loja manda pelo botão "Enviar pelo WhatsApp" da venda: Pix = QR Code (imagem, com
+     * o recado na legenda) + o código sozinho; link = o recado com o link.
+     *
+     * @return list<array{type: string, text?: string, data?: string, mimetype?: string, filename?: string, caption?: string}>
+     */
+    public function shareMessages(PaymentCharge $charge): array
+    {
+        $quote = Quote::with('customer')->find($charge->quote_id);
+        $first = trim(explode(' ', trim((string) $quote?->customer?->name))[0] ?? '');
+        $hello = 'Olá'.($first !== '' ? ", {$first}" : '').'!';
+        $value = 'R$ '.number_format((float) $charge->amount, 2, ',', '.');
+        $until = $charge->expires_at?->copy()->timezone('America/Sao_Paulo')->format('d/m \à\s H:i');
+        $order = $quote ? " do pedido #{$quote->id}" : '';
+
+        if ($charge->method === PaymentCharge::METHOD_LINK) {
+            return [['type' => 'text', 'text' => "{$hello} Segue o link para pagar {$value}{$order} com cartão de crédito ou débito (ou Pix):\n{$charge->ticket_url}".($until ? "\n\nVale até {$until}." : '')]];
+        }
+
+        return [
+            [
+                'type' => 'image',
+                'data' => base64_encode($this->qrPng($charge->qr_code)),
+                'mimetype' => 'image/png',
+                'filename' => 'pix.png',
+                'caption' => "{$hello} Segue o Pix de {$value}{$order}: aponte a câmera do app do banco para o QR Code ou copie o código da próxima mensagem (Pix → Copia e Cola).".($until ? " Vale até {$until}." : ''),
+            ],
+            ['type' => 'text', 'text' => $charge->qr_code],
+        ];
+    }
+
     /** Regra do Pix do bot ({bot_pix: total|deposit|off, deposit_percent}). Padrão: valor total. */
     public static function rules(Company $company): array
     {

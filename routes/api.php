@@ -298,6 +298,7 @@ Route::prefix('v1')->group(function () {
             Route::post('/quotes/{quote}/pix', [PixChargeController::class, 'store'])->middleware('throttle:20,1');
             Route::get('/quotes/{quote}/pix/{charge}', [PixChargeController::class, 'show'])->middleware('throttle:120,1');
             Route::post('/quotes/{quote}/pix/{charge}/refund', [PixChargeController::class, 'refund'])->middleware('throttle:10,1');
+            Route::post('/quotes/{quote}/pix/{charge}/send', [PixChargeController::class, 'send'])->middleware('throttle:20,1');
             Route::put('/payments/mercadopago/rules', [MercadoPagoController::class, 'updateRules']);
 
             Route::get('/quote-requests', [QuoteRequestController::class, 'index']);
