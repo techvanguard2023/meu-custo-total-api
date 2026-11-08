@@ -18,4 +18,10 @@ fi
 # Travas do agendador presas por um container derrubado no meio de um comando (ficam no cache do banco)
 php artisan schedule:clear-cache || true
 
+# Os comandos acima rodam como root: o laravel.log (e caches) que eles criarem ficariam do root e o php-fpm
+# (www-data) não conseguiria gravar — qualquer requisição que escreve log viraria erro 500 (ex.: webhook do
+# Mercado Pago). Devolve a posse ao www-data antes de subir os serviços.
+touch storage/logs/laravel.log
+chown -R www-data:www-data storage/logs storage/framework bootstrap/cache || true
+
 exec supervisord -c /etc/supervisord.conf

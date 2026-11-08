@@ -60,7 +60,8 @@ RUN chown -R www-data:www-data storage bootstrap/cache \
 
 # Agenda do Laravel (Schedule::command em routes/console.php) — o crond do próprio
 # Alpine checa a cada minuto o que está devido; o supervisor mantém o processo vivo.
-RUN echo '* * * * * cd /app && php artisan schedule:run >> /dev/null 2>&1' >> /etc/crontabs/root
+# Roda como www-data (mesmo usuário do php-fpm) para os logs e caches criados pela agenda continuarem graváveis.
+RUN echo '* * * * * cd /app && php artisan schedule:run >> /dev/null 2>&1' > /etc/crontabs/www-data
 
 EXPOSE 80
 
