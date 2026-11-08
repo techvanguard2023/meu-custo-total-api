@@ -283,6 +283,8 @@ Route::prefix('v1')->group(function () {
             Route::post('/quotes/preview', [QuoteController::class, 'preview']);
             Route::post('/quotes/quick-sale', [QuoteController::class, 'quickSale']);
             Route::post('/quotes/external-order', [QuoteController::class, 'externalOrder']);
+            // Mensagens do pagamento do pedido do bot (QR, código Pix e link do cartão), que o n8n manda separadas
+            Route::get('/whatsapp/order-payment', [QuoteController::class, 'botOrderPayment']);
             Route::post('/quotes/external-quote-request', [QuoteRequestController::class, 'externalStore']);
             Route::get('/quotes/{quote}/pdf', [QuoteController::class, 'pdf']);
             // Cobrança de venda entregue a receber (junta as do mesmo cliente)

@@ -12,7 +12,6 @@ use App\Models\MaterialMovement;
 use App\Models\Printer;
 use App\Models\Product;
 use App\Models\ProductVariation;
-use App\Models\PaymentCharge;
 use App\Models\Quote;
 use App\Models\SalesChannel;
 use App\Services\Cashback;
@@ -414,11 +413,11 @@ class QuoteController extends Controller
                 ->get();
 
             if ($existing->isNotEmpty()) {
-                // Reenvio do mesmo pedido: devolve também o Pix que já foi gerado (se ainda vale)
+                // Reenvio do mesmo pedido: devolve também o pagamento que já foi gerado (se ainda vale)
                 $payload = $existing->values()->toArray();
-                $charge = PaymentCharge::whereIn('quote_id', $existing->pluck('id'))->where('origin', 'bot')->latest('id')->first();
-                if ($charge && ($pix = $this->botPixPayload($charge))) {
-                    $payload[0]['pix'] = $pix;
+                $pix = app(PixCharges::class);
+                if ($payment = $pix->botSummary($pix->openBotCharges($existing->pluck('id')))) {
+                    $payload[0]['payment'] = $payment;
                 }
 
                 return response()->json($payload, 200);
@@ -512,42 +511,32 @@ class QuoteController extends Controller
         if ($couponRejected) {
             $payload[0]['coupon_rejected'] = $couponRejected;
         }
-        // Pagamento online (Pro, Mercado Pago conectado): Pix do pedido pela regra da loja — o bot manda ao cliente
-        $charge = app(PixCharges::class)->forBotOrder($request->user()->company, collect($quotes)->map->fresh());
-        if ($charge) {
-            $payload[0]['pix'] = $this->botPixPayload($charge);
+        // Pagamento online (Pro, Mercado Pago conectado): Pix e link do cartão pela regra da loja. O bot recebe só o
+        // resumo; o QR, o código e o link vão em mensagens separadas (GET /whatsapp/order-payment, chamado pelo n8n)
+        $pix = app(PixCharges::class);
+        $pix->forBotOrder($request->user()->company, collect($quotes)->map->fresh());
+        if ($payment = $pix->botSummary($pix->openBotCharges(collect($quotes)->pluck('id')))) {
+            $payload[0]['payment'] = $payment;
         }
 
         return response()->json($payload, 201);
     }
 
     /**
-     * Pix do pedido para o bot mandar: o código vai numa mensagem só dele (o cliente segura e copia) e `message` é o
-     * texto que vai antes. `deposit` = é sinal (o resto fica para depois).
+     * GET /whatsapp/order-payment?reference=... (n8n, depois de mandar a resposta do bot): mensagens prontas do
+     * pagamento do pedido criado com esse external_reference — QR Code (imagem), o código Pix sozinho e o link do
+     * cartão. Lista vazia = nada a mandar.
      */
-    private function botPixPayload(PaymentCharge $charge): ?array
+    public function botOrderPayment(Request $request)
     {
-        $charge->refresh();
-        if (! $charge->isOpen() || ! $charge->qr_code) {
-            return null;
+        $reference = (string) $request->query('reference', '');
+        if ($reference === '') {
+            return response()->json(['messages' => []]);
         }
-        $due = round(Quote::whereIn('id', array_keys($charge->parts()))->get()->sum(fn (Quote $q) => $q->amount_due), 2);
-        $amount = (float) $charge->amount;
-        $deposit = $amount + 0.009 < $due;
-        $fmt = fn (float $v) => 'R$ '.number_format($v, 2, ',', '.');
-        $until = $charge->expires_at->copy()->timezone('America/Sao_Paulo')->format('d/m \à\s H:i');
+        $quoteIds = $request->user()->company->quotes()->where('external_reference', $reference)->pluck('id');
+        $pix = app(PixCharges::class);
 
-        return [
-            'amount' => $amount,
-            'deposit' => $deposit,
-            'remaining_after' => $deposit ? round($due - $amount, 2) : 0.0,
-            'copia_e_cola' => $charge->qr_code,
-            'expires_at' => $charge->expires_at->toIso8601String(),
-            'message' => ($deposit
-                ? "Para confirmar o pedido, pague o sinal de {$fmt($amount)} pelo Pix (o restante, {$fmt($due - $amount)}, fica para depois)."
-                : "Para confirmar o pedido, pague {$fmt($amount)} pelo Pix.")
-                ." Copie o código da próxima mensagem e cole no app do seu banco em Pix → Copia e Cola. Vale até {$until}. Assim que o pagamento cair, eu te confirmo por aqui.",
-        ];
+        return response()->json(['messages' => $quoteIds->isEmpty() ? [] : $pix->botMessages($pix->openBotCharges($quoteIds))]);
     }
 
     /** Saldo de cashback que sobrou depois da primeira parte de um pedido dividido (pronto + sob encomenda). */

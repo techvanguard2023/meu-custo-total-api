@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Company;
 use App\Models\PaymentCharge;
 use App\Models\Quote;
+use BaconQrCode\Renderer\GDLibRenderer;
 use BaconQrCode\Renderer\Image\SvgImageBackEnd;
 use BaconQrCode\Renderer\ImageRenderer;
 use BaconQrCode\Renderer\RendererStyle\RendererStyle;
@@ -142,17 +143,20 @@ class PixCharges
     }
 
     /**
-     * Pix que o bot manda no pedido do WhatsApp, pela regra da loja (Integrações → Mercado Pago): valor total, ou
-     * sinal de X% nas partes sob encomenda (pronta entrega sempre inteira), ou nada. null = sem Pix (regra
-     * desligada, loja sem conta conectada ou o Mercado Pago falhou — o pedido segue normal).
+     * Cobranças que o bot manda no pedido do WhatsApp, pela regra da loja (Integrações → Mercado Pago): valor total,
+     * ou sinal de X% nas partes sob encomenda (pronta entrega sempre inteira), ou nada. Gera o Pix e o link de
+     * cartão (crédito ou débito) do mesmo valor; o que o cliente pagar primeiro cancela o outro (ver apply()).
+     * Vazio = sem cobrança online (regra desligada, loja sem conta conectada ou o Mercado Pago falhou — o pedido
+     * segue normal).
      *
      * @param  Collection<int, Quote>  $quotes
+     * @return Collection<int, PaymentCharge>
      */
-    public function forBotOrder(Company $company, Collection $quotes): ?PaymentCharge
+    public function forBotOrder(Company $company, Collection $quotes): Collection
     {
         $rules = self::rules($company);
         if ($rules['bot_pix'] === 'off' || ! $company->isPro() || ! $this->accounts->ready($company)) {
-            return null;
+            return collect();
         }
         $parts = [];
         foreach ($quotes as $quote) {
@@ -161,13 +165,91 @@ class PixCharges
             $deposit = $rules['bot_pix'] === 'deposit' && $quote->production_status === Quote::PRODUCTION_PENDING;
             $parts[$quote->id] = $deposit ? round($due * $rules['deposit_percent'] / 100, 2) : $due;
         }
-        try {
-            return $this->createFor($company, $parts, PaymentCharge::METHOD_PIX, 'bot');
-        } catch (\Throwable $e) {
-            Log::info("Pedido do bot sem Pix (loja {$company->id}): ".Str::limit($e->getMessage(), 200));
 
+        $charges = collect();
+        foreach ([PaymentCharge::METHOD_PIX, PaymentCharge::METHOD_LINK] as $method) {
+            try {
+                $charges->push($this->createFor($company, $parts, $method, 'bot'));
+            } catch (\Throwable $e) {
+                Log::info("Pedido do bot sem {$method} (loja {$company->id}): ".Str::limit($e->getMessage(), 200));
+            }
+        }
+
+        return $charges;
+    }
+
+    /**
+     * Cobranças do bot ainda abertas destas vendas (a mais recente de cada forma).
+     *
+     * @return Collection<string, PaymentCharge> chaves: pix, link
+     */
+    public function openBotCharges(Collection $quoteIds): Collection
+    {
+        return PaymentCharge::whereIn('quote_id', $quoteIds)->where('origin', 'bot')->where('status', PaymentCharge::STATUS_PENDING)
+            ->latest('id')->get()
+            ->filter(fn (PaymentCharge $c) => $c->isOpen() && ($c->method === PaymentCharge::METHOD_LINK ? $c->ticket_url : $c->qr_code))
+            ->unique('method')
+            ->keyBy('method');
+    }
+
+    /**
+     * Resumo do pagamento para o bot escrever a resposta — sem o código Pix nem links: esses vão em mensagens
+     * separadas (botMessages), para o cliente copiar só o código. null = sem cobrança online aberta.
+     */
+    public function botSummary(Collection $charges): ?array
+    {
+        $first = $charges->first();
+        if (! $first) {
             return null;
         }
+        $due = round(Quote::whereIn('id', array_keys($first->parts()))->get()->sum(fn (Quote $q) => $q->amount_due), 2);
+        $amount = (float) $first->amount;
+        $deposit = $amount + 0.009 < $due;
+        $fmt = fn (float $v) => 'R$ '.number_format($v, 2, ',', '.');
+        $ways = collect([$charges->has('pix') ? 'Pix' : null, $charges->has('link') ? 'cartão de crédito ou débito' : null])->filter()->implode(' ou ');
+        $sending = collect([$charges->has('pix') ? 'o QR Code e o código Pix copia e cola' : null, $charges->has('link') ? 'o link do cartão' : null])->filter()->implode(' e ');
+
+        return [
+            'amount' => $amount,
+            'deposit' => $deposit,
+            'remaining_after' => $deposit ? round($due - $amount, 2) : 0.0,
+            'pix' => $charges->has('pix'),
+            'card' => $charges->has('link'),
+            'expires_at' => $first->expires_at?->toIso8601String(),
+            'message' => ($deposit
+                ? "Para confirmar o pedido, pague o sinal de {$fmt($amount)} (o restante, {$fmt($due - $amount)}, fica para depois)"
+                : "Para confirmar o pedido, pague {$fmt($amount)}")
+                ." por {$ways}. Logo abaixo envio {$sending}. Assim que o pagamento cair, eu te confirmo por aqui.",
+            'instructions_for_bot' => 'NÃO escreva o código Pix, o QR Code nem links de pagamento na sua resposta: o sistema envia cada um em mensagem separada logo depois da sua. Use o texto de message para falar do pagamento e não mande as formas de pagamento manuais da loja.',
+        ];
+    }
+
+    /**
+     * Mensagens prontas que o n8n envia depois da resposta do bot, nesta ordem: QR Code (imagem), o código Pix
+     * sozinho (fácil de copiar) e o link do cartão.
+     *
+     * @return list<array{type: string, text?: string, data?: string, mimetype?: string, filename?: string, caption?: string}>
+     */
+    public function botMessages(Collection $charges): array
+    {
+        $messages = [];
+        $fmt = fn ($v) => 'R$ '.number_format((float) $v, 2, ',', '.');
+        if ($pix = $charges->get('pix')) {
+            $until = $pix->expires_at->copy()->timezone('America/Sao_Paulo')->format('d/m \à\s H:i');
+            $messages[] = [
+                'type' => 'image',
+                'data' => base64_encode($this->qrPng($pix->qr_code)),
+                'mimetype' => 'image/png',
+                'filename' => 'pix.png',
+                'caption' => "Pix de {$fmt($pix->amount)}: aponte a câmera do app do banco para o QR Code ou copie o código da próxima mensagem (Pix → Copia e Cola). Vale até {$until}.",
+            ];
+            $messages[] = ['type' => 'text', 'text' => $pix->qr_code];
+        }
+        if ($link = $charges->get('link')) {
+            $messages[] = ['type' => 'text', 'text' => "💳 Prefere cartão de crédito ou débito? Pague {$fmt($link->amount)} por este link do Mercado Pago:\n{$link->ticket_url}"];
+        }
+
+        return $messages;
     }
 
     /** Regra do Pix do bot ({bot_pix: total|deposit|off, deposit_percent}). Padrão: valor total. */
@@ -209,7 +291,8 @@ class PixCharges
         $status = (string) ($order['status'] ?? '');
         $detail = (string) ($order['status_detail'] ?? '');
 
-        DB::transaction(function () use ($charge, $order, $status, $detail) {
+        $becamePaid = false;
+        DB::transaction(function () use ($charge, $order, $status, $detail, &$becamePaid) {
             $locked = PaymentCharge::lockForUpdate()->find($charge->id);
             $payment = $order['transactions']['payments'][0] ?? [];
             $paymentId = (string) ($payment['id'] ?? $locked->external_payment_id ?? $locked->external_id);
@@ -232,6 +315,7 @@ class PixCharges
                     }
                 }
                 $changes += ['status' => PaymentCharge::STATUS_PAID, 'paid_at' => now()];
+                $becamePaid = true;
             } elseif ($refunded && $locked->status === PaymentCharge::STATUS_PAID) {
                 foreach ($parts as $quoteId => $amount) {
                     if ($quote = Quote::find($quoteId)) {
@@ -250,7 +334,37 @@ class PixCharges
             $locked->update($changes);
         });
 
+        if ($becamePaid) {
+            $this->cancelSiblings($charge->fresh());
+        }
+
         return $charge->fresh();
+    }
+
+    /**
+     * Pagou por um caminho (ex.: Pix do bot): as outras cobranças abertas das mesmas vendas (ex.: o link do cartão
+     * mandado junto) são canceladas no Mercado Pago, para o cliente não pagar duas vezes.
+     */
+    private function cancelSiblings(PaymentCharge $paid): void
+    {
+        $quoteIds = array_keys($paid->parts());
+        $others = PaymentCharge::where('company_id', $paid->company_id)->where('id', '!=', $paid->id)
+            ->where('status', PaymentCharge::STATUS_PENDING)->get()
+            ->filter(fn (PaymentCharge $c) => array_intersect(array_keys($c->parts()), $quoteIds));
+        if ($others->isEmpty()) {
+            return;
+        }
+        $company = Company::find($paid->company_id);
+        foreach ($others as $other) {
+            try {
+                if ($other->external_id) {
+                    $this->api->cancelOrder($this->accounts->token($company), $other->external_id);
+                }
+                $other->update(['status' => PaymentCharge::STATUS_CANCELED]);
+            } catch (\Throwable $e) {
+                Log::warning("Mercado Pago: cobrança #{$other->id} não cancelada depois do pagamento da #{$paid->id}: ".Str::limit($e->getMessage(), 200));
+            }
+        }
     }
 
     /** Estorno pelo sistema (só cobrança paga): pede ao Mercado Pago e aplica a resposta na hora. */
@@ -307,6 +421,12 @@ class PixCharges
         $svg = (new Writer(new ImageRenderer(new RendererStyle(280, 1), new SvgImageBackEnd)))->writeString($code);
 
         return 'data:image/svg+xml;base64,'.base64_encode($svg);
+    }
+
+    /** QR Code do "copia e cola" em PNG (para mandar como imagem no WhatsApp). */
+    public function qrPng(string $code): string
+    {
+        return (new Writer(new GDLibRenderer(480, 2)))->writeString($code);
     }
 
     /** Forma do pagamento no registro: cartão (crédito/débito) ou Pix, conforme o que o cliente usou. */
