@@ -137,7 +137,8 @@ class PlatformFinance
             'payments' => fn () => $this->syncPayments($paymentsSince),
             'stripe_fees' => fn () => $this->syncStripeFees($costsFrom),
             'openai' => fn () => $this->syncOpenAi($costsFrom),
-            'usd_rate' => fn () => $this->usdRate(fresh: true),
+            // Sem cotação nenhuma (nem guardada) é falha: antes o "?? true" abaixo mostrava "ok" mesmo assim
+            'usd_rate' => fn () => $this->usdRate(fresh: true) ?? throw new \RuntimeException('nenhuma fonte de cotação respondeu (veja "Cotação do dólar indisponível" no log)'),
             'prices' => fn () => $this->refreshPrices(),
         ] as $name => $job) {
             try {
@@ -153,7 +154,8 @@ class PlatformFinance
     }
 
     /**
-     * Cotação do dólar (AwesomeAPI), guardada por 12h; sem resposta, usa a última que deu certo.
+     * Cotação do dólar (AwesomeAPI e, se ela falhar, Frankfurter), guardada por 12h; sem resposta, usa a última que
+     * deu certo.
      * $network = false (tela do financeiro): só o que está guardado — a tela nunca espera serviço de fora.
      */
     public function usdRate(bool $fresh = false, bool $network = true): ?float
@@ -165,16 +167,24 @@ class PlatformFinance
             return isset(Cache::get('usd_brl_rate_last')['rate']) ? (float) Cache::get('usd_brl_rate_last')['rate'] : null;
         }
 
-        try {
-            $bid = (float) Http::timeout(10)->get('https://economia.awesomeapi.com.br/json/last/USD-BRL')->throw()->json('USDBRL.bid');
-            if ($bid > 0) {
-                Cache::put('usd_brl_rate', $bid, now()->addHours(12));
-                Cache::forever('usd_brl_rate_last', ['rate' => $bid, 'at' => now()->toIso8601String()]);
+        // Fontes na ordem: se a primeira não responder (ou bloquear o servidor), tenta a seguinte
+        $sources = [
+            'AwesomeAPI' => ['https://economia.awesomeapi.com.br/json/last/USD-BRL', 'USDBRL.bid'],
+            'Frankfurter' => ['https://api.frankfurter.dev/v1/latest?base=USD&symbols=BRL', 'rates.BRL'],
+        ];
+        foreach ($sources as $name => [$url, $path]) {
+            try {
+                $bid = (float) Http::timeout(10)->get($url)->throw()->json($path);
+                if ($bid > 0) {
+                    Cache::put('usd_brl_rate', $bid, now()->addHours(12));
+                    Cache::forever('usd_brl_rate_last', ['rate' => $bid, 'at' => now()->toIso8601String()]);
 
-                return $bid;
+                    return $bid;
+                }
+                Log::info("Cotação do dólar ({$name}): resposta sem valor.");
+            } catch (Throwable $e) {
+                Log::info("Cotação do dólar indisponível ({$name}): ".$e->getMessage());
             }
-        } catch (Throwable $e) {
-            Log::info('Cotação do dólar indisponível: '.$e->getMessage());
         }
 
         return isset(Cache::get('usd_brl_rate_last')['rate']) ? (float) Cache::get('usd_brl_rate_last')['rate'] : null;
