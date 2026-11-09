@@ -183,7 +183,11 @@ class ShopeeAffiliate
         $json = $response->json() ?? [];
         if (! empty($json['errors'])) {
             $code = (int) ($json['errors'][0]['extensions']['code'] ?? 0);
-            throw ValidationException::withMessages(['shopee' => self::errorMessage($code, (string) ($json['errors'][0]['message'] ?? ''))]);
+            $original = (string) ($json['errors'][0]['message'] ?? '');
+            // Guarda o texto original da Shopee (e a consulta, sem as credenciais): é ele que diz o motivo dos erros
+            // sem mensagem própria (ex.: 10000), que a tela só mostra como "tente de novo".
+            Log::warning("Shopee afiliados: erro {$code} (loja {$this->account->company_id}): ".Str::limit($original, 300).' | consulta: '.Str::limit($graphql, 300));
+            throw ValidationException::withMessages(['shopee' => self::errorMessage($code, $original)]);
         }
         if (! $response->successful() || ! isset($json['data'])) {
             throw ValidationException::withMessages(['shopee' => 'A Shopee devolveu uma resposta inesperada. Tente de novo.']);
@@ -200,6 +204,8 @@ class ShopeeAffiliate
             $code === 10035 => 'Sua conta ainda não tem acesso à API de afiliados da Shopee. Peça em affiliate.shopee.com.br → Open API.',
             in_array($code, [10031, 10032, 10033, 10034], true) => 'A Shopee recusou o acesso desta conta de afiliado (conta bloqueada, congelada ou inválida).',
             in_array($code, [11000, 11001, 11002], true) => 'A Shopee recusou a consulta: '.Str::limit(preg_replace('/^error \[\d+\]:\s*/', '', $original), 150),
+            // Erro interno da Shopee (sem causa do nosso lado conhecida): o motivo vem no texto dela, que vai para o log
+            $code === 10000 => 'A Shopee teve um problema ao processar esta busca (erro 10000). Tente de novo ou mude a palavra-chave; se continuar, confira o AppId e o Secret em Integrações.',
             default => 'A Shopee devolveu um erro'.($code ? " ({$code})" : '').'. Tente de novo em instantes.',
         };
     }
