@@ -31,6 +31,9 @@ class TeamAccess
         // Comunicados da plataforma (faixa no app) e sair do "Entrar como": todo mundo
         ['GET', 'announcements', self::ALL],
         ['POST', 'announcements/{announcement}/seen', self::ALL],
+        // Tours do app: cada pessoa da equipe vê os seus
+        ['GET', 'tours', self::ALL],
+        ['POST', 'tours/*/seen', self::ALL],
         ['POST', 'impersonation/stop', self::ALL],
 
         // Ajuda e suporte: qualquer pessoa da equipe abre chamado (o controller limita aos próprios)

@@ -63,6 +63,7 @@ use App\Http\Controllers\Admin\TestimonialController as AdminTestimonialControll
 use App\Http\Controllers\Api\SupportTicketController;
 use App\Http\Controllers\Api\AffiliateOfferController;
 use App\Http\Controllers\Api\AffiliateIntegrationController;
+use App\Http\Controllers\Api\ToursController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -148,6 +149,9 @@ Route::prefix('v1')->group(function () {
         Route::post('/impersonation/stop', [AuthController::class, 'stopImpersonation']);
         Route::get('/announcements', [AdminAnnouncementController::class, 'active']);
         Route::post('/announcements/{announcement}/seen', [AdminAnnouncementController::class, 'seen'])->whereNumber('announcement');
+        // Tours do app (react-joyride): o que cada pessoa ainda precisa ver (App\Services\Tours)
+        Route::get('/tours', [ToursController::class, 'index']);
+        Route::post('/tours/{tour}/seen', [ToursController::class, 'seen'])->middleware('throttle:60,1');
 
         // Área admin da plataforma (só PLATFORM_ADMIN_EMAILS; para os outros, 404). Toda ação vai pra auditoria.
         Route::prefix('admin')->middleware(EnsurePlatformAdmin::class)->group(function () {
