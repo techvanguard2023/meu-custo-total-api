@@ -40,6 +40,7 @@ class CatalogController extends Controller
             'disclaimer' => ['nullable', 'string', 'max:1000'],
             'about' => ['nullable', 'string', 'max:2000'],
             'accent_color' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'layout' => ['sometimes', 'string', \Illuminate\Validation\Rule::in(Company::CATALOG_LAYOUTS)],
             'address' => ['nullable', 'string', 'max:255'],
             'hours' => ['nullable', 'string', 'max:255'],
             'email' => ['nullable', 'email', 'max:255'],
@@ -63,7 +64,7 @@ class CatalogController extends Controller
         if (array_key_exists('disclaimer', $data)) {
             $company->catalog_disclaimer = $data['disclaimer'];
         }
-        foreach (['about', 'address', 'hours', 'email', 'accent_color'] as $field) {
+        foreach (['about', 'address', 'hours', 'email', 'accent_color', 'layout'] as $field) {
             if (array_key_exists($field, $data)) {
                 $company->{"catalog_{$field}"} = $data[$field];
             }
@@ -548,6 +549,7 @@ class CatalogController extends Controller
             'disclaimer' => $company->catalog_disclaimer,
             'about' => $company->catalog_about,
             'accent_color' => $company->catalog_accent_color,
+            'layout' => $company->catalog_layout ?: Company::CATALOG_LAYOUT_DEFAULT,
             'address' => $company->catalog_address,
             'hours' => $company->catalog_hours,
             'email' => $company->catalog_email,

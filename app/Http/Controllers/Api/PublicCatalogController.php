@@ -273,6 +273,8 @@ class PublicCatalogController extends Controller
             // Só a cor de destaque (botões, badges, links) — fundo e texto
             // continuam neutros, pra não arriscar contraste ilegível.
             'accent_color' => $company->catalog_accent_color,
+            // Layout escolhido pelo lojista (o front cai na vitrine se não conhecer o valor)
+            'layout' => $company->catalog_layout ?: \App\Models\Company::CATALOG_LAYOUT_DEFAULT,
             // Nota geral da loja + depoimentos — só de vendas sem produto de
             // catálogo vinculado (o resto já aparece no card de cada produto).
             'store_rating_avg' => $storeRatingAvg !== null ? round((float) $storeRatingAvg, 1) : null,

@@ -48,6 +48,17 @@ class Company extends Model
     public const SEGMENT_3D = '3d_printing';
     public const SEGMENTS = [self::SEGMENT_3D, 'crafts', 'stationery', 'bakery', 'other'];
 
+    /** Layouts do catálogo público (o front tem um componente para cada). Padrão: vitrine, o visual de sempre. */
+    public const CATALOG_LAYOUT_DEFAULT = 'vitrine';
+
+    /**
+     * vitrine: grade de cards (o de sempre) · cardapio: lista em seções, como um cardápio impresso ·
+     * atelie: mural de fotos grandes com etiqueta de preço · oficina: catálogo de peças técnicas com ficha ·
+     * galeria: loja de museu (pedestal + etiqueta) · mostruario: cartela de cores com filtro por cor ·
+     * estudio: sala escura com as fotos em caixas de luz
+     */
+    public const CATALOG_LAYOUTS = [self::CATALOG_LAYOUT_DEFAULT, 'cardapio', 'atelie', 'oficina', 'galeria', 'mostruario', 'estudio'];
+
     public const PLAN_FREE = 'free';
     public const PLAN_ESSENTIAL = 'essential';
     public const PLAN_PRO = 'pro';
@@ -66,7 +77,7 @@ class Company extends Model
         'catalog_instagram_url', 'catalog_facebook_url', 'catalog_youtube_url',
         'catalog_tiktok_url', 'catalog_linkedin_url',
         'catalog_about', 'catalog_address', 'catalog_hours', 'catalog_email',
-        'catalog_accent_color', 'custom_domain', 'custom_domain_verified_at',
+        'catalog_accent_color', 'catalog_layout', 'custom_domain', 'custom_domain_verified_at',
         'partner_domain', 'partner_domain_verified_at', 'offers_domain', 'offers_domain_verified_at',
         'whatsapp_session_name', 'whatsapp_bot_enabled', 'whatsapp_webhook_url', 'whatsapp_webhook_events',
         'whatsapp_chat_filters', 'whatsapp_status_notifications', 'whatsapp_bot_prompt', 'whatsapp_payment_link', 'whatsapp_pix_key',
