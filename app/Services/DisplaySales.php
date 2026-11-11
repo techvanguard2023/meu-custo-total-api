@@ -52,6 +52,8 @@ class DisplaySales
             'profit_amount' => $breakdown['profit_amount'],
             'display_id' => $display->id,
             'display_commission_amount' => $breakdown['display_commission_amount'],
+            'tax_amount' => $breakdown['tax_amount'],
+            'fixed_costs_amount' => $breakdown['fixed_costs_amount'],
             'display_source' => $source,
             'status' => Quote::STATUS_APPROVED,
             'production_status' => Quote::PRODUCTION_DELIVERED,

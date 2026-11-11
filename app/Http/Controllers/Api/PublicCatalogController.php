@@ -84,7 +84,9 @@ class PublicCatalogController extends Controller
     /** Tudo que o catálogo público mostra (sem nada do visitante) — guardado por CatalogCache. */
     private function payload(Company $company): array
     {
-        $markup = (float) ($company->setting?->default_markup ?? 0);
+        // Preço automático: custo + margem, com imposto e rateio "% do faturamento" por dentro (Setting::autoPrice)
+        $setting = $company->setting;
+        $auto = fn ($cost) => $setting ? $setting->autoPrice((float) $cost) : round((float) $cost, 2);
         // Preço por quantidade e desconto por valor do pedido são do plano Pro
         $volumePricing = $company->isPro();
 
@@ -139,11 +141,11 @@ class PublicCatalogController extends Controller
             ->withCount('reviews as rating_count')
             ->with(['reviews' => fn ($q) => $q->withApprovedComment()->latest()->limit(20)])
             ->get()
-            ->map(function ($product) use ($markup, $catalogUrl, $volumePricing, $bestSellerRank) {
+            ->map(function ($product) use ($auto, $catalogUrl, $volumePricing, $bestSellerRank) {
                 $cost = (float) $product->cost;
                 $regularPrice = $product->sale_price !== null
                     ? (float) $product->sale_price
-                    : round($cost * (1 + $markup / 100), 2);
+                    : $auto($cost);
 
                 $discountPercent = $product->discount_percent !== null ? (float) $product->discount_percent : null;
                 $applyDiscount = fn (float $price) => $discountPercent
@@ -156,10 +158,10 @@ class PublicCatalogController extends Controller
                 // vale para todas — inclusive as que têm preço próprio.
                 $variations = $product->variations
                     ->where('active', true)
-                    ->map(function ($variation) use ($product, $markup, $applyDiscount) {
+                    ->map(function ($variation) use ($product, $auto, $applyDiscount) {
                         $variationCost = $variation->effectiveCost($product);
                         $variationPrice = $variation->effectivePrice($product)
-                            ?? round($variationCost * (1 + $markup / 100), 2);
+                            ?? $auto($variationCost);
                         $variationPromo = $applyDiscount($variationPrice);
 
                         return [

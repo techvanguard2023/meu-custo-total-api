@@ -474,8 +474,8 @@ class OfferPublisher
      */
     public function prices(Company $company, Product $product): array
     {
-        $markup = (float) ($company->setting?->default_markup ?? 0);
-        $auto = fn ($cost) => round((float) $cost * (1 + $markup / 100), 2);
+        $setting = $company->setting;
+        $auto = fn ($cost) => $setting ? $setting->autoPrice((float) $cost) : round((float) $cost, 2);
 
         $regular = $product->sale_price !== null ? (float) $product->sale_price : $auto($product->cost);
         $from = false;

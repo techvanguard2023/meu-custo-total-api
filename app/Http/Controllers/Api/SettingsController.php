@@ -34,9 +34,27 @@ class SettingsController extends Controller
             'order_discount_tiers' => ['sometimes', 'nullable', 'array', 'max:5'],
             'order_discount_tiers.*.min_total' => ['required', 'numeric', 'gt:0', 'max:99999999', 'distinct'],
             'order_discount_tiers.*.percent' => ['required', 'numeric', 'gt:0', 'max:95'],
-        ]);
+            ...self::FIXED_COSTS_RULES,
+        ], self::FIXED_COSTS_MESSAGES);
 
         $setting = $request->user()->company->setting;
+
+        // Funcionários e impostos (Essencial e Pro). Quem não tem o plano mantém o que já estava gravado e
+        // ainda pode desligar (sem rateio e sem imposto %), mas não criar nem alterar.
+        $fixed = $this->normalizeFixedCosts($data, $setting);
+        foreach (array_keys($fixed) as $key) {
+            unset($data[$key]);
+        }
+        if ($fixed !== []) {
+            $current = collect(self::FIXED_COSTS_FIELDS)->mapWithKeys(fn ($k) => [$k => $this->fixedCostValue($setting, $k)])->all();
+            $proposed = array_merge($current, $fixed);
+            if ($proposed != $current && ! $this->isEssential($request)) {
+                $turningOff = $proposed['fixed_costs_mode'] === \App\Models\Setting::FIXED_COSTS_NONE && (float) $proposed['tax_percent'] === 0.0;
+                abort_unless($turningOff, 403, '"Funcionários e impostos" é um recurso dos planos Essencial e Pro. Assine para desbloquear.');
+            }
+            $this->validateFixedCosts($setting->replicate()->forceFill($proposed));
+            $data = array_merge($data, $fixed);
+        }
 
         if (array_key_exists('order_discount_tiers', $data)) {
             $tiers = collect($data['order_discount_tiers'] ?? [])
@@ -64,11 +82,179 @@ class SettingsController extends Controller
 
         // Produtos com custo pela ficha técnica usam energia, mão de obra e taxa de falha daqui
         // (e a margem, nos que seguem o preço sugerido)
-        if ($setting->wasChanged(['electricity_rate_kwh', 'labor_hour_rate', 'default_failure_rate', 'default_markup'])) {
+        // (e funcionários/impostos: hora da folha, imposto e rateio por dentro no preço sugerido)
+        if ($setting->wasChanged(['electricity_rate_kwh', 'labor_hour_rate', 'default_failure_rate', 'default_markup', ...self::FIXED_COSTS_FIELDS])) {
             app(ProductRecipe::class)->refreshCompany($setting->company_id);
         }
 
         return $setting;
+    }
+
+    /** Campos de funcionários e impostos (Parâmetros de Precificação). */
+    private const FIXED_COSTS_FIELDS = ['employees', 'fixed_expenses', 'fixed_costs_mode', 'estimated_monthly_revenue', 'orders_per_month', 'tax_percent', 'tax_fixed_monthly'];
+
+    private const FIXED_COSTS_RULES = [
+        'employees' => ['sometimes', 'nullable', 'array', 'max:50'],
+        'employees.*.name' => ['required', 'string', 'max:80'],
+        'employees.*.salary' => ['required', 'numeric', 'min:0', 'max:9999999'],
+        'employees.*.charges_percent' => ['required', 'numeric', 'min:0', 'max:200'],
+        'employees.*.hours_per_month' => ['required', 'numeric', 'min:0', 'max:744'],
+        'fixed_expenses' => ['sometimes', 'nullable', 'array', 'max:30'],
+        'fixed_expenses.*.name' => ['required', 'string', 'max:80'],
+        'fixed_expenses.*.amount' => ['required', 'numeric', 'min:0', 'max:9999999'],
+        'fixed_costs_mode' => ['sometimes', 'string', 'in:none,revenue,hour,order'],
+        'estimated_monthly_revenue' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:999999999'],
+        'orders_per_month' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:1000000'],
+        'tax_percent' => ['sometimes', 'numeric', 'min:0', 'max:50'],
+        'tax_fixed_monthly' => ['sometimes', 'numeric', 'min:0', 'max:9999999'],
+    ];
+
+    private const FIXED_COSTS_MESSAGES = [
+        'employees.*.name.required' => 'Informe o nome ou a função de cada funcionário.',
+        'employees.*.salary.required' => 'Informe o salário de cada funcionário.',
+        'employees.*.hours_per_month.max' => 'Um mês tem no máximo 744 horas.',
+        'tax_percent.max' => 'O imposto sobre a venda pode ser no máximo 50%.',
+        'employees.max' => 'Cadastre no máximo 50 funcionários.',
+        'fixed_expenses.*.name.required' => 'Informe o nome de cada despesa fixa.',
+        'fixed_expenses.*.amount.required' => 'Informe o valor por mês de cada despesa fixa.',
+        'fixed_expenses.max' => 'Cadastre no máximo 30 despesas fixas.',
+    ];
+
+    /** Valores enviados de funcionários/impostos, já limpos (só os que vieram na requisição). */
+    private function normalizeFixedCosts(array $data, \App\Models\Setting $setting): array
+    {
+        $out = [];
+        if (array_key_exists('employees', $data)) {
+            $employees = collect($data['employees'] ?? [])->map(fn ($e) => [
+                'name' => trim((string) $e['name']),
+                'salary' => round((float) $e['salary'], 2),
+                'charges_percent' => round((float) $e['charges_percent'], 2),
+                'hours_per_month' => round((float) $e['hours_per_month'], 1),
+            ])->values()->all();
+            $out['employees'] = $employees === [] ? null : $employees;
+        }
+        if (array_key_exists('fixed_expenses', $data)) {
+            $expenses = collect($data['fixed_expenses'] ?? [])->map(fn ($e) => [
+                'name' => trim((string) $e['name']),
+                'amount' => round((float) $e['amount'], 2),
+            ])->values()->all();
+            $out['fixed_expenses'] = $expenses === [] ? null : $expenses;
+        }
+        if (array_key_exists('fixed_costs_mode', $data)) {
+            $out['fixed_costs_mode'] = $data['fixed_costs_mode'];
+        }
+        if (array_key_exists('estimated_monthly_revenue', $data)) {
+            $out['estimated_monthly_revenue'] = $data['estimated_monthly_revenue'] === null ? null : round((float) $data['estimated_monthly_revenue'], 2);
+        }
+        if (array_key_exists('orders_per_month', $data)) {
+            $out['orders_per_month'] = $data['orders_per_month'] === null ? null : (int) $data['orders_per_month'];
+        }
+        foreach (['tax_percent', 'tax_fixed_monthly'] as $key) {
+            if (array_key_exists($key, $data)) {
+                $out[$key] = round((float) $data[$key], 2);
+            }
+        }
+
+        return $out;
+    }
+
+    /** Valor gravado no mesmo formato de normalizeFixedCosts (pra comparar se algo mudou). */
+    private function fixedCostValue(\App\Models\Setting $setting, string $key): mixed
+    {
+        return match ($key) {
+            'employees' => $setting->employees ?: null,
+            'fixed_expenses' => $setting->fixed_expenses ?: null,
+            'fixed_costs_mode' => $setting->fixedCostsMode(),
+            'estimated_monthly_revenue' => $setting->estimated_monthly_revenue === null ? null : (float) $setting->estimated_monthly_revenue,
+            'orders_per_month' => $setting->orders_per_month,
+            default => (float) $setting->{$key},
+        };
+    }
+
+    /** Cada forma de rateio precisa do seu dado; e imposto + rateio por dentro não podem engolir o preço. */
+    private function validateFixedCosts(\App\Models\Setting $proposed): void
+    {
+        $mode = $proposed->fixedCostsMode();
+        $errors = [];
+        if ($mode !== \App\Models\Setting::FIXED_COSTS_NONE && $proposed->fixedCostsMonthly() <= 0) {
+            $errors['employees'] = 'Cadastre pelo menos um funcionário com salário, uma despesa fixa ou um imposto fixo mensal para incluir no preço.';
+        }
+        if ($mode === \App\Models\Setting::FIXED_COSTS_REVENUE && (float) $proposed->estimated_monthly_revenue <= 0) {
+            $errors['estimated_monthly_revenue'] = 'Informe o faturamento mensal estimado.';
+        }
+        if ($mode === \App\Models\Setting::FIXED_COSTS_HOUR && $proposed->employeeHoursMonthly() <= 0) {
+            $errors['employees'] = 'Informe as horas trabalhadas por mês dos funcionários.';
+        }
+        if ($mode === \App\Models\Setting::FIXED_COSTS_ORDER && (int) $proposed->orders_per_month <= 0) {
+            $errors['orders_per_month'] = 'Informe quantos pedidos a loja faz por mês.';
+        }
+        if ($errors === [] && $proposed->taxRate() + $proposed->fixedCostsPercent() > \App\Models\Setting::MAX_INSIDE_PERCENT) {
+            $errors['estimated_monthly_revenue'] = 'Imposto + custos fixos passam de '.\App\Models\Setting::MAX_INSIDE_PERCENT.'% do faturamento — confira o faturamento estimado.';
+        }
+
+        if ($errors !== []) {
+            throw \Illuminate\Validation\ValidationException::withMessages($errors);
+        }
+    }
+
+    /**
+     * Prévia de funcionários e impostos, antes de salvar: faturamento e pedidos médios dos últimos 3 meses
+     * (sugestões pros campos) e o preço de um produto de exemplo antes e depois dos valores informados.
+     */
+    public function fixedCostsPreview(Request $request)
+    {
+        $data = $request->validate(self::FIXED_COSTS_RULES, self::FIXED_COSTS_MESSAGES);
+        $company = $request->user()->company;
+        $setting = $company->setting;
+        $proposed = $setting->replicate()->forceFill($this->normalizeFixedCosts($data, $setting));
+
+        // Vendas aprovadas dos últimos 3 meses (ou desde o cadastro, se a loja é mais nova)
+        $since = now()->subMonths(3);
+        $months = max(1, min(3, (int) ceil($company->created_at->diffInDays(now()) / 30)));
+        $sales = \App\Models\Quote::where('company_id', $company->id)
+            ->where('status', \App\Models\Quote::STATUS_APPROVED)
+            ->whereNull('cancelled_at')
+            ->whereRaw('COALESCE(approved_at, created_at) >= ?', [$since])
+            ->selectRaw('COUNT(*) as orders, COALESCE(SUM(final_price), 0) as revenue')
+            ->first();
+
+        return response()->json([
+            'months' => $months,
+            'suggested_revenue' => round((float) $sales->revenue / $months, 2),
+            'suggested_orders' => (int) round($sales->orders / $months),
+            'sample' => $this->samplePrice($company->id, $setting, $proposed),
+        ]);
+    }
+
+    /** Um produto cujo preço é calculado (ficha técnica ou custo + margem), com o preço atual e o novo. */
+    private function samplePrice(int $companyId, \App\Models\Setting $current, \App\Models\Setting $proposed): ?array
+    {
+        $product = \App\Models\Product::where('company_id', $companyId)
+            ->where(fn ($q) => $q->where(fn ($q) => $q->where('auto_cost', true)->where('auto_price', true))
+                ->orWhere(fn ($q) => $q->whereNull('sale_price')->where('cost', '>', 0)))
+            ->orderByDesc('auto_price')
+            ->orderByDesc('updated_at')
+            ->first();
+        if (! $product) {
+            return null;
+        }
+
+        $recipe = app(ProductRecipe::class);
+        $priceWith = function (\App\Models\Setting $setting) use ($product, $recipe) {
+            if ($product->auto_cost) {
+                $unit = $recipe->unitCost($product, null, $setting);
+
+                return $product->auto_price ? (float) $unit['suggested_price'] : $setting->autoPrice($unit['total']);
+            }
+
+            return $setting->autoPrice($product->cost);
+        };
+
+        return [
+            'name' => $product->name,
+            'before' => $priceWith($current),
+            'after' => $priceWith($proposed),
+        ];
     }
 
     /**

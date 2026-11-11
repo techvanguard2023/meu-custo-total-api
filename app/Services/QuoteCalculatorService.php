@@ -40,7 +40,12 @@ class QuoteCalculatorService
         $failureRate = $data['failure_rate_percent'] ?? $setting?->default_failure_rate ?? 0;
         $markup = $data['markup_percent'] ?? $setting?->default_markup ?? 0;
         $electricityRate = $setting?->electricity_rate_kwh ?? 0;
-        $laborRate = $setting?->labor_hour_rate ?? 0;
+        // "Pela hora de trabalho": a hora vira o custo/hora da folha (Setting::effectiveLaborRate)
+        $laborRate = $setting?->effectiveLaborRate() ?? 0;
+        // Imposto sobre a venda e rateio "% do faturamento" entram por dentro no preço calculado
+        $taxRate = $setting?->taxRate() ?? 0.0;
+        $fixedCostsPercent = $setting?->fixedCostsPercent() ?? 0.0;
+        $priceDivisor = $setting?->priceDivisor() ?? 1.0;
 
         // Cada material consumido (principal + insumos extras) soma ao custo,
         // multiplicado pela quantidade do pedido (mesma fórmula para todos).
@@ -106,7 +111,7 @@ class QuoteCalculatorService
             // Preço e custo saem da variação quando houver; em branco lá, herdam do produto.
             $unitCost = $variation ? $variation->effectiveCost($product) : (float) $product->cost;
             $definedPrice = $variation ? $variation->effectivePrice($product) : ($product->sale_price !== null ? (float) $product->sale_price : null);
-            $basePrice = $definedPrice ?? round($unitCost * (1 + ((float) $markup / 100)), 2);
+            $basePrice = $definedPrice ?? round($unitCost * (1 + ((float) $markup / 100)) / $priceDivisor, 2);
 
             // Desconto é sempre do produto (nunca da variação) e vale mesmo quando a
             // variação tem preço próprio — mesmo critério do catálogo público. Sem isso,
@@ -186,8 +191,19 @@ class QuoteCalculatorService
         }
 
         // Desconto aplicado após o markup, sobre o total combinado.
-        $printPrice = $totalCost * (1 + ((float) $markup / 100));
-        $finalPrice = max(0, $printPrice + $productsTotal - $discount);
+        $printPrice = $totalCost * (1 + ((float) $markup / 100)) / $priceDivisor;
+
+        // Rateio "por pedido": folha (+ imposto fixo) ÷ pedidos por mês, somado ao total do pedido (não ao preço
+        // unitário). Fica de fora da ficha técnica do produto (preço de uma unidade) e das vendas de expositor.
+        $orderFixedCost = 0.0;
+        $orderFixedCharge = 0.0;
+        if ($setting && $display === null && ($data['include_order_fixed_costs'] ?? true) && ($totalCost > 0 || $productLines !== [])) {
+            $orderFixedCost = $setting->fixedCostPerOrder();
+            // O imposto sobre a venda também incide sobre esse valor
+            $orderFixedCharge = $orderFixedCost / (1 - min(Setting::MAX_INSIDE_PERCENT, $taxRate) / 100);
+        }
+
+        $finalPrice = max(0, $printPrice + $productsTotal + $orderFixedCharge - $discount);
 
         // Cupom (Pro, um por pedido): as regras de uso já foram conferidas por quem chama; aqui sai o valor.
         // Item com desconto (promoção ou preço por quantidade) só entra se o cupom permitir. Fora de
@@ -239,6 +255,10 @@ class QuoteCalculatorService
         // Vendendo por um canal (Mercado Livre, Shopee...) que desconta comissão +
         // taxa fixa do valor recebido: o preço de tabela sobe o suficiente pra sobrar,
         // líquido, o mesmo que uma venda direta — a margem não muda, só o preço exibido.
+        // Imposto e custos fixos de cada venda, sobre o que a loja fatura (antes da taxa do canal): saem do lucro
+        $taxAmount = round($finalPrice * $taxRate / 100, 2);
+        $fixedCostsAmount = round($finalPrice * $fixedCostsPercent / 100 + $orderFixedCost, 2);
+
         $channelFeeAmount = 0.0;
         if ($channel) {
             $commissionPercent = min(99.99, max(0, (float) $channel->commission_percent));
@@ -261,7 +281,8 @@ class QuoteCalculatorService
 
         $unitPrice = $finalPrice / $quantity;
         // Lucro é sobre o que fica depois da taxa do canal e da comissão do expositor.
-        $profitAmount = ($finalPrice - $channelFeeAmount) - $grandTotalCost - $displayCommissionAmount;
+        // Imposto e rateio dos custos fixos (folha) também saem do lucro.
+        $profitAmount = ($finalPrice - $channelFeeAmount) - $grandTotalCost - $displayCommissionAmount - $taxAmount - $fixedCostsAmount;
 
         return [
             'material_cost' => round($materialCost, 2),
@@ -301,6 +322,13 @@ class QuoteCalculatorService
             'channel_fee_amount' => round($channelFeeAmount, 2),
             'display_id' => $display?->id,
             'display_commission_amount' => round($displayCommissionAmount, 2),
+            // Funcionários e impostos (Parâmetros de Precificação)
+            'tax_percent' => round($taxRate, 2),
+            'tax_amount' => $taxAmount,
+            'fixed_costs_mode' => $setting?->fixedCostsMode() ?? Setting::FIXED_COSTS_NONE,
+            'fixed_costs_percent' => round($fixedCostsPercent, 2),
+            'order_fixed_cost' => round($orderFixedCharge, 2),
+            'fixed_costs_amount' => $fixedCostsAmount,
         ];
     }
 }

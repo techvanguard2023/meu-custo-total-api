@@ -1115,6 +1115,8 @@ class QuoteController extends Controller
             'unit_price' => $breakdown['unit_price'],
             'profit_amount' => $breakdown['profit_amount'],
             'channel_fee_amount' => $breakdown['channel_fee_amount'],
+            'tax_amount' => $breakdown['tax_amount'],
+            'fixed_costs_amount' => $breakdown['fixed_costs_amount'],
             'status' => $status,
         ]);
     }

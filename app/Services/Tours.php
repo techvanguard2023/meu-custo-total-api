@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Company;
+use App\Models\Tour;
 use App\Models\User;
 use App\Models\UserTour;
 
@@ -22,10 +23,28 @@ class Tours
 
     private const RANK = ['free' => 0, 'essential' => 1, 'pro' => 2];
 
-    /** @return array<string, array{title: string, plan: string, version: int}> */
-    public static function definitions(): array
+    /**
+     * Tours cadastrados na área admin (tabela tours), por slug. Por padrão só os ligados.
+     *
+     * @return array<string, array{title: string, plan: string, version: int, route: string, steps: array, preview: array, active: bool}>
+     */
+    public static function definitions(bool $withInactive = false): array
     {
-        return config('tours.tours', []);
+        return Tour::query()
+            ->when(! $withInactive, fn ($q) => $q->where('active', true))
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get()
+            ->mapWithKeys(fn (Tour $tour) => [$tour->slug => [
+                'title' => $tour->title,
+                'plan' => $tour->plan,
+                'version' => $tour->version,
+                'route' => $tour->route,
+                'steps' => array_values($tour->steps ?? []),
+                'preview' => ['title' => $tour->preview_title, 'content' => $tour->preview_content],
+                'active' => $tour->active,
+            ]])
+            ->all();
     }
 
     public static function planOf(Company $company): string
@@ -39,24 +58,35 @@ class Tours
         return self::RANK[self::planOf($company)] >= self::RANK[$requiredPlan];
     }
 
-    /** @return list<array{id: string, title: string, version: int, required_plan: string, mode: ?string}> */
+    /**
+     * Os tours com os passos (o app monta a partir daqui) e o que a pessoa ainda precisa ver.
+     * O admin da plataforma recebe também os desligados (sem aparecer sozinho), pra testar antes de ligar.
+     *
+     * @return list<array{id: string, title: string, version: int, required_plan: string, mode: ?string, route: string, steps: array, preview: array, active: bool}>
+     */
     public static function status(User $user): array
     {
         $company = $user->company;
+        $plan = self::planOf($company);
+        $seenKeys = UserTour::query()->where('user_id', $user->id)->get(['tour_id', 'version', 'kind'])
+            ->map(fn ($s) => "{$s->tour_id}|{$s->version}|{$s->kind}")->flip();
         $list = [];
 
-        foreach (self::definitions() as $id => $tour) {
-            $eligible = self::eligible($company, $tour['plan']);
-            $mode = $eligible ? self::FULL : self::PREVIEW;
-            $seen = self::seen($user, $id, $tour['version'], $mode);
+        foreach (self::definitions($user->isPlatformAdmin()) as $id => $tour) {
+            $mode = self::eligible($company, $tour['plan']) ? self::FULL : self::PREVIEW;
+            $seen = $seenKeys->has("{$id}|{$tour['version']}|{$mode}");
 
             $list[] = [
                 'id' => $id,
                 'title' => $tour['title'],
                 'version' => $tour['version'],
                 'required_plan' => $tour['plan'],
-                'plan' => self::planOf($company),
-                'mode' => $seen ? null : $mode,
+                'plan' => $plan,
+                'mode' => ($seen || ! $tour['active']) ? null : $mode,
+                'route' => $tour['route'],
+                'steps' => $tour['steps'],
+                'preview' => $tour['preview'],
+                'active' => $tour['active'],
             ];
         }
 

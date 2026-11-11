@@ -91,6 +91,8 @@ class TeamAccess
         'total_cost', 'markup_percent', 'profit_amount', 'channel_fee_amount',
         'cost_per_g', 'spool_cost', 'purchase_price', 'maintenance_percent', 'electricity_rate_kwh',
         'labor_hour_rate', 'default_failure_rate', 'default_markup', 'suggested_price', 'suggested_profit',
+        'employees', 'fixed_expenses', 'fixed_costs_mode', 'estimated_monthly_revenue', 'orders_per_month', 'tax_percent', 'tax_fixed_monthly',
+        'tax_amount', 'fixed_costs_percent', 'fixed_costs_amount', 'order_fixed_cost',
     ];
 
     /** Só do dono, qualquer que seja o perfil: o QR Code que conecta o WhatsApp da loja. */
@@ -133,22 +135,21 @@ class TeamAccess
         }
 
         // Vendas não recebe custo nem margem, mas precisa do preço de produto "automático" (custo + margem)
-        $markup = (float) ($user->company?->setting?->default_markup ?? 0);
+        $setting = $user->company?->setting;
+        $auto = fn ($cost) => $cost === null ? null : ($setting ? $setting->autoPrice((float) $cost) : round((float) $cost, 2));
 
-        return self::strip(self::withListPrices($data, $markup), array_flip([...self::COST_KEYS, ...self::OWNER_ONLY_KEYS]), false);
+        return self::strip(self::withListPrices($data, $auto), array_flip([...self::COST_KEYS, ...self::OWNER_ONLY_KEYS]), false);
     }
 
     /**
      * Acrescenta `list_price` em produtos e variações: o preço de tabela já resolvido (o preço digitado ou,
      * em branco, custo + margem padrão — a mesma regra do catálogo e do Caixa).
      */
-    private static function withListPrices(mixed $data, float $markup): mixed
+    private static function withListPrices(mixed $data, \Closure $auto): mixed
     {
         if (! is_array($data)) {
             return $data;
         }
-
-        $auto = fn ($cost) => $cost === null ? null : round((float) $cost * (1 + $markup / 100), 2);
 
         if (array_key_exists('cost', $data) && array_key_exists('sale_price', $data) && array_key_exists('variations', $data)) {
             $data['list_price'] = $data['sale_price'] !== null ? (float) $data['sale_price'] : $auto($data['cost']);
@@ -166,7 +167,7 @@ class TeamAccess
 
         foreach ($data as $key => $value) {
             if (is_array($value)) {
-                $data[$key] = self::withListPrices($value, $markup);
+                $data[$key] = self::withListPrices($value, $auto);
             }
         }
 

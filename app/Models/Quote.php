@@ -55,7 +55,7 @@ class Quote extends Model
         'profit_amount', 'status', 'production_status', 'production_order', 'approved_at',
         'payment_method', 'amount_paid', 'paid_at', 'is_courtesy', 'review_token', 'review_requested_at', 'notified_stages', 'external_reference', 'cancelled_at', 'cancel_reason',
         'model_urls', 'notes', 'paused_at', 'pause_reason',
-        'sales_channel_id', 'channel_fee_amount',
+        'sales_channel_id', 'channel_fee_amount', 'tax_amount', 'fixed_costs_amount',
         'display_id', 'display_commission_amount', 'display_source', 'origin_display_id',
     ];
 
@@ -79,6 +79,8 @@ class Quote extends Model
         'profit_amount' => 'decimal:2',
         'amount_paid' => 'decimal:2',
         'channel_fee_amount' => 'decimal:2',
+        'tax_amount' => 'decimal:2',
+        'fixed_costs_amount' => 'decimal:2',
         'display_commission_amount' => 'decimal:2',
         'is_courtesy' => 'boolean',
         'approved_at' => 'datetime',

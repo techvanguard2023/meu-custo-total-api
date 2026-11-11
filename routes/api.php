@@ -52,6 +52,7 @@ use App\Http\Middleware\TrackLastSeen;
 use App\Http\Middleware\LogImpersonation;
 use App\Http\Middleware\RestrictIntegrationTokens;
 use App\Http\Controllers\Admin\AnnouncementController as AdminAnnouncementController;
+use App\Http\Controllers\Admin\TourController as AdminTourController;
 use App\Http\Controllers\Admin\SystemController as AdminSystemController;
 use App\Http\Controllers\Admin\CompanyController as AdminCompanyController;
 use App\Http\Controllers\Admin\FinanceController as AdminFinanceController;
@@ -175,6 +176,11 @@ Route::prefix('v1')->group(function () {
             Route::post('/announcements', [AdminAnnouncementController::class, 'store']);
             Route::put('/announcements/{announcement}', [AdminAnnouncementController::class, 'update']);
             Route::delete('/announcements/{announcement}', [AdminAnnouncementController::class, 'destroy']);
+            // Tours do app (react-joyride): cadastrados aqui, sem deploy
+            Route::get('/tours', [AdminTourController::class, 'index']);
+            Route::post('/tours', [AdminTourController::class, 'store']);
+            Route::put('/tours/{tour}', [AdminTourController::class, 'update'])->whereNumber('tour');
+            Route::delete('/tours/{tour}', [AdminTourController::class, 'destroy'])->whereNumber('tour');
             Route::get('/system', AdminSystemController::class);
             Route::get('/finance', [AdminFinanceController::class, 'index']);
             Route::post('/finance/sync', [AdminFinanceController::class, 'sync'])->middleware('throttle:3,1');
@@ -351,6 +357,7 @@ Route::prefix('v1')->group(function () {
 
             Route::get('/settings', [SettingsController::class, 'show']);
             Route::put('/settings', [SettingsController::class, 'update']);
+            Route::post('/settings/fixed-costs/preview', [SettingsController::class, 'fixedCostsPreview']);
             Route::put('/settings/segment', [SettingsController::class, 'updateSegment']);
             Route::put('/settings/name', [SettingsController::class, 'updateName']);
             Route::put('/settings/cashback', [SettingsController::class, 'updateCashback']);

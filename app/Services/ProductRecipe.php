@@ -60,7 +60,8 @@ class ProductRecipe
     }
 
     /** Custo de uma unidade do produto (ou da variação) pela ficha. */
-    public function unitCost(Product $product, ?ProductVariation $variation = null): array
+    /** `$setting`: outras configurações no lugar das da loja (prévia de antes/depois ao mudar os custos). */
+    public function unitCost(Product $product, ?ProductVariation $variation = null, ?Setting $setting = null): array
     {
         $product->loadMissing('company.setting', 'printer');
 
@@ -69,7 +70,7 @@ class ProductRecipe
             (int) ($variation?->print_time_minutes ?? $product->print_time_minutes),
             (int) $product->postprocess_minutes,
             $product->printer,
-            $product->company?->setting,
+            $setting ?? $product->company?->setting,
         );
     }
 
@@ -88,6 +89,8 @@ class ProductRecipe
             'setup_minutes' => 0,
             'postprocess_minutes' => $postprocessMinutes,
             'extra_costs' => 0,
+            // Rateio "por pedido" vale pro pedido inteiro, não pra cada unidade (igual ao pedido mínimo)
+            'include_order_fixed_costs' => false,
         ], $lines->map(fn ($l) => ['material' => $l['material'], 'weight' => $l['quantity']])->all(), $printer, $unitSetting);
 
         return [
