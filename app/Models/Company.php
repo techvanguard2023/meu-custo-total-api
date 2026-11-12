@@ -81,7 +81,7 @@ class Company extends Model
         'catalog_instagram_url', 'catalog_facebook_url', 'catalog_youtube_url',
         'catalog_tiktok_url', 'catalog_linkedin_url',
         'catalog_about', 'catalog_address', 'catalog_hours', 'catalog_email',
-        'catalog_accent_color', 'catalog_layout', 'catalog_show_logo', 'catalog_logo_size', 'catalog_show_name', 'catalog_title_size', 'custom_domain', 'custom_domain_verified_at',
+        'catalog_accent_color', 'catalog_layout', 'catalog_show_logo', 'catalog_logo_size', 'catalog_show_name', 'catalog_title_size', 'catalog_secondary_color', 'catalog_background_color', 'catalog_text_color', 'catalog_header_color', 'custom_domain', 'custom_domain_verified_at',
         'partner_domain', 'partner_domain_verified_at', 'offers_domain', 'offers_domain_verified_at',
         'whatsapp_session_name', 'whatsapp_bot_enabled', 'whatsapp_webhook_url', 'whatsapp_webhook_events',
         'whatsapp_chat_filters', 'whatsapp_status_notifications', 'whatsapp_bot_prompt', 'whatsapp_payment_link', 'whatsapp_pix_key',

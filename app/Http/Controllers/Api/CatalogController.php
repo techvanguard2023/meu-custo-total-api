@@ -41,6 +41,10 @@ class CatalogController extends Controller
             'about' => ['nullable', 'string', 'max:2000'],
             'accent_color' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
             'layout' => ['sometimes', 'string', \Illuminate\Validation\Rule::in(Company::CATALOG_LAYOUTS)],
+            'secondary_color' => ['sometimes', 'nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'background_color' => ['sometimes', 'nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'text_color' => ['sometimes', 'nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'header_color' => ['sometimes', 'nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
             'show_logo' => ['sometimes', 'boolean'],
             'logo_size' => ['sometimes', 'string', \Illuminate\Validation\Rule::in(Company::CATALOG_LOGO_SIZES)],
             'show_name' => ['sometimes', 'boolean'],
@@ -68,7 +72,7 @@ class CatalogController extends Controller
         if (array_key_exists('disclaimer', $data)) {
             $company->catalog_disclaimer = $data['disclaimer'];
         }
-        foreach (['about', 'address', 'hours', 'email', 'accent_color', 'layout', 'show_logo', 'logo_size', 'show_name', 'title_size'] as $field) {
+        foreach (['about', 'address', 'hours', 'email', 'accent_color', 'layout', 'show_logo', 'logo_size', 'show_name', 'title_size', 'secondary_color', 'background_color', 'text_color', 'header_color'] as $field) {
             if (array_key_exists($field, $data)) {
                 $company->{"catalog_{$field}"} = $data[$field];
             }
@@ -554,6 +558,10 @@ class CatalogController extends Controller
             'about' => $company->catalog_about,
             'accent_color' => $company->catalog_accent_color,
             'layout' => $company->catalog_layout ?: Company::CATALOG_LAYOUT_DEFAULT,
+            'secondary_color' => $company->catalog_secondary_color,
+            'background_color' => $company->catalog_background_color,
+            'text_color' => $company->catalog_text_color,
+            'header_color' => $company->catalog_header_color,
             'show_logo' => (bool) ($company->catalog_show_logo ?? true),
             'logo_size' => $company->catalog_logo_size ?: 'medium',
             'show_name' => (bool) ($company->catalog_show_name ?? true),

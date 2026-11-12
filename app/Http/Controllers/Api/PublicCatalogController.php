@@ -276,6 +276,11 @@ class PublicCatalogController extends Controller
             // Layout escolhido pelo lojista (o front cai na vitrine se não conhecer o valor)
             'layout' => $company->catalog_layout ?: \App\Models\Company::CATALOG_LAYOUT_DEFAULT,
             // Marca no cabeçalho: logo (mostrar e tamanho), nome no cabeçalho e tamanho do nome grande da página
+            // Paleta da loja (nulo = a cor própria do layout)
+            'secondary_color' => $company->catalog_secondary_color,
+            'background_color' => $company->catalog_background_color,
+            'text_color' => $company->catalog_text_color,
+            'header_color' => $company->catalog_header_color,
             'show_logo' => (bool) ($company->catalog_show_logo ?? true),
             'logo_size' => $company->catalog_logo_size ?: 'medium',
             'show_name' => (bool) ($company->catalog_show_name ?? true),
