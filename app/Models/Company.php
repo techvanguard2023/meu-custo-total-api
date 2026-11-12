@@ -59,6 +59,10 @@ class Company extends Model
      */
     public const CATALOG_LAYOUTS = [self::CATALOG_LAYOUT_DEFAULT, 'cardapio', 'atelie', 'oficina', 'galeria', 'mostruario', 'estudio'];
 
+    /** Tamanho da logo no cabeçalho do catálogo e do nome grande da página (hidden só vale para o nome). */
+    public const CATALOG_LOGO_SIZES = ['small', 'medium', 'large', 'xlarge'];
+    public const CATALOG_TITLE_SIZES = ['hidden', 'small', 'medium', 'large'];
+
     public const PLAN_FREE = 'free';
     public const PLAN_ESSENTIAL = 'essential';
     public const PLAN_PRO = 'pro';
@@ -77,7 +81,7 @@ class Company extends Model
         'catalog_instagram_url', 'catalog_facebook_url', 'catalog_youtube_url',
         'catalog_tiktok_url', 'catalog_linkedin_url',
         'catalog_about', 'catalog_address', 'catalog_hours', 'catalog_email',
-        'catalog_accent_color', 'catalog_layout', 'custom_domain', 'custom_domain_verified_at',
+        'catalog_accent_color', 'catalog_layout', 'catalog_show_logo', 'catalog_logo_size', 'catalog_show_name', 'catalog_title_size', 'custom_domain', 'custom_domain_verified_at',
         'partner_domain', 'partner_domain_verified_at', 'offers_domain', 'offers_domain_verified_at',
         'whatsapp_session_name', 'whatsapp_bot_enabled', 'whatsapp_webhook_url', 'whatsapp_webhook_events',
         'whatsapp_chat_filters', 'whatsapp_status_notifications', 'whatsapp_bot_prompt', 'whatsapp_payment_link', 'whatsapp_pix_key',
@@ -85,6 +89,8 @@ class Company extends Model
 
     protected $casts = [
         'catalog_enabled' => 'boolean',
+        'catalog_show_logo' => 'boolean',
+        'catalog_show_name' => 'boolean',
         'whatsapp_bot_enabled' => 'boolean',
         'whatsapp_webhook_events' => 'array',
         'whatsapp_chat_filters' => 'array',

@@ -275,6 +275,11 @@ class PublicCatalogController extends Controller
             'accent_color' => $company->catalog_accent_color,
             // Layout escolhido pelo lojista (o front cai na vitrine se não conhecer o valor)
             'layout' => $company->catalog_layout ?: \App\Models\Company::CATALOG_LAYOUT_DEFAULT,
+            // Marca no cabeçalho: logo (mostrar e tamanho), nome no cabeçalho e tamanho do nome grande da página
+            'show_logo' => (bool) ($company->catalog_show_logo ?? true),
+            'logo_size' => $company->catalog_logo_size ?: 'medium',
+            'show_name' => (bool) ($company->catalog_show_name ?? true),
+            'title_size' => $company->catalog_title_size ?: 'medium',
             // Nota geral da loja + depoimentos — só de vendas sem produto de
             // catálogo vinculado (o resto já aparece no card de cada produto).
             'store_rating_avg' => $storeRatingAvg !== null ? round((float) $storeRatingAvg, 1) : null,

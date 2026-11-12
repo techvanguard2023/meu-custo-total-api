@@ -41,6 +41,10 @@ class CatalogController extends Controller
             'about' => ['nullable', 'string', 'max:2000'],
             'accent_color' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
             'layout' => ['sometimes', 'string', \Illuminate\Validation\Rule::in(Company::CATALOG_LAYOUTS)],
+            'show_logo' => ['sometimes', 'boolean'],
+            'logo_size' => ['sometimes', 'string', \Illuminate\Validation\Rule::in(Company::CATALOG_LOGO_SIZES)],
+            'show_name' => ['sometimes', 'boolean'],
+            'title_size' => ['sometimes', 'string', \Illuminate\Validation\Rule::in(Company::CATALOG_TITLE_SIZES)],
             'address' => ['nullable', 'string', 'max:255'],
             'hours' => ['nullable', 'string', 'max:255'],
             'email' => ['nullable', 'email', 'max:255'],
@@ -64,7 +68,7 @@ class CatalogController extends Controller
         if (array_key_exists('disclaimer', $data)) {
             $company->catalog_disclaimer = $data['disclaimer'];
         }
-        foreach (['about', 'address', 'hours', 'email', 'accent_color', 'layout'] as $field) {
+        foreach (['about', 'address', 'hours', 'email', 'accent_color', 'layout', 'show_logo', 'logo_size', 'show_name', 'title_size'] as $field) {
             if (array_key_exists($field, $data)) {
                 $company->{"catalog_{$field}"} = $data[$field];
             }
@@ -550,6 +554,10 @@ class CatalogController extends Controller
             'about' => $company->catalog_about,
             'accent_color' => $company->catalog_accent_color,
             'layout' => $company->catalog_layout ?: Company::CATALOG_LAYOUT_DEFAULT,
+            'show_logo' => (bool) ($company->catalog_show_logo ?? true),
+            'logo_size' => $company->catalog_logo_size ?: 'medium',
+            'show_name' => (bool) ($company->catalog_show_name ?? true),
+            'title_size' => $company->catalog_title_size ?: 'medium',
             'address' => $company->catalog_address,
             'hours' => $company->catalog_hours,
             'email' => $company->catalog_email,
