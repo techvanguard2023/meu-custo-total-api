@@ -770,6 +770,20 @@ class QuoteController extends Controller
     }
 
     /**
+     * Anotação interna do pedido (a "Observação"): pode ser escrita e corrigida a qualquer momento, inclusive depois de
+     * aprovado — só ela muda, nada do cálculo. Não aparece no PDF nem na visão do cliente.
+     */
+    public function updateNotes(Request $request, Quote $quote)
+    {
+        $this->authorizeCompany($request, $quote);
+
+        $data = $request->validate(['notes' => ['present', 'nullable', 'string', 'max:1000']]);
+        $quote->update(['notes' => trim((string) ($data['notes'] ?? '')) ?: null]);
+
+        return response()->json($quote->fresh()->load(self::detailRelations()));
+    }
+
+    /**
      * Registra quanto já foi recebido desta venda. `paid_at` marca o momento em
      * que fechou o valor total — fica nulo enquanto ainda faltar receber, e é
      * limpo se o valor for corrigido pra menos.

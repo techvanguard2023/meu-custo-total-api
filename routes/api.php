@@ -340,6 +340,7 @@ Route::prefix('v1')->group(function () {
             Route::patch('/quotes/{quote}/cancel', [QuoteController::class, 'cancel']);
             Route::patch('/quotes/{quote}/payment', [QuoteController::class, 'updatePayment']);
             Route::patch('/quotes/{quote}/delivery', [QuoteController::class, 'updateDelivery']);
+            Route::patch('/quotes/{quote}/notes', [QuoteController::class, 'updateNotes']);
             // Agenda (Pro): entregas por período + atrasadas
             Route::get('/agenda', [AgendaController::class, 'index']);
             Route::get('/agenda/availability', [DeliveryDatesController::class, 'availability']);
