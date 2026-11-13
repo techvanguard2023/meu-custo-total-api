@@ -129,6 +129,29 @@ class AlexaLinkTest extends TestCase
         $this->ask($access)->assertJsonPath('response.card.type', 'LinkAccount');
     }
 
+    public function test_admin_switch_decides_if_shop_owners_see_alexa(): void
+    {
+        $admin = User::factory()->create(['company_id' => $this->user->company_id]);
+        config(['services.platform.admin_emails' => [strtolower($admin->email)]]);
+        $shop = $this->user->createToken('api')->plainTextToken;
+        $adminToken = $admin->createToken('api')->plainTextToken;
+
+        // Padrão: escondida dos lojistas; admins da plataforma veem pra testar
+        $this->withToken($shop)->getJson('/api/v1/alexa/link')->assertJsonPath('available', false);
+        $this->app['auth']->forgetGuards();
+        $this->withToken($adminToken)->getJson('/api/v1/alexa/link')->assertJsonPath('available', true);
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($shop)->patchJson('/api/v1/admin/features', ['alexa_visible' => true])->assertNotFound();
+        $this->app['auth']->forgetGuards();
+        $this->withToken($adminToken)->patchJson('/api/v1/admin/features', ['alexa_visible' => true])
+            ->assertOk()->assertJsonPath('alexa_visible', true)->assertJsonPath('alexa_configured', true);
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($shop)->getJson('/api/v1/alexa/link')->assertJsonPath('available', true);
+        $this->assertDatabaseHas('admin_audit_logs', ['action' => 'features.alexa']);
+    }
+
     public function test_alexa_tokens_stay_out_of_integration_tokens(): void
     {
         $this->exchange($this->code());

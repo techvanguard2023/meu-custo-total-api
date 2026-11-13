@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Http\Controllers\Controller;
 use App\Models\AlexaReminder;
+use App\Models\PlatformSetting;
 use App\Models\User;
 use App\Services\AdminAudit;
 use App\Services\Alexa\AlexaApi;
@@ -75,7 +76,9 @@ class AlexaLinkController extends Controller
         $access = $request->user()->tokens()->where('name', AlexaController::TOKEN_NAME)->latest('last_used_at')->first();
 
         return response()->json([
-            'available' => (bool) config('services.alexa.client_id'),
+            // Card em Integrações: com a ligação configurada e liberada no admin (admins da plataforma sempre veem)
+            'available' => (bool) config('services.alexa.client_id')
+                && ($request->user()->isPlatformAdmin() || (bool) PlatformSetting::get(PlatformSetting::ALEXA_VISIBLE)),
             'linked' => (bool) $refresh,
             'linked_at' => $refresh?->created_at?->toIso8601String(),
             'last_used_at' => $access?->last_used_at?->toIso8601String(),

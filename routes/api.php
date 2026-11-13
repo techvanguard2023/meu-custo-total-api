@@ -54,6 +54,7 @@ use App\Http\Middleware\RestrictIntegrationTokens;
 use App\Http\Controllers\Admin\AnnouncementController as AdminAnnouncementController;
 use App\Http\Controllers\Admin\TourController as AdminTourController;
 use App\Http\Controllers\Admin\SystemController as AdminSystemController;
+use App\Http\Controllers\Admin\FeatureController as AdminFeatureController;
 use App\Http\Controllers\Admin\CompanyController as AdminCompanyController;
 use App\Http\Controllers\Admin\FinanceController as AdminFinanceController;
 use App\Http\Controllers\Admin\OverviewController as AdminOverviewController;
@@ -191,6 +192,9 @@ Route::prefix('v1')->group(function () {
             Route::get('/system', AdminSystemController::class);
             Route::get('/system/failed-offers', [AdminSystemController::class, 'failedOffers']);
             Route::get('/system/failed-jobs', [AdminSystemController::class, 'failedJobs']);
+            // Recursos que aparecem (ou não) para os lojistas — ex.: Alexa
+            Route::get('/features', [AdminFeatureController::class, 'index']);
+            Route::patch('/features', [AdminFeatureController::class, 'update']);
             Route::get('/finance', [AdminFinanceController::class, 'index']);
             Route::post('/finance/sync', [AdminFinanceController::class, 'sync'])->middleware('throttle:3,1');
             Route::post('/finance/costs', [AdminFinanceController::class, 'storeCost']);
