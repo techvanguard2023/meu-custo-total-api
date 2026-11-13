@@ -182,6 +182,8 @@ Route::prefix('v1')->group(function () {
             Route::put('/tours/{tour}', [AdminTourController::class, 'update'])->whereNumber('tour');
             Route::delete('/tours/{tour}', [AdminTourController::class, 'destroy'])->whereNumber('tour');
             Route::get('/system', AdminSystemController::class);
+            Route::get('/system/failed-offers', [AdminSystemController::class, 'failedOffers']);
+            Route::get('/system/failed-jobs', [AdminSystemController::class, 'failedJobs']);
             Route::get('/finance', [AdminFinanceController::class, 'index']);
             Route::post('/finance/sync', [AdminFinanceController::class, 'sync'])->middleware('throttle:3,1');
             Route::post('/finance/costs', [AdminFinanceController::class, 'storeCost']);
