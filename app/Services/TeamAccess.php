@@ -45,6 +45,9 @@ class TeamAccess
         // Agenda de entregas: toda a equipe vê (produção sem valores)
         ['GET', 'agenda', self::ALL],
         ['GET', 'agenda/availability', self::SALES],
+        // Alexa: quem vê a Agenda pode ouvir as entregas (cada pessoa liga a própria conta)
+        ['*', 'alexa/authorize', self::ALL],
+        ['*', 'alexa/link', self::ALL],
 
         // Pix da venda pelo Mercado Pago (gerar e acompanhar); conectar a conta é só do dono
         ['*', 'quotes/{quote}/pix*', self::SALES],

@@ -46,6 +46,11 @@ Schedule::command('trial:notify')->everyFifteenMinutes()->withoutOverlapping(14)
 Schedule::command('referrals:reward')->hourlyAt(20)->withoutOverlapping(30);
 // Agenda: lembrete ao cliente na véspera da entrega (só lojas que ligaram o aviso; das 9h às 19h)
 Schedule::command('deliveries:remind')->hourlyAt(5)->withoutOverlapping(30);
+// Alexa: entregas de demonstração da conta de teste da certificação (só roda com ALEXA_DEMO_EMAIL)
+Schedule::command('alexa:demo-deliveries')->dailyAt('00:05')->timezone('America/Sao_Paulo')->withoutOverlapping(30);
+// Alexa: refaz o texto dos lembretes diários (sempre para a próxima vez que tocam) — de hora em hora, pra pegar
+// entregas marcadas em cima da hora
+Schedule::command('alexa:daily-summaries')->hourlyAt(45)->withoutOverlapping(50);
 // Pagamento online: renova o acesso das contas do Mercado Pago perto de vencer (vale 180 dias)
 Schedule::command('mercadopago:refresh-tokens')->dailyAt('04:20')->withoutOverlapping(30);
 // Financeiro da área admin: cobranças da Stripe, tarifas, custo da OpenAI e cotação do dólar
