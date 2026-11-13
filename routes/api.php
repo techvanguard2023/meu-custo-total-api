@@ -65,6 +65,8 @@ use App\Http\Controllers\Api\SupportTicketController;
 use App\Http\Controllers\Api\AffiliateOfferController;
 use App\Http\Controllers\Api\AffiliateIntegrationController;
 use App\Http\Controllers\Api\ToursController;
+use App\Http\Controllers\Api\AlexaController;
+use App\Http\Controllers\Api\AlexaLinkController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -82,6 +84,11 @@ Route::prefix('v1')->group(function () {
     // Convite da equipe: a pessoa convidada confere o convite e cria a senha
     Route::get('/invitation', [InvitationController::class, 'show'])->middleware('throttle:30,1');
     Route::post('/invitation/accept', [InvitationController::class, 'accept'])->middleware('throttle:10,1');
+
+    // Skill da Alexa: sem login do app — quem prova a origem é a assinatura da Amazon (AlexaRequestVerifier)
+    Route::post('/alexa', [AlexaController::class, 'handle'])->middleware('throttle:60,1');
+    // Ligação de conta: a Amazon troca o código (ou o refresh) por tokens — prova quem é pelo client secret
+    Route::post('/alexa/token', [AlexaLinkController::class, 'token'])->middleware('throttle:30,1');
 
     // Catálogo público — sem autenticação, acessado por clientes finais via link compartilhado.
     Route::get('/public/catalog/{token}', [PublicCatalogController::class, 'show'])
@@ -346,6 +353,11 @@ Route::prefix('v1')->group(function () {
             // Agenda (Pro): entregas por período + atrasadas
             Route::get('/agenda', [AgendaController::class, 'index']);
             Route::get('/agenda/availability', [DeliveryDatesController::class, 'availability']);
+
+            // Alexa (Pro): ligar a conta na skill, ver se está ligada e desligar
+            Route::post('/alexa/authorize', [AlexaLinkController::class, 'authorize'])->middleware('throttle:10,1');
+            Route::get('/alexa/link', [AlexaLinkController::class, 'status']);
+            Route::delete('/alexa/link', [AlexaLinkController::class, 'unlink']);
             Route::put('/settings/delivery', [SettingsController::class, 'updateDelivery']);
             // Bot do WhatsApp: próximas datas livres (token de integração — está em RestrictIntegrationTokens::ALLOWED)
             Route::get('/whatsapp/delivery-dates', [DeliveryDatesController::class, 'botDates']);

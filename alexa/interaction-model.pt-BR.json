@@ -1,0 +1,99 @@
+{
+  "interactionModel": {
+    "languageModel": {
+      "invocationName": "meu custo total",
+      "intents": [
+        {
+          "name": "EntregasPorDataIntent",
+          "slots": [
+            { "name": "data", "type": "AMAZON.DATE" }
+          ],
+          "samples": [
+            "o que tenho pra entregar",
+            "o que tenho para entregar",
+            "o que eu tenho pra entregar",
+            "quais as entregas",
+            "quais são as entregas",
+            "minhas entregas",
+            "entregas",
+            "o que tenho pra entregar {data}",
+            "o que tenho para entregar {data}",
+            "o que eu tenho pra entregar {data}",
+            "quais as entregas de {data}",
+            "quais as entregas {data}",
+            "quais são as entregas de {data}",
+            "entregas de {data}",
+            "entregas {data}",
+            "tem entrega {data}",
+            "tenho entrega {data}",
+            "o que sai {data}",
+            "quais pedidos tenho pra entregar {data}",
+            "quais pedidos entregar {data}"
+          ]
+        },
+        {
+          "name": "ProximaEntregaIntent",
+          "slots": [],
+          "samples": [
+            "qual a próxima entrega",
+            "qual é a próxima entrega",
+            "próxima entrega",
+            "qual o próximo pedido pra entregar",
+            "o que entrego agora",
+            "qual a próxima"
+          ]
+        },
+        {
+          "name": "EntregasAtrasadasIntent",
+          "slots": [],
+          "samples": [
+            "tem entrega atrasada",
+            "tem alguma entrega atrasada",
+            "entregas atrasadas",
+            "quais entregas estão atrasadas",
+            "o que está atrasado",
+            "tenho algo atrasado"
+          ]
+        },
+        {
+          "name": "LembreteDiarioIntent",
+          "slots": [
+            { "name": "hora", "type": "AMAZON.TIME" }
+          ],
+          "samples": [
+            "me avise das entregas todo dia",
+            "me avise das entregas todo dia às {hora}",
+            "me avise das entregas todo dia {hora}",
+            "me lembre das entregas todo dia",
+            "me lembre das entregas todo dia às {hora}",
+            "quero um resumo das entregas todo dia",
+            "quero um resumo das entregas todo dia às {hora}",
+            "ative o resumo diário",
+            "ative o resumo diário às {hora}",
+            "ativar resumo diário",
+            "mude o resumo diário para {hora}",
+            "me avise todo dia às {hora}"
+          ]
+        },
+        {
+          "name": "CancelarLembreteDiarioIntent",
+          "slots": [],
+          "samples": [
+            "desative o resumo diário",
+            "desativar resumo diário",
+            "cancele o resumo diário",
+            "pare de me avisar das entregas",
+            "não quero mais o resumo diário",
+            "tire o lembrete das entregas"
+          ]
+        },
+        { "name": "AMAZON.HelpIntent", "samples": [] },
+        { "name": "AMAZON.StopIntent", "samples": [] },
+        { "name": "AMAZON.CancelIntent", "samples": [] },
+        { "name": "AMAZON.NavigateHomeIntent", "samples": [] },
+        { "name": "AMAZON.FallbackIntent", "samples": [] }
+      ],
+      "types": []
+    }
+  }
+}

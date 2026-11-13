@@ -101,6 +101,25 @@ return [
         'test_access_token' => env('MERCADOPAGO_TEST_ACCESS_TOKEN'),
     ],
 
+    // Skill da Alexa (Pro): a Alexa pergunta pelas entregas em POST /api/v1/alexa
+    'alexa' => [
+        // ID da skill no Alexa Developer Console (amzn1.ask.skill....): requisição de outra skill é recusada
+        'skill_id' => env('ALEXA_SKILL_ID'),
+        // Ligação de conta (Account Linking no console): o mesmo Client ID e Secret cadastrados lá
+        'client_id' => env('ALEXA_CLIENT_ID'),
+        'client_secret' => env('ALEXA_CLIENT_SECRET'),
+        // "Alexa Redirect URLs" que o console mostra, separadas por vírgula
+        'redirect_uris' => env('ALEXA_REDIRECT_URIS'),
+        // Só pra testar antes do login da loja existir: este usuário da Alexa fala com a loja deste e-mail
+        'dev_user_id' => env('ALEXA_DEV_USER_ID'),
+        'dev_email' => env('ALEXA_DEV_EMAIL'),
+        // Resumo diário (lembrete): Client ID e Secret do Skill Messaging — no console, aba "Permissions" da skill
+        'messaging_client_id' => env('ALEXA_MESSAGING_CLIENT_ID'),
+        'messaging_client_secret' => env('ALEXA_MESSAGING_CLIENT_SECRET'),
+        // Conta de teste da certificação: entregas de demonstração renovadas todo dia (alexa:demo-deliveries)
+        'demo_email' => env('ALEXA_DEMO_EMAIL'),
+    ],
+
     'frontend_url' => env('FRONTEND_URL', 'http://localhost:3000'),
 
     // Site de apresentação (links de indicação: LANDING_URL/?ref=CODIGO)

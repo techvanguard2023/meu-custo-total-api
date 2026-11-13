@@ -1,0 +1,50 @@
+{
+  "manifest": {
+    "publishingInformation": {
+      "locales": {
+        "pt-BR": {
+          "name": "Meu Custo Total",
+          "summary": "Ouça as entregas da sua loja: as de hoje, de outro dia, a próxima e as atrasadas. Para lojistas do Meu Custo Total (plano Pro).",
+          "description": "Para quem vende com o Meu Custo Total, o sistema de custos, preços e pedidos para pequenos negócios de impressão 3D, artesanato, papelaria e confeitaria.\n\nPergunte à Alexa o que você tem para entregar e ela lê a sua Agenda: hora, itens, primeiro nome do cliente e se é retirada, entrega ou envio. Também diz qual é a próxima entrega e se tem alguma atrasada.\n\nQuer ouvir sem perguntar? Peça 'me avise das entregas todo dia às 8' e a Alexa passa a falar as entregas do dia nesse horário (com a sua permissão de lembretes).\n\nA skill só lê as entregas. Não fala valores, custos ou dados de pagamento e não altera nada no sistema.\n\nPara usar, você precisa de uma conta no Meu Custo Total com o plano Pro. Ative a skill, entre com a sua conta e toque em Permitir. Para desligar, use Integrações no Meu Custo Total ou desative a skill no app da Alexa.",
+          "examplePhrases": [
+            "Alexa, pergunte ao meu custo total o que tenho pra entregar hoje",
+            "Alexa, pergunte ao meu custo total qual a próxima entrega",
+            "Alexa, pergunte ao meu custo total tem alguma entrega atrasada"
+          ],
+          "keywords": ["entregas", "pedidos", "agenda", "loja", "impressão 3D", "artesanato", "confeitaria", "papelaria"],
+          "smallIconUri": "file://icon-108.png",
+          "largeIconUri": "file://icon-512.png"
+        }
+      },
+      "isAvailableWorldwide": false,
+      "distributionCountries": ["BR"],
+      "category": "BUSINESS_AND_FINANCE",
+      "testingInstructions": "A skill exige ligação de conta (Account Linking) com uma conta do Meu Custo Total no plano Pro. Use a conta de teste informada no campo de credenciais: ela já tem entregas marcadas para hoje, para os próximos dias e uma atrasada, renovadas todos os dias.\n\nComo testar:\n1. Ative a skill e faça login com a conta de teste; na tela seguinte toque em Permitir.\n2. Diga: 'Alexa, pergunte ao meu custo total o que tenho pra entregar hoje' — lista as entregas de hoje e avisa a atrasada.\n3. 'Alexa, pergunte ao meu custo total quais as entregas de amanhã' / '... desta semana'.\n4. 'Alexa, pergunte ao meu custo total qual a próxima entrega'.\n5. 'Alexa, pergunte ao meu custo total tem alguma entrega atrasada'.\n6. 'Alexa, abra meu custo total' abre a sessão e explica o que perguntar (ajuda); 'parar' encerra.\n7. Resumo diário (opcional, usa a permissão de lembretes): 'Alexa, pergunte ao meu custo total: me avise das entregas todo dia às 8'. Sem a permissão, a skill envia o cartão de permissão; com ela, cria um lembrete diário que fala as entregas do dia. O texto do lembrete é atualizado pelo nosso servidor de hora em hora (Skill Messaging). Para remover: 'Alexa, pergunte ao meu custo total: desative o resumo diário'.\n\nA skill não fala valores e não altera dados do sistema. Sem conta ligada, ela responde pedindo a ligação e envia o cartão LinkAccount.",
+      "automaticDistribution": { "isActive": false }
+    },
+    "privacyAndCompliance": {
+      "allowsPurchases": false,
+      "usesPersonalInfo": true,
+      "isChildDirected": false,
+      "isExportCompliant": true,
+      "containsAds": false,
+      "locales": {
+        "pt-BR": {
+          "privacyPolicyUrl": "https://app.meucustototal.com.br/privacidade",
+          "termsOfUseUrl": "https://app.meucustototal.com.br/termos"
+        }
+      }
+    },
+    "permissions": [
+      { "name": "alexa::alerts:reminders:skill:readwrite" }
+    ],
+    "apis": {
+      "custom": {
+        "endpoint": {
+          "uri": "https://api-meu-custo-total.ghqegs.easypanel.host/api/v1/alexa",
+          "sslCertificateType": "Trusted"
+        }
+      }
+    }
+  }
+}
