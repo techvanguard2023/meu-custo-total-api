@@ -67,9 +67,14 @@ class PublicCatalogController extends Controller
 
     public function show(Request $request, string $token)
     {
-        // Aceita tanto o slug da empresa (link novo, legível — ex: minha-empresa-a1b2c3)
-        // quanto o token aleatório antigo (mantido pra não quebrar links já compartilhados).
-        $company = Company::active()->where(fn ($q) => $q->where('slug', $token)->orWhere('catalog_token', $token))->first();
+        // Aceita o slug da empresa (link novo, legível — ex: minha-empresa-a1b2c3), o token
+        // aleatório antigo (mantido pra não quebrar links já compartilhados) e também o nome
+        // da sessão do WhatsApp: o bot do n8n usa esse valor pra montar a URL do catálogo, e
+        // ele é gravado uma única vez na conexão — se a loja troca o slug depois, a sessão
+        // continua com o nome antigo e esse fallback evita 404 nesse fluxo.
+        $company = Company::active()->where(
+            fn ($q) => $q->where('slug', $token)->orWhere('catalog_token', $token)->orWhere('whatsapp_session_name', $token)
+        )->first();
 
         // 404 tanto pra identificador inexistente quanto pra catálogo desligado/empresa
         // não-Pro — não dá pra distinguir os casos de fora.
