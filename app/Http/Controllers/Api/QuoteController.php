@@ -553,6 +553,46 @@ class QuoteController extends Controller
         return response()->json(['messages' => $quoteIds->isEmpty() ? [] : $pix->botMessages($pix->openBotCharges($quoteIds))]);
     }
 
+    /**
+     * POST /whatsapp/order-notes (bot do n8n): o cliente lembrou de um detalhe depois de fechar o pedido (nome para
+     * personalizar, cor da embalagem, recado...). Acrescenta nas observações do pedido mais recente dele feito pelo bot
+     * nos últimos 7 dias, sem apagar o que já havia. Pedido dividido (pronto + sob encomenda) recebe nas duas partes.
+     */
+    public function botOrderNote(Request $request)
+    {
+        $data = $request->validate([
+            'phone' => ['required', 'string', 'max:30'],
+            'note' => ['required', 'string', 'max:500'],
+        ]);
+        $company = $request->user()->company;
+        $key = Customer::phoneKey($data['phone']);
+        $customer = $key === null ? null : $company->customers()->get(['id', 'phone'])
+            ->first(fn ($c) => Customer::phoneKey($c->phone) === $key);
+
+        $latest = $customer ? $company->quotes()
+            ->where('customer_id', $customer->id)
+            ->whereNotNull('external_reference')
+            ->whereNull('cancelled_at')
+            ->where('created_at', '>=', now()->subDays(7))
+            ->latest('id')
+            ->first() : null;
+        abort_unless($latest, 404, 'Este cliente não tem pedido recente feito por aqui. Se ele ainda vai pedir, guarde o detalhe e envie em notes ao chamar criar_pedido.');
+
+        $note = trim($data['note']);
+        $parts = $company->quotes()->where('external_reference', $latest->external_reference)->get();
+        foreach ($parts as $quote) {
+            // Mesma observação mandada de novo (o bot repetiu a chamada): não duplica
+            if (! str_contains((string) $quote->notes, $note)) {
+                $quote->update(['notes' => trim(((string) $quote->notes)."\n".$note)]);
+            }
+        }
+
+        return response()->json([
+            'ok' => true,
+            'orders' => $parts->map(fn (Quote $q) => ['id' => $q->id, 'notes' => $q->notes])->values(),
+        ]);
+    }
+
     /** Saldo de cashback que sobrou depois da primeira parte de um pedido dividido (pronto + sob encomenda). */
     private function cashbackLeft(float|int|string $requested, Quote $firstPart): float
     {

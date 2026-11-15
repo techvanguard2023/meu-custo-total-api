@@ -24,6 +24,7 @@ class RestrictIntegrationTokens
         ['POST', 'api/v1/whatsapp/display-contacts'],
         ['POST', 'api/v1/quotes/external-order'],
         ['GET', 'api/v1/whatsapp/order-payment'],
+        ['POST', 'api/v1/whatsapp/order-notes'],
         ['POST', 'api/v1/quotes/external-quote-request'],
         ['GET', 'api/v1/whatsapp/delivery-dates'],
     ];
