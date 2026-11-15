@@ -72,7 +72,14 @@ class ShippingQuotes
         $key = 'shipping-quote:'.$company->id.':'.md5(json_encode([$origin, $to, $products]));
 
         try {
-            $options = Cache::remember($key, now()->addMinutes(10), fn () => $this->api->calculate($this->accounts->token($company), $origin, $to, $products));
+            $options = Cache::get($key);
+            if ($options === null) {
+                $options = $this->api->calculate($this->accounts->token($company), $origin, $to, $products);
+                // Resposta vazia não fica em cache: pode ser passageira e o lojista quer testar de novo na hora
+                if ($options !== []) {
+                    Cache::put($key, $options, now()->addMinutes(10));
+                }
+            }
         } catch (RuntimeException $e) {
             if ($e->getCode() === 401) {
                 $this->accounts->revoke($company);

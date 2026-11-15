@@ -4,6 +4,8 @@ namespace App\Services;
 
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use RuntimeException;
 
 /**
@@ -125,6 +127,11 @@ class MelhorEnvio
                 'days_min' => isset($range['min']) ? (int) $range['min'] : null,
                 'days_max' => isset($range['max']) ? (int) $range['max'] : null,
             ];
+        }
+
+        // Sem nenhuma opção: guarda o que o Melhor Envio respondeu (erros por serviço) para explicar depois o porquê
+        if ($options === []) {
+            Log::warning('Melhor Envio: cotação sem opções ('.$fromCep.' → '.$toCep.'): '.Str::limit((string) $response->body(), 1500));
         }
 
         return $options;
