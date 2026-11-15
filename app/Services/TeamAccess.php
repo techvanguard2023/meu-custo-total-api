@@ -83,6 +83,10 @@ class TeamAccess
         ['*', 'quote-requests*', self::SALES],
         ['*', 'customers*', self::SALES],
         ['*', 'product-reviews*', self::SALES],
+        // Aprovação de arte: vendas manda a arte pro cliente (o termo da loja, em Configurações, é só do dono)
+        ['*', 'quotes/{quote}/art-proofs', self::SALES],
+        ['*', 'art-proofs/*', self::SALES],
+        ['GET', 'art-approval/terms', self::SALES],
         ['*', 'displays*', self::SALES],
         ['*', 'whatsapp/handoffs*', self::SALES],
     ];
@@ -91,7 +95,7 @@ class TeamAccess
     private const COST_KEYS = [
         'cost', 'unit_cost', 'line_cost', 'material_cost', 'energy_cost', 'depreciation_cost', 'labor_cost',
         'extra_costs', 'subtotal_cost', 'failure_cost', 'failure_rate_percent', 'print_total_cost', 'products_cost',
-        'total_cost', 'markup_percent', 'profit_amount', 'channel_fee_amount',
+        'total_cost', 'markup_percent', 'profit_amount', 'channel_fee_amount', 'cost_delta',
         'cost_per_g', 'spool_cost', 'purchase_price', 'maintenance_percent', 'electricity_rate_kwh',
         'labor_hour_rate', 'default_failure_rate', 'default_markup', 'suggested_price', 'suggested_profit',
         'employees', 'fixed_expenses', 'fixed_costs_mode', 'estimated_monthly_revenue', 'orders_per_month', 'tax_percent', 'tax_fixed_monthly',

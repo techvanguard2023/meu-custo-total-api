@@ -16,6 +16,7 @@ use App\Models\Quote;
 use App\Models\SalesChannel;
 use App\Services\Cashback;
 use App\Services\Coupons;
+use App\Services\OptionPicker;
 use App\Services\DeliveryCalendar;
 use App\Services\DisplayQr;
 use App\Services\DisplaySales;
@@ -208,6 +209,8 @@ class QuoteController extends Controller
 
         abort_if($quote->status === Quote::STATUS_APPROVED, 422, 'Orçamentos aprovados (vendas) não podem ser excluídos.');
 
+        // Um a um, pra os arquivos das provas de arte saírem do disco (a exclusão em cascata do banco não dispara isso)
+        $quote->artProofs->each->delete();
         $quote->delete();
 
         return response()->json(null, 204);
@@ -284,6 +287,11 @@ class QuoteController extends Controller
             'products' => ['required', 'array', 'min:1'],
             'products.*.product_id' => ['required', 'integer'],
             'products.*.product_variation_id' => ['sometimes', 'nullable', 'integer'],
+            'products.*.option_ids' => ['sometimes', 'nullable', 'array', 'max:30'],
+            'products.*.option_ids.*' => ['integer'],
+            // Nome das opções (o bot escreve o que o cliente disse: "Fosco" ou "Acabamento: Fosco")
+            'products.*.option_labels' => ['sometimes', 'nullable', 'array', 'max:30'],
+            'products.*.option_labels.*' => ['string', 'max:120'],
             'products.*.quantity' => ['required', 'integer', 'min:1'],
         ]);
 
@@ -373,6 +381,11 @@ class QuoteController extends Controller
             'products' => ['required', 'array', 'min:1'],
             'products.*.product_id' => ['required', 'integer'],
             'products.*.product_variation_id' => ['sometimes', 'nullable', 'integer'],
+            'products.*.option_ids' => ['sometimes', 'nullable', 'array', 'max:30'],
+            'products.*.option_ids.*' => ['integer'],
+            // Nome das opções (o bot escreve o que o cliente disse: "Fosco" ou "Acabamento: Fosco")
+            'products.*.option_labels' => ['sometimes', 'nullable', 'array', 'max:30'],
+            'products.*.option_labels.*' => ['string', 'max:120'],
             // Nome da variação que o cliente escolheu (ex: "Lilás"). O bot (um modelo de IA)
             // às vezes erra o NÚMERO da variação; o nome, que está na conversa, tem prioridade.
             'products.*.variation_label' => ['sometimes', 'nullable', 'string', 'max:100'],
@@ -433,6 +446,7 @@ class QuoteController extends Controller
         }
 
         $productLines = $this->resolveProducts($request, $data);
+        $this->enforceMinimumQuantities($productLines);
         $setting = $request->user()->company->setting;
 
         [$readyLines, $backorderLines] = $this->splitByAvailability($productLines);
@@ -566,6 +580,29 @@ class QuoteController extends Controller
     }
 
     /** Data mandada pelo bot: AAAA-MM-DD ou DD/MM/AAAA; não pode ser no passado (mensagem clara pro agente). */
+    /**
+     * Pedido do cliente (bot do WhatsApp): quantidade abaixo do mínimo do produto é recusada com o motivo — o bot
+     * conta isso ao cliente e pergunta quanto ele quer. As variações do mesmo produto somam. No app a loja decide
+     * (a tela só avisa), por isso a regra não vale lá.
+     *
+     * @param  array<int, array{product: Product, quantity: int}>  $productLines
+     */
+    private function enforceMinimumQuantities(array $productLines): void
+    {
+        $totals = [];
+        foreach ($productLines as $line) {
+            $id = $line['product']->id;
+            $totals[$id] = ['product' => $line['product'], 'quantity' => ($totals[$id]['quantity'] ?? 0) + (int) $line['quantity']];
+        }
+
+        $problems = collect($totals)
+            ->filter(fn ($t) => $t['quantity'] < $t['product']->minimumQuantity())
+            ->map(fn ($t) => "\"{$t['product']->name}\" tem pedido mínimo de {$t['product']->quantityText($t['product']->minimumQuantity())} (veio {$t['quantity']}).")
+            ->values();
+
+        abort_if($problems->isNotEmpty(), 422, 'Quantidade abaixo do mínimo: '.$problems->implode(' ').' Pergunte ao cliente se quer aumentar a quantidade.');
+    }
+
     private function parseBotDate(?string $raw): ?string
     {
         $raw = trim((string) $raw);
@@ -1143,6 +1180,7 @@ class QuoteController extends Controller
             $quote->items()->create([
                 'product_id' => $line['product_id'],
                 'product_variation_id' => $line['product_variation_id'] ?? null,
+                'options' => ($line['options'] ?? []) ?: null,
                 'description' => $line['name'],
                 'type' => 'product',
                 'quantity' => $line['quantity'],
@@ -1225,7 +1263,7 @@ class QuoteController extends Controller
 
         // variações (escolha e estoque) e categoria (cupom restrito por categoria)
         $products = Product::where('company_id', $request->user()->company_id)
-            ->with(['variations', 'category'])
+            ->with(['variations', 'category', 'optionGroups.options'])
             ->whereIn('id', collect($lines)->pluck('product_id'))
             ->get()
             // A loja já está em mãos (o cálculo pergunta se é Pro pelo produto): sem buscar de novo por produto
@@ -1235,6 +1273,9 @@ class QuoteController extends Controller
         return collect($lines)->map(function (array $line) use ($products) {
             $product = $products->get($line['product_id']);
             abort_unless($product, 404, 'Produto não encontrado.');
+
+            // Grades de opções (acabamento etc.): por id (app e catálogo) ou por nome (bot do WhatsApp)
+            $options = OptionPicker::resolve($product, (array) ($line['option_ids'] ?? []), (array) ($line['option_labels'] ?? []));
 
             $variation = null;
             $variationId = $line['product_variation_id'] ?? null;
@@ -1247,7 +1288,7 @@ class QuoteController extends Controller
                     \Illuminate\Support\Facades\Log::info("Pedido: variação ignorada em \"{$product->name}\" (produto sem variações): ".($label ?: "id {$variationId}"));
                 }
 
-                return ['product' => $product, 'variation' => null, 'quantity' => (int) $line['quantity']];
+                return ['product' => $product, 'variation' => null, 'quantity' => (int) $line['quantity'], 'options' => $options];
             }
 
             if ($label !== '') {
@@ -1272,6 +1313,7 @@ class QuoteController extends Controller
                 'product' => $product,
                 'variation' => $variation,
                 'quantity' => (int) $line['quantity'],
+                'options' => $options,
             ];
         })->all();
     }
@@ -1354,6 +1396,11 @@ class QuoteController extends Controller
             'products' => ['sometimes', 'array'],
             'products.*.product_id' => ['required', 'integer'],
             'products.*.product_variation_id' => ['sometimes', 'nullable', 'integer'],
+            'products.*.option_ids' => ['sometimes', 'nullable', 'array', 'max:30'],
+            'products.*.option_ids.*' => ['integer'],
+            // Nome das opções (o bot escreve o que o cliente disse: "Fosco" ou "Acabamento: Fosco")
+            'products.*.option_labels' => ['sometimes', 'nullable', 'array', 'max:30'],
+            'products.*.option_labels.*' => ['string', 'max:120'],
             'products.*.quantity' => ['required', 'integer', 'min:1'],
         ]);
     }

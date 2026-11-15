@@ -237,6 +237,18 @@ class Quote extends Model
         return $this->hasMany(QuoteItem::class);
     }
 
+    /** Provas de arte enviadas ao cliente (uma por versão). */
+    public function artProofs(): HasMany
+    {
+        return $this->hasMany(ArtProof::class)->orderByDesc('version');
+    }
+
+    /** A prova mais recente — o que a produção e as listas mostram ("arte aguardando aprovação"). */
+    public function latestArtProof(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(ArtProof::class)->ofMany('version', 'max');
+    }
+
     /**
      * O que o cliente efetivamente comprou: os produtos do orçamento (os insumos — filamento,
      * embalagem — são custo interno e não aparecem pro cliente) e, quando há, a peça impressa sob

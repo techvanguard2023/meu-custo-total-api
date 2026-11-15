@@ -101,6 +101,21 @@ return [
         'test_access_token' => env('MERCADOPAGO_TEST_ACCESS_TOKEN'),
     ],
 
+    // Frete (Melhor Envio): app da plataforma cadastrado em Integrações → Área Dev; cada loja conecta a própria conta
+    'melhorenvio' => [
+        'client_id' => env('MELHORENVIO_CLIENT_ID'),
+        'client_secret' => env('MELHORENVIO_CLIENT_SECRET'),
+        'sandbox' => (bool) env('MELHORENVIO_SANDBOX', false),
+        // Só para desenvolvimento: aponta para um servidor de mentira no lugar do Melhor Envio
+        'base_url' => env('MELHORENVIO_BASE_URL'),
+        // Precisa ser igual à "URL de redirecionamento" cadastrada no app
+        'redirect_uri' => env('MELHORENVIO_REDIRECT_URI', rtrim((string) env('APP_URL', 'http://localhost'), '/').'/api/v1/melhorenvio/callback'),
+        // Identificação exigida pela API no User-Agent: "Nome (e-mail de contato)"
+        'user_agent' => env('MELHORENVIO_USER_AGENT', 'Meu Custo Total (suporte@meucustototal.com.br)'),
+        // Só para testes locais: token do sandbox gerado no painel (dispensa o OAuth)
+        'test_access_token' => env('MELHORENVIO_TEST_ACCESS_TOKEN'),
+    ],
+
     // Skill da Alexa (Pro): a Alexa pergunta pelas entregas em POST /api/v1/alexa
     'alexa' => [
         // ID da skill no Alexa Developer Console (amzn1.ask.skill....): requisição de outra skill é recusada

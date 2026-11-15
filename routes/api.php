@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\PartnerPortalController;
 use App\Http\Controllers\Api\DisplayQrController;
 use App\Http\Controllers\Api\IntegrationTokenController;
 use App\Http\Controllers\Api\ImportController;
+use App\Http\Controllers\Api\MelhorEnvioController;
 use App\Http\Controllers\Api\MercadoPagoController;
 use App\Http\Controllers\Api\MercadoPagoWebhookController;
 use App\Http\Controllers\Api\PixChargeController;
@@ -67,6 +68,8 @@ use App\Http\Controllers\Api\AffiliateOfferController;
 use App\Http\Controllers\Api\AffiliateIntegrationController;
 use App\Http\Controllers\Api\ToursController;
 use App\Http\Controllers\Api\AlexaController;
+use App\Http\Controllers\Api\ArtProofController;
+use App\Http\Controllers\Api\PublicArtProofController;
 use App\Http\Controllers\Api\AlexaLinkController;
 use Illuminate\Support\Facades\Route;
 
@@ -142,6 +145,8 @@ Route::prefix('v1')->group(function () {
     Route::get('/public/testimonials', [TestimonialController::class, 'publicIndex'])->middleware('throttle:60,1');
 
     // Pagamento online: volta do "Conectar com Mercado Pago" (navegador do lojista) e avisos do Mercado Pago
+    Route::get('/melhorenvio/callback', [MelhorEnvioController::class, 'callback'])->middleware('throttle:30,1');
+    Route::post('/public/catalog/{token}/shipping-quote', [MelhorEnvioController::class, 'publicQuote'])->middleware('throttle:30,1');
     Route::get('/mercadopago/callback', [MercadoPagoController::class, 'callback'])->middleware('throttle:30,1');
     Route::post('/webhooks/mercadopago', MercadoPagoWebhookController::class)->middleware('throttle:300,1');
 
@@ -149,6 +154,11 @@ Route::prefix('v1')->group(function () {
         ->middleware('throttle:60,1');
     Route::post('/public/review/{token}', [PublicReviewController::class, 'store'])
         ->middleware('throttle:10,1');
+
+    // Aprovação de arte: o cliente abre o link, confere, aprova ou pede ajuste (sem login)
+    Route::get('/public/art-proof/{token}', [PublicArtProofController::class, 'show'])->middleware('throttle:60,1');
+    Route::post('/public/art-proof/{token}/approve', [PublicArtProofController::class, 'approve'])->middleware('throttle:10,1');
+    Route::post('/public/art-proof/{token}/changes', [PublicArtProofController::class, 'requestChanges'])->middleware('throttle:10,1');
 
     // EnforceTeamAccess: o que cada perfil da equipe acessa e vê (App\Services\TeamAccess)
     Route::middleware(['auth:sanctum', RestrictIntegrationTokens::class, EnforceTeamAccess::class, TrackLastSeen::class, LogImpersonation::class])->group(function () {
@@ -270,6 +280,13 @@ Route::prefix('v1')->group(function () {
             Route::patch('/product-reviews/{productReview}/moderate', [ProductReviewController::class, 'moderate']);
             Route::delete('/product-reviews/{productReview}', [ProductReviewController::class, 'destroy']);
             Route::post('/quotes/{quote}/review-link', [ProductReviewController::class, 'link']);
+            // Aprovação de arte: manda a arte pro cliente aprovar; o termo da loja fica em Configurações
+            Route::get('/quotes/{quote}/art-proofs', [ArtProofController::class, 'index']);
+            Route::post('/quotes/{quote}/art-proofs', [ArtProofController::class, 'store'])->middleware('throttle:20,1');
+            Route::post('/art-proofs/{proof}/send', [ArtProofController::class, 'send'])->middleware('throttle:20,1');
+            Route::delete('/art-proofs/{proof}', [ArtProofController::class, 'destroy']);
+            Route::get('/art-approval/terms', [ArtProofController::class, 'terms']);
+            Route::put('/art-approval/terms', [ArtProofController::class, 'updateTerms']);
             Route::get('/product-collections', [ProductCollectionController::class, 'index']);
             Route::post('/product-collections', [ProductCollectionController::class, 'store']);
             Route::put('/product-collections/{productCollection}', [ProductCollectionController::class, 'update']);
@@ -323,6 +340,12 @@ Route::prefix('v1')->group(function () {
             Route::post('/quotes/{quote}/pix/{charge}/refund', [PixChargeController::class, 'refund'])->middleware('throttle:10,1');
             Route::post('/quotes/{quote}/pix/{charge}/send', [PixChargeController::class, 'send'])->middleware('throttle:20,1');
             Route::put('/payments/mercadopago/rules', [MercadoPagoController::class, 'updateRules']);
+            // Frete pelo Melhor Envio (Essencial+): conta (só o dono), regras e simulação
+            Route::get('/shipping/melhorenvio', [MelhorEnvioController::class, 'show']);
+            Route::post('/shipping/melhorenvio/connect', [MelhorEnvioController::class, 'connect'])->middleware('throttle:10,1');
+            Route::delete('/shipping/melhorenvio', [MelhorEnvioController::class, 'disconnect']);
+            Route::put('/shipping/melhorenvio/rules', [MelhorEnvioController::class, 'updateRules']);
+            Route::post('/shipping/quote', [MelhorEnvioController::class, 'simulate'])->middleware('throttle:30,1');
 
             Route::get('/quote-requests', [QuoteRequestController::class, 'index']);
             Route::get('/quote-requests/{quoteRequest}', [QuoteRequestController::class, 'show']);

@@ -9,6 +9,7 @@ use App\Models\MaterialMovement;
 use App\Models\Printer;
 use App\Models\Product;
 use App\Models\ProductImage;
+use App\Models\ProductOptionGroup;
 use App\Models\ProductVariation;
 use App\Services\ProductRecipe;
 use Illuminate\Http\Request;
@@ -23,6 +24,9 @@ class ProductController extends Controller
     /** Caracteres sem ambiguidade visual (sem 0/O, 1/I/L) pra código de produto legível. */
     private const SKU_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
     private const SKU_LENGTH = 6;
+
+    /** Cores por variação (ex: "Verde + Branco + Amarelo"); o mesmo limite está em src/pages/Products.tsx. */
+    public const MAX_VARIATION_COLORS = 8;
 
     /** O que a tela de produtos precisa: o padrão (fotos, categoria, variações) e a ficha técnica — que só aparece aqui, nunca no catálogo público. */
     private const ADMIN_RELATIONS = [...Product::DISPLAY_RELATIONS, 'collections:id,name', 'recipeLines.material.category', 'activeDisplayLines.display:id,name'];
@@ -69,17 +73,19 @@ class ProductController extends Controller
         $variations = $data['variations'] ?? null;
         $collectionIds = $data['collection_ids'] ?? null;
         $recipe = $data['recipe'] ?? null;
-        unset($data['variations'], $data['collection_ids'], $data['recipe']);
+        $optionGroups = $data['option_groups'] ?? null;
+        unset($data['variations'], $data['collection_ids'], $data['recipe'], $data['option_groups']);
 
         // Gerado uma vez, aqui — nunca a partir do input do cliente, e nunca
         // regerado depois. Se mudasse junto do nome, todo link já compartilhado
         // (WhatsApp, Instagram) apontando pra esse produto quebraria.
         $data['slug'] = $this->generateUniqueSlug($data['name'], $request->user()->company_id);
 
-        $product = DB::transaction(function () use ($request, $data, $variations, $collectionIds, $recipe) {
+        $product = DB::transaction(function () use ($request, $data, $variations, $collectionIds, $recipe, $optionGroups) {
             $product = $request->user()->company->products()->create($data);
             $this->syncRecipe($product, null, $recipe);
             $this->syncVariations($product, $variations);
+            $this->syncOptionGroups($product, $optionGroups);
             $this->syncCollections($product, $collectionIds);
             app(ProductRecipe::class)->refreshCost($product);
 
@@ -104,12 +110,14 @@ class ProductController extends Controller
         $variations = $data['variations'] ?? null;
         $collectionIds = $data['collection_ids'] ?? null;
         $recipe = $data['recipe'] ?? null;
-        unset($data['variations'], $data['collection_ids'], $data['recipe']);
+        $optionGroups = $data['option_groups'] ?? null;
+        unset($data['variations'], $data['collection_ids'], $data['recipe'], $data['option_groups']);
 
-        DB::transaction(function () use ($product, $data, $variations, $collectionIds, $recipe) {
+        DB::transaction(function () use ($product, $data, $variations, $collectionIds, $recipe, $optionGroups) {
             $product->update($data);
             $this->syncRecipe($product, null, $recipe);
             $this->syncVariations($product, $variations);
+            $this->syncOptionGroups($product, $optionGroups);
             $this->syncCollections($product, $collectionIds);
             app(ProductRecipe::class)->refreshCost($product);
         });
@@ -186,6 +194,56 @@ class ProductController extends Controller
 
         $product->variations()->whereNotIn('id', $keptIds ?: [0])->delete();
         $product->unsetRelation('variations');
+    }
+
+    /**
+     * Sincroniza as grades de opções enviadas: atualiza as que já existem (pelo id), cria as novas e remove as que
+     * sumiram do formulário. O que foi vendido fica guardado no item do pedido (foto do momento), então apagar
+     * uma grade ou opção não mexe em pedidos antigos. $groups === null = "campo não enviado": mantém como está.
+     */
+    private function syncOptionGroups(Product $product, ?array $groups): void
+    {
+        if ($groups === null) {
+            return;
+        }
+
+        $keptGroupIds = [];
+        foreach (array_values($groups) as $position => $row) {
+            $payload = [
+                'name' => trim($row['name']),
+                'type' => $row['type'] ?? ProductOptionGroup::SINGLE,
+                'required' => (bool) ($row['required'] ?? false),
+                'position' => $position,
+            ];
+            $existing = isset($row['id']) ? $product->optionGroups()->whereKey($row['id'])->first() : null;
+            $group = $existing ?? $product->optionGroups()->create($payload);
+            if ($existing) {
+                $existing->update($payload);
+            }
+            $keptGroupIds[] = $group->id;
+
+            $keptOptionIds = [];
+            foreach (array_values($row['options'] ?? []) as $optionPosition => $option) {
+                $optionPayload = [
+                    'name' => trim($option['name']),
+                    'price_delta' => round((float) ($option['price_delta'] ?? 0), 2),
+                    'cost_delta' => round((float) ($option['cost_delta'] ?? 0), 2),
+                    'active' => (bool) ($option['active'] ?? true),
+                    'position' => $optionPosition,
+                ];
+                $existingOption = isset($option['id']) ? $group->options()->whereKey($option['id'])->first() : null;
+                if ($existingOption) {
+                    $existingOption->update($optionPayload);
+                    $keptOptionIds[] = $existingOption->id;
+                } else {
+                    $keptOptionIds[] = $group->options()->create($optionPayload)->id;
+                }
+            }
+            $group->options()->whereNotIn('id', $keptOptionIds ?: [0])->delete();
+        }
+
+        $product->optionGroups()->whereNotIn('id', $keptGroupIds ?: [0])->delete();
+        $product->unsetRelation('optionGroups');
     }
 
     /**
@@ -398,12 +456,25 @@ class ProductController extends Controller
             'lead_time_days' => ['nullable', 'integer', 'min:1', 'max:365'],
             'lead_time_days_type' => ['nullable', Rule::in(['business', 'calendar'])],
             'featured' => ['sometimes', 'boolean'],
+            // Como é vendido: por unidade ou por pacote com N (preço e estoque são do pacote) e o pedido mínimo
+            // (na unidade de venda). Vale pra todos os planos.
+            'sale_unit' => ['sometimes', Rule::in(Product::SALE_UNITS)],
+            'pack_size' => ['nullable', 'integer', 'min:2', 'max:9999', 'required_if:sale_unit,pack'],
+            'pack_label' => ['nullable', 'string', 'max:20'],
+            'min_quantity' => ['sometimes', 'integer', 'min:1', 'max:99999'],
+            // Embalagem para o frete (vazio = padrão da loja): peso em gramas, medidas em cm
+            'ship_weight_g' => ['nullable', 'integer', 'min:1', 'max:30000'],
+            'ship_length_cm' => ['nullable', 'integer', 'min:1', 'max:105'],
+            'ship_width_cm' => ['nullable', 'integer', 'min:1', 'max:105'],
+            'ship_height_cm' => ['nullable', 'integer', 'min:1', 'max:105'],
             'discount_percent' => ['nullable', 'numeric', 'min:0.01', 'max:95'],
             // Preço por quantidade (Pro): "a partir de N un, cada uma sai por R$ X" (ou X% de desconto)
             'price_tiers' => ['sometimes', 'nullable', 'array', 'max:5'],
             'price_tiers.*.min_quantity' => ['required', 'integer', 'min:2', 'max:99999', 'distinct'],
             'price_tiers.*.type' => ['required', Rule::in(['fixed', 'percent'])],
             'price_tiers.*.value' => ['required', 'numeric', 'gt:0', 'max:99999999'],
+            // Faixa de atacado: só muda como o catálogo a apresenta ("Atacado a partir de N un"); o preço é o da faixa
+            'price_tiers.*.wholesale' => ['sometimes', 'boolean'],
             'active' => ['sometimes', 'boolean'],
             // Ativo mas fora do catálogo público — pra quem vende esse item só por fora
             // (marketplace, encomenda combinada) sem publicar no link da loja.
@@ -412,12 +483,25 @@ class ProductController extends Controller
             'collection_ids' => ['sometimes', 'array'],
             'collection_ids.*' => ['integer'],
 
+            // Grades de opções (acabamento, embalagem...): cada opção soma um valor ao preço (e ao custo) de cada unidade
+            'option_groups' => ['sometimes', 'array', 'max:10'],
+            'option_groups.*.id' => ['sometimes', 'nullable', 'integer'],
+            'option_groups.*.name' => ['required', 'string', 'max:60'],
+            'option_groups.*.type' => ['sometimes', Rule::in(ProductOptionGroup::TYPES)],
+            'option_groups.*.required' => ['sometimes', 'boolean'],
+            'option_groups.*.options' => ['required', 'array', 'min:1', 'max:30'],
+            'option_groups.*.options.*.id' => ['sometimes', 'nullable', 'integer'],
+            'option_groups.*.options.*.name' => ['required', 'string', 'max:60'],
+            'option_groups.*.options.*.price_delta' => ['nullable', 'numeric', 'min:0', 'max:99999999'],
+            'option_groups.*.options.*.cost_delta' => ['nullable', 'numeric', 'min:0', 'max:99999999'],
+            'option_groups.*.options.*.active' => ['sometimes', 'boolean'],
+
             'variations' => ['sometimes', 'array', 'max:50'],
             'variations.*.id' => ['sometimes', 'nullable', 'integer'],
             // Ao menos um atributo precisa vir preenchido, senão a variação não
             // significa nada pra quem está comprando.
             'variations.*.color' => ['nullable', 'string', 'max:60', 'required_without_all:variations.*.size,variations.*.weight'],
-            'variations.*.color_hexes' => ['sometimes', 'nullable', 'array', 'max:4'],
+            'variations.*.color_hexes' => ['sometimes', 'nullable', 'array', 'max:'.self::MAX_VARIATION_COLORS],
             'variations.*.color_hexes.*' => ['string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
             'variations.*.size' => ['nullable', 'string', 'max:60'],
             'variations.*.weight' => ['nullable', 'string', 'max:60'],
@@ -434,12 +518,27 @@ class ProductController extends Controller
         ], [
             'sku.unique' => 'Este código já está em uso por outro produto.',
             'variations.*.color_hexes.*.regex' => 'Cor inválida na variação: use o formato #RRGGBB.',
-            'variations.*.color_hexes.max' => 'Cada variação pode ter no máximo 4 cores.',
+            'variations.*.color_hexes.max' => 'Cada variação pode ter no máximo '.self::MAX_VARIATION_COLORS.' cores.',
+            'option_groups.*.name.required' => 'Dê um nome para cada grade de opções (ex: Acabamento).',
+            'option_groups.*.options.required' => 'Cada grade precisa de pelo menos uma opção.',
+            'option_groups.*.options.min' => 'Cada grade precisa de pelo menos uma opção.',
+            'option_groups.*.options.*.name.required' => 'Dê um nome para cada opção (ex: Fosco).',
+            'pack_size.required_if' => 'Informe quantas unidades vêm no pacote.',
+            'pack_size.min' => 'O pacote precisa ter pelo menos 2 unidades.',
             'variations.*.color.required_without_all' => 'Informe ao menos cor, tamanho ou peso na variação.',
         ]);
 
         if (array_key_exists('auto_cost', $data) && ! $data['auto_cost']) {
             $data['auto_price'] = false;
+        }
+
+        // Por unidade não tem tamanho nem nome de pacote (e não fica um valor velho guardado de quando era pacote)
+        if (array_key_exists('sale_unit', $data) && $data['sale_unit'] === Product::UNIT) {
+            $data['pack_size'] = null;
+            $data['pack_label'] = null;
+        }
+        if (array_key_exists('pack_label', $data)) {
+            $data['pack_label'] = trim((string) $data['pack_label']) ?: null;
         }
 
         if (array_key_exists('price_tiers', $data)) {
@@ -473,6 +572,7 @@ class ProductController extends Controller
                 'min_quantity' => (int) $t['min_quantity'],
                 'type' => $t['type'],
                 'value' => $t['type'] === 'percent' ? min(95, round((float) $t['value'], 2)) : round((float) $t['value'], 2),
+                'wholesale' => (bool) ($t['wholesale'] ?? false),
             ])
             ->sortBy('min_quantity')
             ->values()

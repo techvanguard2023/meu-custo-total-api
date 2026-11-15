@@ -108,8 +108,12 @@ class QuoteCalculatorService
             $variation = $line['variation'] ?? null;
             $lineQty = max(1, (int) $line['quantity']);
 
+            // Opções (acabamento, embalagem...): cada uma soma ao preço e ao custo de cada unidade
+            $options = $line['options'] ?? [];
+            $optionsPrice = OptionPicker::priceDelta($options);
+
             // Preço e custo saem da variação quando houver; em branco lá, herdam do produto.
-            $unitCost = $variation ? $variation->effectiveCost($product) : (float) $product->cost;
+            $unitCost = ($variation ? $variation->effectiveCost($product) : (float) $product->cost) + OptionPicker::costDelta($options);
             $definedPrice = $variation ? $variation->effectivePrice($product) : ($product->sale_price !== null ? (float) $product->sale_price : null);
             $basePrice = $definedPrice ?? round($unitCost * (1 + ((float) $markup / 100)) / $priceDivisor, 2);
 
@@ -135,7 +139,10 @@ class QuoteCalculatorService
                 }
             }
 
-            $pricedLines[] = compact('product', 'variation', 'lineQty', 'unitCost', 'basePrice', 'unitPrice', 'inPromotion', 'volumeApplied');
+            // As opções entram depois da faixa/promoção (não levam desconto de faixa) e antes do desconto do pedido
+            $unitPrice = round($unitPrice + $optionsPrice, 2);
+
+            $pricedLines[] = compact('product', 'variation', 'lineQty', 'unitCost', 'basePrice', 'unitPrice', 'inPromotion', 'volumeApplied', 'options', 'optionsPrice');
         }
 
         // Desconto por valor do pedido: o limite conta o total dos produtos (já com os preços por
@@ -171,12 +178,20 @@ class QuoteCalculatorService
             $productLinesOut[] = [
                 'product_id' => $l['product']->id,
                 'product_variation_id' => $l['variation']?->id,
-                'name' => $l['variation'] ? "{$l['product']->name} ({$l['variation']->display_name})" : $l['product']->name,
+                // Produto vendido por pacote leva "pacote com 10" no nome, e as opções escolhidas ("Acabamento: Fosco"),
+                // pra o pedido, o PDF e as mensagens dizerem exatamente o que foi vendido
+                'name' => ($l['variation'] ? "{$l['product']->name} ({$l['variation']->display_name})" : $l['product']->name)
+                    .($l['product']->sale_unit_label ? " — {$l['product']->sale_unit_label}" : '')
+                    .($l['options'] ? ' — '.OptionPicker::text($l['options']) : ''),
+                'options' => $l['options'],
                 'quantity' => $l['lineQty'],
+                // Pedido mínimo do produto (as variações somam) — as telas avisam quando a venda fica abaixo
+                'min_quantity' => $l['product']->minimumQuantity(),
+                'product_quantity' => $quantityByProduct[$l['product']->id],
                 'unit_cost' => round($l['unitCost'], 2),
                 'unit_price' => round($unitPrice, 2),
                 // Preço sem nenhuma regra de volume (só a promoção do produto, se houver) — pra a tela mostrar o desconto
-                'regular_unit_price' => round($l['inPromotion'] ? $l['basePrice'] * (1 - (float) $l['product']->discount_percent / 100) : $l['basePrice'], 2),
+                'regular_unit_price' => round(($l['inPromotion'] ? $l['basePrice'] * (1 - (float) $l['product']->discount_percent / 100) : $l['basePrice']) + $l['optionsPrice'], 2),
                 'volume_applied' => $l['volumeApplied'] || $orderDiscounted,
                 'line_cost' => round($lineCost, 2),
                 'line_total' => round($lineTotal, 2),

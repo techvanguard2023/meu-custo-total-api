@@ -7,6 +7,7 @@ use App\Models\CatalogVisit;
 use App\Services\CatalogCache;
 use App\Models\Company;
 use App\Models\OfferSeries;
+use App\Models\Product;
 use App\Services\CustomerPortal;
 use App\Models\Quote;
 use Illuminate\Http\Request;
@@ -139,7 +140,7 @@ class PublicCatalogController extends Controller
             ->where('active', true)
             ->where('show_in_catalog', true)
             ->orderBy('name')
-            ->with(['images', 'variations', 'category.parent'])
+            ->with(['images', 'variations', 'category.parent', 'optionGroups.options'])
             // Uma consulta só pra média/contagem e outra pros comentários
             // aprovados — sem isso seria uma query por produto no map abaixo.
             ->withAvg('reviews as rating_avg', 'rating')
@@ -233,7 +234,33 @@ class PublicCatalogController extends Controller
                     'original_price' => $promoPrice ? $regularPrice : null,
                     'discount_percent' => $promoPrice ? $discountPercent : null,
                     // Faixas "a partir de N un" (Pro): fixed = preço de cada unidade; percent = % sobre o preço de tabela
-                    'price_tiers' => $volumePricing ? array_values($product->price_tiers ?? []) : [],
+                    // "unit" diz como a quantidade é contada na faixa ("un" ou o nome do pacote no plural)
+                    'price_tiers' => $volumePricing
+                        ? array_map(fn ($tier) => $tier + ['unit' => $product->quantityUnitName()], array_values($product->price_tiers ?? []))
+                        : [],
+                    // Como é vendido: por pacote ("pacote com 10"; preço e estoque são do pacote) e o pedido mínimo
+                    // (na unidade de venda). O carrinho do catálogo e o bot do WhatsApp respeitam o mínimo.
+                    'sale_unit' => $product->isPack() ? Product::PACK : Product::UNIT,
+                    'pack_size' => $product->isPack() ? (int) $product->pack_size : null,
+                    'pack_label' => $product->isPack() ? ($product->pack_label ?: 'pacote') : null,
+                    'sale_unit_label' => $product->sale_unit_label,
+                    'min_quantity' => $product->minimumQuantity(),
+                    // Grades de opções (acabamento, embalagem...): o cliente escolhe ao comprar; "price_delta" soma ao preço
+                    // de cada unidade. Grade sem nenhuma opção ativa não aparece (não dá pra escolher nada nela).
+                    'option_groups' => $product->optionGroups
+                        ->map(fn ($group) => [
+                            'id' => $group->id,
+                            'name' => $group->name,
+                            'type' => $group->type,
+                            'required' => (bool) $group->required,
+                            'options' => $group->options->where('active', true)->map(fn ($option) => [
+                                'id' => $option->id,
+                                'name' => $option->name,
+                                'price_delta' => (float) $option->price_delta,
+                            ])->values(),
+                        ])
+                        ->filter(fn ($group) => $group['options']->isNotEmpty())
+                        ->values(),
                     'stock_quantity' => $stock,
                     'stock_status' => $this->stockStatus($stock),
                     'made_to_order' => (bool) $product->made_to_order,
@@ -333,6 +360,8 @@ class PublicCatalogController extends Controller
             'delivery_booking' => \App\Services\DeliveryCalendar::customerChooses($company) ? [
                 'methods' => array_values(array_intersect(\App\Support\Delivery::METHODS, \App\Services\DeliveryCalendar::rules($company)['methods'])),
             ] : null,
+            // Frete (Melhor Envio): o carrinho pede o CEP e mostra as opções quando a loja ligou e conectou a conta
+            'shipping_quote' => app(\App\Services\ShippingQuotes::class)->available($company),
             // Desconto por valor do pedido (Pro): não vale para itens que já estão em promoção
             'order_discount_tiers' => $volumePricing ? array_values($company->setting?->order_discount_tiers ?? []) : [],
             // Coleções de campanha (Natal, Réveillon...) ativas e com pelo menos um

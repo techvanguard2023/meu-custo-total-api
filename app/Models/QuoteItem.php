@@ -10,10 +10,12 @@ class QuoteItem extends Model
     protected $fillable = [
         'quote_id', 'product_id', 'product_variation_id', 'material_id', 'description', 'type',
         'quantity', 'unit_weight', 'unit_price', 'unit_cost', 'amount',
-        'stock_deducted', 'materials_consumed_at',
+        'stock_deducted', 'materials_consumed_at', 'options',
     ];
 
     protected $casts = [
+        // Opções escolhidas na venda: [{group, name, price_delta, cost_delta}] — foto do momento da venda
+        'options' => 'array',
         'quantity' => 'integer',
         'unit_weight' => 'decimal:3',
         'unit_price' => 'decimal:2',

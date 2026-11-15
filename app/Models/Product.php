@@ -51,6 +51,8 @@ class Product extends Model
         'marketplace_mercado_livre_url', 'marketplace_shopee_url', 'marketplace_amazon_url',
         'cost', 'auto_cost', 'auto_price', 'print_time_minutes', 'postprocess_minutes', 'printer_id', 'sale_price', 'stock_quantity', 'made_to_order', 'featured', 'discount_percent', 'price_tiers', 'active', 'show_in_catalog',
         'lead_time_days', 'lead_time_days_type',
+        'sale_unit', 'pack_size', 'pack_label', 'min_quantity',
+        'ship_weight_g', 'ship_length_cm', 'ship_width_cm', 'ship_height_cm',
     ];
 
     protected $casts = [
@@ -70,9 +72,15 @@ class Product extends Model
         'price_tiers' => 'array',
         'stock_quantity' => 'integer',
         'lead_time_days' => 'integer',
+        'pack_size' => 'integer',
+        'min_quantity' => 'integer',
+        'ship_weight_g' => 'integer',
+        'ship_length_cm' => 'integer',
+        'ship_width_cm' => 'integer',
+        'ship_height_cm' => 'integer',
     ];
 
-    protected $appends = ['image_url', 'has_variations', 'total_stock', 'lead_time_label'];
+    protected $appends = ['image_url', 'has_variations', 'total_stock', 'lead_time_label', 'sale_unit_label'];
 
     /**
      * Relações que acompanham o produto quando ele vai pra tela (fotos, categoria e variações; os campos
@@ -80,7 +88,13 @@ class Product extends Model
      * internas (baixa de estoque, cálculo de custo, travas) não precisam delas — quem devolve produto
      * pro frontend carrega explicitamente, com withDisplay() ou displayRelations('caminho').
      */
-    public const DISPLAY_RELATIONS = ['images', 'category', 'variations'];
+    public const DISPLAY_RELATIONS = ['images', 'category', 'variations', 'optionGroups.options'];
+
+    /** Grades de opções (acabamento, embalagem...) com as opções de cada uma, na ordem do cadastro. */
+    public function optionGroups(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(ProductOptionGroup::class)->orderBy('position')->orderBy('id');
+    }
 
     /** Ex.: displayRelations('items.product') → ['items.product.images', 'items.product.category', ...] */
     public static function displayRelations(string $path): array
@@ -106,6 +120,59 @@ class Product extends Model
     protected function hasVariations(): Attribute
     {
         return Attribute::get(fn () => $this->variations->isNotEmpty());
+    }
+
+    public const UNIT = 'unit';
+
+    public const PACK = 'pack';
+
+    public const SALE_UNITS = [self::UNIT, self::PACK];
+
+    /** Vendido por pacote (com um tamanho de pacote informado). */
+    public function isPack(): bool
+    {
+        return $this->sale_unit === self::PACK && (int) $this->pack_size > 1;
+    }
+
+    /** Pedido mínimo, na unidade de venda do produto (1 = sem mínimo). */
+    public function minimumQuantity(): int
+    {
+        return max(1, (int) $this->min_quantity);
+    }
+
+    /** "pacote com 10" — só pra produto vendido por pacote; o nome do pacote é o que o lojista escolheu. */
+    protected function saleUnitLabel(): Attribute
+    {
+        return Attribute::get(fn () => $this->isPack() ? ($this->pack_label ?: 'pacote').' com '.(int) $this->pack_size : null);
+    }
+
+    /** Como a quantidade é contada nas faixas de preço: "un", ou o nome do pacote no plural ("caixas"). */
+    public function quantityUnitName(): string
+    {
+        return $this->isPack() ? self::pluralize(mb_strtolower($this->pack_label ?: 'pacote')) : 'un';
+    }
+
+    /** "5 pacotes" / "1 unidade" — a quantidade falada na unidade de venda do produto. */
+    public function quantityText(int $quantity): string
+    {
+        if ($this->isPack()) {
+            $label = mb_strtolower($this->pack_label ?: 'pacote');
+
+            return $quantity.' '.($quantity === 1 ? $label : self::pluralize($label));
+        }
+
+        return $quantity.' '.($quantity === 1 ? 'unidade' : 'unidades');
+    }
+
+    private static function pluralize(string $word): string
+    {
+        return match (true) {
+            str_ends_with($word, 'ão') => mb_substr($word, 0, -2).'ões',
+            str_ends_with($word, 'm') => mb_substr($word, 0, -1).'ns',
+            str_ends_with($word, 'l') => mb_substr($word, 0, -1).'is',
+            (bool) preg_match('/[rzs]$/u', $word) => $word.'es',
+            default => $word.'s',
+        };
     }
 
     /**

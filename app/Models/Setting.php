@@ -20,7 +20,7 @@ class Setting extends Model
         'company_id', 'electricity_rate_kwh', 'labor_hour_rate',
         'default_failure_rate', 'default_markup', 'minimum_order_price', 'order_discount_tiers',
         'cashback_enabled', 'cashback_purchase_percent', 'cashback_review_percent', 'cashback_referral_percent', 'cashback_max_redeem_percent', 'cashback_validity_months',
-        'delivery_rules', 'payment_rules',
+        'delivery_rules', 'payment_rules', 'shipping_rules',
         'employees', 'fixed_expenses', 'fixed_costs_mode', 'estimated_monthly_revenue', 'orders_per_month', 'tax_percent', 'tax_fixed_monthly',
     ];
 
@@ -32,6 +32,7 @@ class Setting extends Model
         'cashback_enabled' => 'boolean',
         'delivery_rules' => 'array',
         'payment_rules' => 'array',
+        'shipping_rules' => 'array',
         'cashback_purchase_percent' => 'decimal:2',
         'cashback_review_percent' => 'decimal:2',
         'cashback_referral_percent' => 'decimal:2',
