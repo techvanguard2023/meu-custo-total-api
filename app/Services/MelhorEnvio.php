@@ -99,16 +99,33 @@ class MelhorEnvio
         if ($response->status() === 401) {
             throw new RuntimeException('Acesso ao Melhor Envio recusado.', 401);
         }
-        if ($response->status() === 422) {
-            throw new RuntimeException('Confira os CEPs: o Melhor Envio não conseguiu calcular.', 422);
-        }
         if ($response->failed()) {
-            throw new RuntimeException('O Melhor Envio não respondeu agora. Tente de novo em instantes.', $response->status());
+            Log::warning('Melhor Envio: cotação recusada ('.$response->status().', '.$fromCep.' → '.$toCep.'): '.Str::limit((string) $response->body(), 1500));
+            $reason = $this->apiMessage($response->json());
+            if ($response->status() === 422) {
+                throw new RuntimeException('O Melhor Envio não conseguiu calcular'.($reason ? ": {$reason}" : '. Confira os CEPs.'), 422);
+            }
+            throw new RuntimeException('O Melhor Envio não respondeu agora'.($reason ? " ({$reason})" : '. Tente de novo em instantes.'), $response->status());
+        }
+
+        $json = $response->json();
+        // Resposta que não é a lista de serviços (ex.: {"message": "..."}): mostra o motivo
+        if (! is_array($json) || (! array_is_list($json) && ! isset($json[0]))) {
+            Log::warning('Melhor Envio: resposta inesperada ('.$fromCep.' → '.$toCep.'): '.Str::limit((string) $response->body(), 1500));
+            $reason = $this->apiMessage($json);
+            throw new RuntimeException('O Melhor Envio não devolveu as opções de envio'.($reason ? ": {$reason}" : '.'));
         }
 
         $options = [];
-        foreach ((array) $response->json() as $row) {
-            if (! is_array($row) || ! empty($row['error']) || ! isset($row['id'])) {
+        $errors = [];
+        foreach ($json as $row) {
+            if (! is_array($row) || ! isset($row['id'])) {
+                continue;
+            }
+            if (! empty($row['error'])) {
+                $label = trim(($row['company']['name'] ?? '').' '.($row['name'] ?? ''));
+                $errors[] = ($label !== '' ? "{$label}: " : '').(is_string($row['error']) ? $row['error'] : json_encode($row['error'], JSON_UNESCAPED_UNICODE));
+
                 continue;
             }
             // custom_* já refletem descontos e taxas da conta da loja; o resto é o valor de tabela
@@ -132,9 +149,34 @@ class MelhorEnvio
         // Sem nenhuma opção: guarda o que o Melhor Envio respondeu (erros por serviço) para explicar depois o porquê
         if ($options === []) {
             Log::warning('Melhor Envio: cotação sem opções ('.$fromCep.' → '.$toCep.'): '.Str::limit((string) $response->body(), 1500));
+            // Todas as transportadoras recusaram: mostra o porquê (as duas primeiras) no lugar de "nenhuma opção"
+            if ($errors !== []) {
+                throw new RuntimeException('Sem envio para este CEP. '.Str::limit(implode(' · ', array_slice(array_unique($errors), 0, 2)), 300));
+            }
         }
 
         return $options;
+    }
+
+    /** Mensagem de erro da API ("message" e o primeiro item de "errors"), quando houver. */
+    private function apiMessage(mixed $json): ?string
+    {
+        if (! is_array($json)) {
+            return null;
+        }
+        $parts = [];
+        if (! empty($json['message']) && is_string($json['message']) && $json['message'] !== 'The given data was invalid.') {
+            $parts[] = $json['message'];
+        }
+        if (! empty($json['errors']) && is_array($json['errors'])) {
+            $first = reset($json['errors']);
+            $parts[] = is_array($first) ? (string) reset($first) : (string) $first;
+        }
+        if (! empty($json['error']) && is_string($json['error'])) {
+            $parts[] = $json['error'];
+        }
+
+        return $parts ? Str::limit(implode(' — ', $parts), 250) : null;
     }
 
     private function http(string $accessToken): PendingRequest

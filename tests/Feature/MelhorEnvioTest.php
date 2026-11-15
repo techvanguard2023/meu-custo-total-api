@@ -221,6 +221,50 @@ class MelhorEnvioTest extends TestCase
         $this->assertSame('ref-novo', ShippingAccount::first()->refresh_token);
     }
 
+    public function test_shows_why_when_every_carrier_refuses(): void
+    {
+        $this->connect();
+        $this->company->setting()->create(['shipping_rules' => $this->rules()]);
+        Http::fake(['sandbox.melhorenvio.com.br/api/v2/me/shipment/calculate' => Http::response([
+            ['id' => 1, 'name' => 'PAC', 'error' => 'Dimensões excedem o limite', 'company' => ['name' => 'Correios']],
+            ['id' => 3, 'name' => '.Package', 'error' => 'Serviço indisponível para o trecho', 'company' => ['name' => 'Jadlog']],
+        ])]);
+        $product = $this->product();
+        $body = ['cep' => '62740000', 'items' => [['product_id' => $product->id, 'quantity' => 1]]];
+
+        $this->postJson('/api/v1/public/catalog/token-frete/shipping-quote', $body)
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Sem envio para este CEP. Correios PAC: Dimensões excedem o limite · Jadlog .Package: Serviço indisponível para o trecho');
+
+        // Nada vazio fica em cache: a próxima tentativa consulta de novo
+        $this->postJson('/api/v1/public/catalog/token-frete/shipping-quote', $body)->assertStatus(422);
+        Http::assertSentCount(2);
+    }
+
+    public function test_shows_api_message_when_response_is_not_a_list(): void
+    {
+        $this->connect();
+        $this->company->setting()->create(['shipping_rules' => $this->rules()]);
+        Http::fake(['sandbox.melhorenvio.com.br/api/v2/me/shipment/calculate' => Http::response(['message' => 'Complete seu cadastro para cotar.'])]);
+        $product = $this->product();
+
+        $this->postJson('/api/v1/public/catalog/token-frete/shipping-quote', ['cep' => '20040020', 'items' => [['product_id' => $product->id, 'quantity' => 1]]])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'O Melhor Envio não devolveu as opções de envio: Complete seu cadastro para cotar.');
+    }
+
+    public function test_validation_error_from_api_is_shown(): void
+    {
+        $this->connect();
+        $this->company->setting()->create(['shipping_rules' => $this->rules()]);
+        Http::fake(['sandbox.melhorenvio.com.br/api/v2/me/shipment/calculate' => Http::response(['message' => 'The given data was invalid.', 'errors' => ['to.postal_code' => ['CEP de destino inválido.']]], 422)]);
+        $product = $this->product();
+
+        $this->postJson('/api/v1/public/catalog/token-frete/shipping-quote', ['cep' => '99999999', 'items' => [['product_id' => $product->id, 'quantity' => 1]]])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'O Melhor Envio não conseguiu calcular: CEP de destino inválido.');
+    }
+
     public function test_catalog_flag_follows_availability(): void
     {
         $this->company->setting()->create(['shipping_rules' => $this->rules()]);
