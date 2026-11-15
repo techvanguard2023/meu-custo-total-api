@@ -398,6 +398,9 @@ Route::prefix('v1')->group(function () {
             // Antes do resource (senão "dashboard" viraria o {quote})
             Route::get('/quotes/dashboard', [QuoteController::class, 'dashboard']);
             Route::get('/quotes/team-summary', [QuoteController::class, 'teamSummary']);
+            // Aviso de pedido novo (bot do WhatsApp) no item Produção do menu; abrir a Produção marca como visto
+            Route::get('/quotes/new-orders', [QuoteController::class, 'newOrders']);
+            Route::post('/quotes/new-orders/seen', [QuoteController::class, 'markNewOrdersSeen']);
             Route::apiResource('quotes', QuoteController::class)->only(['index', 'show', 'store', 'update', 'destroy']);
 
             Route::get('/settings', [SettingsController::class, 'show']);

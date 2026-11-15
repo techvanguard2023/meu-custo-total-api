@@ -14,6 +14,7 @@ use App\Models\Product;
 use App\Models\ProductVariation;
 use App\Models\Quote;
 use App\Models\SalesChannel;
+use App\Services\AdminAudit;
 use App\Services\Cashback;
 use App\Services\Coupons;
 use App\Services\OptionPicker;
@@ -105,6 +106,25 @@ class QuoteController extends Controller
     public function teamSummary(Request $request, QuoteListing $listing)
     {
         return $listing->teamSummary($request->user()->company);
+    }
+
+    /** Contador do item "Produção" no menu: pedidos que chegaram sozinhos (bot do WhatsApp) e ainda não foram vistos. */
+    public function newOrders(Request $request)
+    {
+        return ['count' => $request->user()->company->quotes()->where('is_new_order', true)->whereNull('cancelled_at')->count()];
+    }
+
+    /**
+     * Abriu a tela de Produção: os pedidos novos passam a vistos (a tela guarda o selo "Novo" até sair dela).
+     * No "Entrar como" o admin só olha — o aviso continua para a loja.
+     */
+    public function markNewOrdersSeen(Request $request)
+    {
+        if (AdminAudit::impersonatorId($request->user()->currentAccessToken()) === null) {
+            $request->user()->company->quotes()->where('is_new_order', true)->update(['is_new_order' => false]);
+        }
+
+        return $this->newOrders($request);
     }
 
     public function show(Request $request, Quote $quote)
@@ -517,6 +537,10 @@ class QuoteController extends Controller
             if ($coupon && (float) $created[0]->coupon_amount <= 0) {
                 $couponRejected = $this->couponNotes[$created[0]->id] ?? 'O cupom não vale para os itens deste pedido.';
             }
+
+            // Chegou sem o lojista lançar: aviso de pedido novo em "Produção" (o pronto de estoque também, que já
+            // nasce Finalizado e passaria despercebido)
+            Quote::whereKey(collect($created)->pluck('id'))->update(['is_new_order' => true]);
 
             return $created;
         });
