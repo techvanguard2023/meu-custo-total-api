@@ -40,9 +40,22 @@ class RestrictIntegrationTokens
 
     public function handle(Request $request, Closure $next): Response
     {
-        if (self::isIntegration($request->user()?->currentAccessToken())) {
+        $botService = (bool) $request->attributes->get('bot_service');
+
+        if ($botService || self::isIntegration($request->user()?->currentAccessToken())) {
             $route = [$request->method(), $request->route()?->uri()];
             abort_unless(in_array($route, self::ALLOWED, true), 403, 'Este token de integração não tem acesso a esta área.');
+        }
+
+        // A conversa é de uma loja (X-Bot-Session) e o token é de outra: recusa, senão a chave Pix, os pedidos e o
+        // atendimento iriam para a loja errada (foi o que aconteceu com um token só para todas as lojas)
+        $session = trim((string) $request->header(ResolveBotSession::HEADER, ''));
+        if (! $botService && $session !== '' && $request->user()) {
+            abort_unless(
+                $request->user()->company?->whatsapp_session_name === $session,
+                403,
+                'Este token é de outra loja: a conversa é da sessão "'.$session.'". Use a chave do serviço do bot.'
+            );
         }
 
         return $next($request);

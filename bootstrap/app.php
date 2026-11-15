@@ -21,6 +21,13 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // Limite de requisições com um contador por rota (o padrão do Laravel soma todas as rotas do usuário)
         $middleware->alias(['throttle' => \App\Http\Middleware\ThrottleRequestsPerRoute::class]);
+
+        // O bot do n8n escolhe a loja pela sessão do WhatsApp antes da autenticação (o Laravel reordena o auth para
+        // a frente dos outros middlewares, então ele precisa estar na lista de prioridade)
+        $middleware->prependToPriorityList(
+            before: \Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests::class,
+            prepend: \App\Http\Middleware\ResolveBotSession::class,
+        );
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

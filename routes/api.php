@@ -51,6 +51,7 @@ use App\Http\Middleware\EnsureAccountActive;
 use App\Http\Middleware\EnsurePlatformAdmin;
 use App\Http\Middleware\TrackLastSeen;
 use App\Http\Middleware\LogImpersonation;
+use App\Http\Middleware\ResolveBotSession;
 use App\Http\Middleware\RestrictIntegrationTokens;
 use App\Http\Controllers\Admin\AnnouncementController as AdminAnnouncementController;
 use App\Http\Controllers\Admin\TourController as AdminTourController;
@@ -161,7 +162,7 @@ Route::prefix('v1')->group(function () {
     Route::post('/public/art-proof/{token}/changes', [PublicArtProofController::class, 'requestChanges'])->middleware('throttle:10,1');
 
     // EnforceTeamAccess: o que cada perfil da equipe acessa e vê (App\Services\TeamAccess)
-    Route::middleware(['auth:sanctum', RestrictIntegrationTokens::class, EnforceTeamAccess::class, TrackLastSeen::class, LogImpersonation::class])->group(function () {
+    Route::middleware([ResolveBotSession::class, 'auth:sanctum', RestrictIntegrationTokens::class, EnforceTeamAccess::class, TrackLastSeen::class, LogImpersonation::class])->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::get('/me', [AuthController::class, 'me']);
         // Sair do "Entrar como" (área admin) e comunicados da plataforma (faixa no app)

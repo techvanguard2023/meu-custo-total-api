@@ -102,6 +102,12 @@ return [
     ],
 
     // Frete (Melhor Envio): app da plataforma cadastrado em Integrações → Área Dev; cada loja conecta a própria conta
+    // Chave do fluxo do bot no n8n (um fluxo para todas as lojas): com o cabeçalho X-Bot-Session, a chamada vale para
+    // a loja dona daquela sessão do WhatsApp. Ver App\Http\Middleware\ResolveBotSession.
+    'bot' => [
+        'service_token' => env('BOT_SERVICE_TOKEN'),
+    ],
+
     'melhorenvio' => [
         'client_id' => env('MELHORENVIO_CLIENT_ID'),
         'client_secret' => env('MELHORENVIO_CLIENT_SECRET'),
