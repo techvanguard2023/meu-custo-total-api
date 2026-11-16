@@ -260,4 +260,48 @@ class ArtProofTest extends TestCase
         $this->assertArrayNotHasKey('approver_ip', $latest);
         $this->assertArrayNotHasKey('message', $latest);
     }
+
+    public function test_options_to_choose_need_at_least_two_files(): void
+    {
+        $this->send(['choose_one' => '1'])->assertStatus(422)->assertJsonPath('message', 'Para o cliente escolher, anexe pelo menos duas opções de arte.');
+
+        $this->send(['choose_one' => '1', 'files' => $this->files(3)])->assertCreated()
+            ->assertJsonPath('choose_one', true)->assertJsonPath('chosen_file_id', null)->assertJsonCount(3, 'files');
+    }
+
+    public function test_customer_must_choose_one_option_and_it_is_recorded(): void
+    {
+        $proof = ArtProof::find($this->send(['choose_one' => '1', 'files' => $this->files(3)])->json('id'));
+        $second = $proof->files[1];
+        $url = '/api/v1/public/art-proof/'.$proof->token;
+
+        $this->getJson($url)->assertOk()->assertJsonPath('choose_one', true)->assertJsonCount(3, 'files');
+
+        // Sem escolher, ou escolhendo um arquivo de outra prova: recusa
+        $this->postJson($url.'/approve', ['name' => 'Maria Souza', 'accept_terms' => true])
+            ->assertStatus(422)->assertJsonPath('message', 'Escolha qual das opções de arte você aprova.');
+        $other = ArtProof::find($this->send(['files' => $this->files(1)], $this->makeQuote($this->user->company))->json('id'));
+        $this->postJson($url.'/approve', ['name' => 'Maria Souza', 'accept_terms' => true, 'chosen_file_id' => $other->files[0]->id])->assertStatus(422);
+        $this->assertSame('pending', $proof->fresh()->status);
+
+        $this->postJson($url.'/approve', ['name' => 'Maria Souza', 'accept_terms' => true, 'chosen_file_id' => $second->id])
+            ->assertOk()->assertJsonPath('status', 'approved')->assertJsonPath('chosen_file_id', $second->id);
+
+        $proof->refresh();
+        $this->assertSame($second->id, $proof->chosen_file_id);
+        $this->assertSame(2, $proof->chosenOptionNumber());
+
+        // A loja vê qual opção foi aprovada
+        $this->app['auth']->forgetGuards();
+        $this->withToken($this->token)->getJson('/api/v1/quotes/'.$this->quote->id.'/art-proofs')
+            ->assertOk()->assertJsonPath('proofs.0.chosen_file_id', $second->id)->assertJsonPath('proofs.0.choose_one', true);
+    }
+
+    public function test_without_options_the_choice_is_ignored(): void
+    {
+        $proof = ArtProof::find($this->send(['files' => $this->files(2)])->json('id'));
+
+        $this->postJson('/api/v1/public/art-proof/'.$proof->token.'/approve', ['name' => 'Maria Souza', 'accept_terms' => true, 'chosen_file_id' => $proof->files[0]->id])
+            ->assertOk()->assertJsonPath('chosen_file_id', null);
+    }
 }

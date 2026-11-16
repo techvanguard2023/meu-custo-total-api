@@ -52,6 +52,8 @@ class ArtProofController extends Controller
             'model_url' => ['nullable', 'url', 'max:500'],
             'terms' => ['nullable', 'string', 'max:4000'],
             'send' => ['sometimes', 'boolean'],
+            // Várias artes para o cliente escolher uma (sem isso, os arquivos são partes da mesma arte)
+            'choose_one' => ['sometimes', 'boolean'],
         ], [
             'files.required' => 'Anexe pelo menos um arquivo da arte.',
             'files.max' => 'No máximo '.self::MAX_FILES.' arquivos por envio.',
@@ -61,8 +63,10 @@ class ArtProofController extends Controller
 
         $company = $request->user()->company;
         $terms = trim((string) ($data['terms'] ?? '')) ?: ($company->art_approval_terms ?: ArtProof::DEFAULT_TERMS);
+        $chooseOne = $request->boolean('choose_one');
+        abort_if($chooseOne && count($data['files']) < 2, 422, 'Para o cliente escolher, anexe pelo menos duas opções de arte.');
 
-        $proof = DB::transaction(function () use ($request, $quote, $company, $data, $terms) {
+        $proof = DB::transaction(function () use ($request, $quote, $company, $data, $terms, $chooseOne) {
             $quote->artProofs()->whereIn('status', [ArtProof::PENDING, ArtProof::CHANGES_REQUESTED])->update(['status' => ArtProof::SUPERSEDED]);
 
             $proof = ArtProof::create([
@@ -73,6 +77,7 @@ class ArtProofController extends Controller
                 'status' => ArtProof::PENDING,
                 'message' => trim((string) ($data['message'] ?? '')) ?: null,
                 'model_url' => $data['model_url'] ?? null,
+                'choose_one' => $chooseOne,
                 'terms' => $terms,
             ]);
 
@@ -171,6 +176,8 @@ class ArtProofController extends Controller
             'status' => $proof->status,
             'message' => $proof->message,
             'model_url' => $proof->model_url,
+            'choose_one' => $proof->choose_one,
+            'chosen_file_id' => $proof->chosen_file_id,
             'terms' => $proof->terms,
             'url' => $proof->publicUrl(),
             'viewed_at' => $proof->viewed_at?->toIso8601String(),

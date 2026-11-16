@@ -51,7 +51,16 @@ class WhatsAppConnectionController extends Controller
     {
         $this->requirePro($request, 'Conexão com WhatsApp');
 
-        return response()->json($this->settingsPayload($request->user()->company, $request->user()->isPlatformAdmin()));
+        $company = $request->user()->company;
+        $payload = $this->settingsPayload($company, $request->user()->isPlatformAdmin());
+
+        // O bot (n8n) lê daqui: cobrando em "Meus pedidos", ele não recebe a chave Pix nem o link para não mandá-los
+        if ($company->botPaysInPortal() && \App\Http\Middleware\RestrictIntegrationTokens::isIntegration($request->user()->currentAccessToken())) {
+            $payload['pix_key'] = null;
+            $payload['payment_link'] = null;
+        }
+
+        return response()->json($payload);
     }
 
     public function updateSettings(Request $request)
@@ -70,9 +79,12 @@ class WhatsAppConnectionController extends Controller
             'bot_prompt' => ['nullable', 'string', 'max:10000'],
             'payment_link' => ['nullable', 'url', 'max:2048'],
             'pix_key' => ['nullable', 'string', 'max:1000'],
+            // Pagamento do pedido fechado pelo bot: na conversa (whatsapp) ou em "Meus pedidos" (portal)
+            'bot_payment' => ['sometimes', Rule::in(['whatsapp', 'portal'])],
         ]);
 
         $company = $request->user()->company;
+        abort_if(($data['bot_payment'] ?? null) === 'portal' && ! $company->hasCatalogActive(), 422, 'Para mandar o cliente pagar em "Meus pedidos", ative o catálogo online (Configurações → Catálogo).');
         // Webhook é por onde as mensagens chegam no fluxo do bot: só a equipe da plataforma
         // mexe. Pro lojista o campo nem aparece, e o que vier na requisição é ignorado.
         $isAdmin = $request->user()->isPlatformAdmin();
@@ -93,7 +105,7 @@ class WhatsAppConnectionController extends Controller
             'whatsapp_bot_prompt' => $data['bot_prompt'] ?? null,
             'whatsapp_payment_link' => $data['payment_link'] ?? null,
             'whatsapp_pix_key' => $data['pix_key'] ?? null,
-        ]);
+        ] + (isset($data['bot_payment']) ? ['whatsapp_bot_payment' => $data['bot_payment']] : []));
 
         // Sessão já criada: aplica o novo webhook na hora. Se a WAHA estiver fora,
         // o valor fica salvo e é reaplicado na próxima vez que conectar.
@@ -132,6 +144,12 @@ class WhatsAppConnectionController extends Controller
             'bot_prompt' => $company->whatsapp_bot_prompt,
             'payment_link' => $company->whatsapp_payment_link,
             'pix_key' => $company->whatsapp_pix_key,
+            // Onde o cliente paga o pedido fechado pelo bot. "portal" = o bot manda o link de "Meus pedidos" e não
+            // passa chave Pix nem link de pagamento na conversa (orders_portal_url só vem nesse caso).
+            'bot_payment' => $company->botPaysInPortal() ? 'portal' : 'whatsapp',
+            'bot_payment_choice' => $company->whatsapp_bot_payment ?: 'whatsapp',
+            'orders_portal_url' => $company->botPaysInPortal() ? $company->ordersPortalUrl() : null,
+            'catalog_active' => $company->hasCatalogActive(),
             // Pausa geral do bot — o n8n confere isso antes de responder.
             'bot_enabled' => $company->whatsapp_bot_enabled,
         ];

@@ -37,6 +37,8 @@ class PublicArtProofController extends Controller
             'customer_first_name' => $first !== '' ? $first : null,
             'message' => $proof->message,
             'model_url' => $proof->model_url,
+            'choose_one' => $proof->choose_one,
+            'chosen_file_id' => $proof->chosen_file_id,
             'terms' => $proof->terms,
             'files' => $proof->files->map(fn (ArtProofFile $f) => [
                 'id' => $f->id,
@@ -57,19 +59,30 @@ class PublicArtProofController extends Controller
         $data = $request->validate([
             'name' => ['required', 'string', 'min:3', 'max:120'],
             'accept_terms' => ['accepted'],
+            'chosen_file_id' => ['nullable', 'integer'],
         ], [
             'name.required' => 'Digite o seu nome para aprovar.',
             'name.min' => 'Digite o seu nome completo para aprovar.',
             'accept_terms.accepted' => 'Para aprovar, marque que leu e concorda com o termo.',
         ]);
 
-        $proof = $this->respond($token, fn (ArtProof $p) => $p->forceFill([
-            'status' => ArtProof::APPROVED,
-            'approver_name' => trim($data['name']),
-            'approver_ip' => $request->ip(),
-            'approver_user_agent' => mb_substr((string) $request->userAgent(), 0, 300),
-            'customer_comment' => null,
-        ]));
+        $proof = $this->respond($token, function (ArtProof $p) use ($data, $request) {
+            // Várias opções: o cliente aprova a que escolheu (tem de ser uma desta versão)
+            $chosen = null;
+            if ($p->choose_one) {
+                $chosen = $p->files()->whereKey($data['chosen_file_id'] ?? 0)->value('id');
+                abort_unless($chosen, 422, 'Escolha qual das opções de arte você aprova.');
+            }
+
+            return $p->forceFill([
+                'chosen_file_id' => $chosen,
+                'status' => ArtProof::APPROVED,
+                'approver_name' => trim($data['name']),
+                'approver_ip' => $request->ip(),
+                'approver_user_agent' => mb_substr((string) $request->userAgent(), 0, 300),
+                'customer_comment' => null,
+            ]);
+        });
 
         $notifier->notifyStore($proof);
 

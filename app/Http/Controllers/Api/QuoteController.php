@@ -246,6 +246,26 @@ class QuoteController extends Controller
         return $notifier->render($quote)->stream("orcamento-{$quote->id}.pdf");
     }
 
+    /**
+     * POST /quotes/{quote}/whatsapp — botão "Enviar no WhatsApp": manda o PDF do orçamento (sem custos nem lucro)
+     * pelo WhatsApp da loja. Sem como enviar, devolve o motivo, o telefone e um resumo para a tela abrir o WhatsApp
+     * do lojista (wa.me) com a mensagem pronta.
+     */
+    public function sendWhatsApp(Request $request, Quote $quote, QuotePdfNotifier $notifier)
+    {
+        $this->authorizeCompany($request, $quote);
+        abort_if($quote->status === Quote::STATUS_CANCELLED || $quote->cancelled_at !== null, 422, 'Este orçamento foi cancelado.');
+
+        $result = $notifier->sendNow($quote);
+        $digits = preg_replace('/\D/', '', (string) $quote->customer?->phone);
+
+        return response()->json($result + [
+            // Telefone no formato do wa.me (com 55 quando veio sem o país)
+            'phone' => $digits === '' ? null : (strlen($digits) <= 11 ? '55'.$digits : $digits),
+            'text' => $notifier->summaryText($quote),
+        ]);
+    }
+
     public function approve(Request $request, Quote $quote)
     {
         $this->authorizeCompany($request, $quote);
@@ -549,6 +569,19 @@ class QuoteController extends Controller
         if ($couponRejected) {
             $payload[0]['coupon_rejected'] = $couponRejected;
         }
+        // A loja escolheu cobrar em "Meus pedidos": o bot manda só o link de lá (nem Pix nem link na conversa)
+        $company = $request->user()->company;
+        if ($company->botPaysInPortal()) {
+            $payload[0]['payment'] = [
+                'mode' => 'portal',
+                'url' => $company->ordersPortalUrl(),
+                'message' => "Para ver o seu pedido e pagar, acesse \"Meus pedidos\": {$company->ordersPortalUrl()} — é só entrar com este número de WhatsApp.",
+                'instructions_for_bot' => 'Envie ao cliente o texto de message com o link de "Meus pedidos": é lá que ele paga. NÃO mande chave Pix, código Pix, QR Code nem link de pagamento na conversa.',
+            ];
+
+            return response()->json($payload, 201);
+        }
+
         // Pagamento online (Pro, Mercado Pago conectado): Pix e link do cartão pela regra da loja. O bot recebe só o
         // resumo; o QR, o código e o link vão em mensagens separadas (GET /whatsapp/order-payment, chamado pelo n8n)
         $pix = app(PixCharges::class);

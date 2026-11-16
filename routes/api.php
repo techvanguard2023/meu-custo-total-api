@@ -330,6 +330,8 @@ Route::prefix('v1')->group(function () {
             Route::post('/whatsapp/order-notes', [QuoteController::class, 'botOrderNote']);
             Route::post('/quotes/external-quote-request', [QuoteRequestController::class, 'externalStore']);
             Route::get('/quotes/{quote}/pdf', [QuoteController::class, 'pdf']);
+            // Enviar o orçamento (PDF sem custos) pelo WhatsApp da loja; sem conexão, volta o resumo para o wa.me
+            Route::post('/quotes/{quote}/whatsapp', [QuoteController::class, 'sendWhatsApp'])->middleware('throttle:20,1');
             // Cobrança de venda entregue a receber (junta as do mesmo cliente)
             Route::get('/quotes/{quote}/charge', [QuoteChargeController::class, 'show']);
             Route::post('/quotes/charge', [QuoteChargeController::class, 'send'])->middleware('throttle:30,1');

@@ -62,6 +62,9 @@ class TeamAccess
         ['PATCH', 'quotes/production-order', self::ALL],
         ['PATCH', 'quotes/{quote}/pause', self::ALL],
         ['PATCH', 'quotes/{quote}/resume', self::ALL],
+        // Aviso de pedido novo do bot (bolinha em Produção): quem acompanha a Produção vê e marca como visto
+        ['GET', 'quotes/new-orders', self::ALL],
+        ['POST', 'quotes/new-orders/seen', self::ALL],
 
         // Produtos e insumos: todos consultam; só o dono cadastra e altera
         ['GET', 'products', self::ALL],

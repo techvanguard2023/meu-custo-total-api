@@ -84,7 +84,7 @@ class Company extends Model
         'catalog_accent_color', 'catalog_layout', 'catalog_show_logo', 'catalog_logo_size', 'catalog_show_name', 'catalog_title_size', 'catalog_secondary_color', 'catalog_background_color', 'catalog_text_color', 'catalog_header_color', 'custom_domain', 'custom_domain_verified_at',
         'partner_domain', 'partner_domain_verified_at', 'offers_domain', 'offers_domain_verified_at',
         'whatsapp_session_name', 'whatsapp_bot_enabled', 'whatsapp_webhook_url', 'whatsapp_webhook_events',
-        'whatsapp_chat_filters', 'whatsapp_status_notifications', 'whatsapp_bot_prompt', 'whatsapp_payment_link', 'whatsapp_pix_key',
+        'whatsapp_chat_filters', 'whatsapp_status_notifications', 'whatsapp_bot_prompt', 'whatsapp_payment_link', 'whatsapp_pix_key', 'whatsapp_bot_payment',
         'art_approval_terms',
     ];
 
@@ -305,6 +305,21 @@ class Company extends Model
     public function hasCatalogActive(): bool
     {
         return $this->catalog_enabled && $this->catalog_token && $this->hasEssential();
+    }
+
+    /**
+     * Pedido fechado pelo bot: o cliente paga em "Meus pedidos" (e não pelo Pix e link mandados na conversa).
+     * Só vale com o catálogo no ar — sem ele não há "Meus pedidos", e o bot volta a cobrar pelo WhatsApp.
+     */
+    public function botPaysInPortal(): bool
+    {
+        return $this->whatsapp_bot_payment === 'portal' && $this->hasCatalogActive();
+    }
+
+    /** Endereço de "Meus pedidos" do catálogo (o cliente entra com o número de WhatsApp). */
+    public function ordersPortalUrl(): string
+    {
+        return rtrim($this->catalogUrl(), '/').'/meus-pedidos';
     }
 
     /**

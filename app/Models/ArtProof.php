@@ -25,7 +25,7 @@ class ArtProof extends Model
     public const DEFAULT_TERMS = "Ao aprovar, declaro que conferi a arte enviada — textos, nomes, datas, cores, tamanhos e imagens — e que está tudo correto.\n\nA produção seguirá exatamente o que foi aprovado. Depois da aprovação, mudanças podem ter custo adicional e alterar o prazo, e erros que já estavam na arte aprovada não são de responsabilidade da loja.\n\nAs cores podem variar um pouco entre a tela e o produto final (material, tinta e impressão).";
 
     protected $fillable = [
-        'company_id', 'quote_id', 'token', 'version', 'status', 'message', 'model_url', 'terms',
+        'company_id', 'quote_id', 'token', 'version', 'status', 'message', 'model_url', 'choose_one', 'chosen_file_id', 'terms',
         'viewed_at', 'responded_at', 'approver_name', 'approver_ip', 'approver_user_agent', 'customer_comment',
     ];
 
@@ -34,6 +34,8 @@ class ArtProof extends Model
 
     protected $casts = [
         'version' => 'integer',
+        'choose_one' => 'boolean',
+        'chosen_file_id' => 'integer',
         'viewed_at' => 'datetime',
         'responded_at' => 'datetime',
     ];
@@ -62,6 +64,23 @@ class ArtProof extends Model
     public function files(): HasMany
     {
         return $this->hasMany(ArtProofFile::class)->orderBy('position')->orderBy('id');
+    }
+
+    /** A opção que o cliente escolheu, quando a loja mandou várias artes para ele escolher uma. */
+    public function chosenFile(): BelongsTo
+    {
+        return $this->belongsTo(ArtProofFile::class, 'chosen_file_id');
+    }
+
+    /** Número da opção escolhida (1, 2, 3...), na ordem em que a loja mandou. */
+    public function chosenOptionNumber(): ?int
+    {
+        if (! $this->chosen_file_id) {
+            return null;
+        }
+        $index = $this->files->search(fn (ArtProofFile $f) => $f->id === $this->chosen_file_id);
+
+        return $index === false ? null : $index + 1;
     }
 
     public function isOpen(): bool
