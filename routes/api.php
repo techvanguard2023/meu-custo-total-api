@@ -39,6 +39,7 @@ use App\Http\Controllers\Api\PrinterController;
 use App\Http\Controllers\Api\ProductCategoryController;
 use App\Http\Controllers\Api\ProductCollectionController;
 use App\Http\Controllers\Api\ProductController;
+use App\Http\Controllers\Api\PartialDeliveryController;
 use App\Http\Controllers\Api\QuoteChargeController;
 use App\Http\Controllers\Api\QuoteController;
 use App\Http\Controllers\Api\QuoteRequestController;
@@ -332,6 +333,10 @@ Route::prefix('v1')->group(function () {
             Route::get('/quotes/{quote}/pdf', [QuoteController::class, 'pdf']);
             // Enviar o orçamento (PDF sem custos) pelo WhatsApp da loja; sem conexão, volta o resumo para o wa.me
             Route::post('/quotes/{quote}/whatsapp', [QuoteController::class, 'sendWhatsApp'])->middleware('throttle:20,1');
+            // Entrega dividida: entregar o que já está pronto (o pedido continua um só)
+            Route::get('/quotes/{quote}/partial-deliveries', [PartialDeliveryController::class, 'index']);
+            Route::post('/quotes/{quote}/partial-deliveries', [PartialDeliveryController::class, 'store'])->middleware('throttle:30,1');
+            Route::delete('/quotes/{quote}/partial-deliveries/{delivery}', [PartialDeliveryController::class, 'destroy']);
             // Cobrança de venda entregue a receber (junta as do mesmo cliente)
             Route::get('/quotes/{quote}/charge', [QuoteChargeController::class, 'show']);
             Route::post('/quotes/charge', [QuoteChargeController::class, 'send'])->middleware('throttle:30,1');

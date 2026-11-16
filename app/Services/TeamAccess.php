@@ -62,6 +62,8 @@ class TeamAccess
         ['PATCH', 'quotes/production-order', self::ALL],
         ['PATCH', 'quotes/{quote}/pause', self::ALL],
         ['PATCH', 'quotes/{quote}/resume', self::ALL],
+        // Entrega dividida: quem move os pedidos na Produção também registra o que já foi entregue
+        ['*', 'quotes/{quote}/partial-deliveries*', self::ALL],
         // Aviso de pedido novo do bot (bolinha em Produção): quem acompanha a Produção vê e marca como visto
         ['GET', 'quotes/new-orders', self::ALL],
         ['POST', 'quotes/new-orders/seen', self::ALL],

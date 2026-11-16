@@ -9,7 +9,7 @@ class QuoteItem extends Model
 {
     protected $fillable = [
         'quote_id', 'product_id', 'product_variation_id', 'material_id', 'description', 'type',
-        'quantity', 'unit_weight', 'unit_price', 'unit_cost', 'amount',
+        'quantity', 'delivered_quantity', 'unit_weight', 'unit_price', 'unit_cost', 'amount',
         'stock_deducted', 'materials_consumed_at', 'options',
     ];
 
@@ -17,6 +17,8 @@ class QuoteItem extends Model
         // Opções escolhidas na venda: [{group, name, price_delta, cost_delta}] — foto do momento da venda
         'options' => 'array',
         'quantity' => 'integer',
+        // Entrega dividida: quanto deste item já foi entregue ao cliente
+        'delivered_quantity' => 'integer',
         'unit_weight' => 'decimal:3',
         'unit_price' => 'decimal:2',
         'unit_cost' => 'decimal:2',

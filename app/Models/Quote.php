@@ -238,6 +238,12 @@ class Quote extends Model
         return $this->hasMany(QuoteItem::class);
     }
 
+    /** Entregas de parte do pedido (entrega dividida), da mais nova para a mais antiga. */
+    public function partialDeliveries(): HasMany
+    {
+        return $this->hasMany(QuotePartialDelivery::class)->latest()->latest('id');
+    }
+
     /** Provas de arte enviadas ao cliente (uma por versão). */
     public function artProofs(): HasMany
     {
