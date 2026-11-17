@@ -12,11 +12,13 @@ use App\Services\WhatsAppMessenger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 /**
- * Entrega dividida: o pedido tem vários itens, uns prontos e outros esperando insumo. A loja entrega o que está
- * pronto e registra aqui. O pedido continua um só (valor, recebimento e estoque não mudam); cada item guarda quanto
- * já saiu. Entregue tudo, o pedido vai sozinho para "Entregue ao Cliente" (com o aviso de entrega de sempre).
+ * Entrega dividida: o pedido tem vários itens, uns prontos e outros esperando insumo. A loja marca o que ficou
+ * pronto (Finalizado) e entrega o que está pronto, o resto depois. O pedido continua um só (valor, recebimento e
+ * estoque não mudam); cada item guarda quantas unidades estão prontas e quantas já saíram. Entregue tudo, o pedido
+ * vai sozinho para "Entregue ao Cliente" (com o aviso de entrega de sempre).
  */
 class PartialDeliveryController extends Controller
 {
@@ -27,25 +29,31 @@ class PartialDeliveryController extends Controller
         return response()->json($this->payload($quote));
     }
 
-    /** POST /quotes/{quote}/partial-deliveries {items: [{item_id, quantity}], note?, notify?} */
+    /**
+     * POST /quotes/{quote}/partial-deliveries {kind: delivered|finished, items: [{item_id, quantity}], note?, notify?}
+     * delivered = entregou ao cliente; finished = ficou pronto (ainda não saiu).
+     */
     public function store(Request $request, Quote $quote, WhatsAppMessenger $messenger): JsonResponse
     {
         $this->authorizeQuote($request, $quote);
-        abort_unless($quote->status === Quote::STATUS_APPROVED && $quote->cancelled_at === null, 422, 'Só dá para entregar parte de uma venda aprovada.');
+        abort_unless($quote->status === Quote::STATUS_APPROVED && $quote->cancelled_at === null, 422, 'Só dá para registrar itens de uma venda aprovada.');
         abort_if($quote->production_status === Quote::PRODUCTION_DELIVERED, 422, 'Este pedido já foi entregue.');
 
         $data = $request->validate([
+            'kind' => ['sometimes', Rule::in([QuotePartialDelivery::KIND_DELIVERED, QuotePartialDelivery::KIND_FINISHED])],
             'items' => ['required', 'array', 'min:1'],
             'items.*.item_id' => ['required', 'integer'],
             'items.*.quantity' => ['required', 'integer', 'min:1'],
             'note' => ['nullable', 'string', 'max:500'],
             'notify' => ['sometimes', 'boolean'],
         ], [
-            'items.required' => 'Escolha o que está sendo entregue.',
-            'items.min' => 'Escolha o que está sendo entregue.',
+            'items.required' => 'Escolha os itens.',
+            'items.min' => 'Escolha os itens.',
         ]);
+        $kind = $data['kind'] ?? QuotePartialDelivery::KIND_DELIVERED;
+        $delivering = $kind === QuotePartialDelivery::KIND_DELIVERED;
 
-        [$delivery, $completed] = DB::transaction(function () use ($request, $quote, $data) {
+        [$record, $completed] = DB::transaction(function () use ($request, $quote, $data, $kind, $delivering) {
             // Trava os itens: duas telas registrando ao mesmo tempo não passam do total
             $items = $quote->items()->where('type', 'product')->lockForUpdate()->get()->keyBy('id');
             $lines = [];
@@ -55,28 +63,41 @@ class PartialDeliveryController extends Controller
                 $item = $items->get((int) $itemId);
                 abort_unless($item, 422, 'Item não encontrado neste pedido.');
                 $quantity = (int) $rows->sum('quantity');
-                $left = $item->quantity - $item->delivered_quantity;
-                abort_if($quantity > $left, 422, $left > 0
-                    ? "\"{$item->description}\": faltam só {$left} para entregar."
-                    : "\"{$item->description}\" já foi entregue por completo.");
 
-                $item->increment('delivered_quantity', $quantity);
+                if ($delivering) {
+                    $left = $item->quantity - $item->delivered_quantity;
+                    abort_if($quantity > $left, 422, $left > 0
+                        ? "\"{$item->description}\": faltam só {$left} para entregar."
+                        : "\"{$item->description}\" já foi entregue por completo.");
+                    $delivered = $item->delivered_quantity + $quantity;
+                    // Entregue também está pronto
+                    $item->update(['delivered_quantity' => $delivered, 'finished_quantity' => max($item->finished_quantity, $delivered)]);
+                } else {
+                    $left = $item->quantity - $item->finished_quantity;
+                    abort_if($quantity > $left, 422, $left > 0
+                        ? "\"{$item->description}\": faltam só {$left} para ficar pronto."
+                        : "\"{$item->description}\" já está todo pronto.");
+                    $item->update(['finished_quantity' => $item->finished_quantity + $quantity]);
+                }
+
                 $lines[] = ['item_id' => $item->id, 'description' => $item->description, 'quantity' => $quantity];
             }
 
-            $delivery = QuotePartialDelivery::create([
+            $record = QuotePartialDelivery::create([
                 'company_id' => $quote->company_id,
                 'quote_id' => $quote->id,
                 'user_id' => $request->user()->id,
+                'kind' => $kind,
                 'items' => $lines,
                 'note' => trim((string) ($data['note'] ?? '')) ?: null,
             ]);
 
             // Saiu tudo (e não há peça sob medida fora dos itens): o pedido está entregue
-            $completed = (int) $quote->print_time_minutes === 0
-                && $items->every(fn (QuoteItem $i) => $i->fresh()->delivered_quantity >= $i->quantity);
+            $completed = $delivering
+                && (int) $quote->print_time_minutes === 0
+                && $items->every(fn (QuoteItem $i) => $i->delivered_quantity >= $i->quantity);
 
-            return [$delivery, $completed];
+            return [$record, $completed];
         });
 
         if ($completed) {
@@ -86,30 +107,38 @@ class PartialDeliveryController extends Controller
             $quote->update(['production_status' => Quote::PRODUCTION_DELIVERED, 'production_order' => $last + 1]);
             app(ProductionStageNotifier::class)->stageChanged($quote, $previous);
         } elseif ($request->boolean('notify')) {
-            $result = $messenger->deliver($quote->company, $quote->customer?->phone, $this->customerMessage($quote->fresh(['items', 'customer', 'company']), $delivery));
-            $delivery->forceFill(['customer_notified' => $result['sent']])->save();
+            $result = $messenger->deliver($quote->company, $quote->customer?->phone, $this->customerMessage($quote->fresh(['items', 'customer', 'company']), $record));
+            $record->forceFill(['customer_notified' => $result['sent']])->save();
             $notifyReason = $result['sent'] ? null : $result['reason'];
         }
 
         return response()->json($this->payload($quote->fresh()) + [
             'completed' => $completed,
-            'notified' => $delivery->fresh()->customer_notified,
+            'notified' => $record->fresh()->customer_notified,
             'notify_reason' => $notifyReason ?? null,
         ], 201);
     }
 
-    /** Desfaz uma entrega registrada por engano (os itens voltam a faltar). */
+    /** Desfaz um registro feito por engano (os itens voltam a faltar). */
     public function destroy(Request $request, Quote $quote, QuotePartialDelivery $delivery): JsonResponse
     {
         $this->authorizeQuote($request, $quote);
         abort_unless($delivery->quote_id === $quote->id, 404);
-        abort_if($quote->production_status === Quote::PRODUCTION_DELIVERED, 422, 'O pedido já está como entregue. Volte o estágio na Produção antes de desfazer uma entrega.');
+        abort_if($quote->production_status === Quote::PRODUCTION_DELIVERED, 422, 'O pedido já está como entregue. Volte o estágio na Produção antes de desfazer.');
 
         DB::transaction(function () use ($quote, $delivery) {
             $items = $quote->items()->lockForUpdate()->get()->keyBy('id');
             foreach ($delivery->items as $line) {
-                if ($item = $items->get($line['item_id'])) {
-                    $item->update(['delivered_quantity' => max(0, $item->delivered_quantity - (int) $line['quantity'])]);
+                if (! $item = $items->get($line['item_id'])) {
+                    continue;
+                }
+                $quantity = (int) $line['quantity'];
+                if ($delivery->kind === QuotePartialDelivery::KIND_FINISHED) {
+                    // O que já foi entregue continua pronto
+                    $item->update(['finished_quantity' => max($item->delivered_quantity, $item->finished_quantity - $quantity)]);
+                } else {
+                    // Volta a "pronto, não entregue": a peça existe, só não saiu
+                    $item->update(['delivered_quantity' => max(0, $item->delivered_quantity - $quantity)]);
                 }
             }
             $delivery->delete();
@@ -133,10 +162,12 @@ class PartialDeliveryController extends Controller
                 'id' => $i->id,
                 'description' => $i->description,
                 'quantity' => $i->quantity,
+                'finished_quantity' => $i->finished_quantity,
                 'delivered_quantity' => $i->delivered_quantity,
             ])->values(),
             'deliveries' => $quote->partialDeliveries->map(fn (QuotePartialDelivery $d) => [
                 'id' => $d->id,
+                'kind' => $d->kind,
                 'items' => $d->items,
                 'note' => $d->note,
                 'customer_notified' => $d->customer_notified,
@@ -146,18 +177,29 @@ class PartialDeliveryController extends Controller
         ];
     }
 
-    /** "Entregamos parte do seu pedido": o que saiu agora e o que ainda falta. */
-    private function customerMessage(Quote $quote, QuotePartialDelivery $delivery): string
+    /** "Parte do seu pedido ficou pronta" / "Entregamos parte do seu pedido": o que foi agora e o que ainda falta. */
+    private function customerMessage(Quote $quote, QuotePartialDelivery $record): string
     {
         $first = explode(' ', trim((string) $quote->customer?->name))[0];
-        $now = collect($delivery->items)->map(fn ($l) => "{$l['quantity']}x {$l['description']}")->implode(', ');
-        $left = $quote->items->where('type', 'product')
-            ->filter(fn (QuoteItem $i) => $i->delivered_quantity < $i->quantity)
-            ->map(fn (QuoteItem $i) => ($i->quantity - $i->delivered_quantity)."x {$i->description}")
-            ->implode(', ');
+        $hello = 'Olá'.($first !== '' ? ", {$first}" : '').'!';
+        $now = collect($record->items)->map(fn ($l) => "{$l['quantity']}x {$l['description']}")->implode(', ');
+        $products = $quote->items->where('type', 'product');
+        $store = $quote->company->name ?: '';
 
-        return 'Olá'.($first !== '' ? ", {$first}" : '')."! Entregamos parte do seu pedido *#{$quote->id}*: {$now}."
+        if ($record->kind === QuotePartialDelivery::KIND_FINISHED) {
+            $inProduction = $products->filter(fn (QuoteItem $i) => $i->finished_quantity < $i->quantity)
+                ->map(fn (QuoteItem $i) => ($i->quantity - $i->finished_quantity)."x {$i->description}")->implode(', ');
+
+            return "{$hello} Parte do seu pedido *#{$quote->id}* já está pronta: {$now}."
+                .($inProduction !== '' ? " Ainda em produção: {$inProduction}." : '')
+                .' Vamos combinar a entrega ou retirada? '.$store;
+        }
+
+        $left = $products->filter(fn (QuoteItem $i) => $i->delivered_quantity < $i->quantity)
+            ->map(fn (QuoteItem $i) => ($i->quantity - $i->delivered_quantity)."x {$i->description}")->implode(', ');
+
+        return "{$hello} Entregamos parte do seu pedido *#{$quote->id}*: {$now}."
             .($left !== '' ? " Ainda falta: {$left}. Avisamos por aqui quando o restante estiver pronto." : '')
-            .' '.($quote->company->name ?: '');
+            .' '.$store;
     }
 }

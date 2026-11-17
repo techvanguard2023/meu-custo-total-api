@@ -137,4 +137,47 @@ class PartialDeliveryTest extends TestCase
         $this->quote->forceFill(['status' => Quote::STATUS_SENT])->save();
         $this->deliver([['item_id' => $this->ready->id, 'quantity' => 1]])->assertStatus(422);
     }
+
+    public function test_marks_items_as_finished_without_delivering(): void
+    {
+        $this->deliver([['item_id' => $this->ready->id, 'quantity' => 3]], ['kind' => 'finished', 'note' => 'Canecas prontas'])->assertCreated()
+            ->assertJsonPath('completed', false)
+            ->assertJsonPath('deliveries.0.kind', 'finished')
+            ->assertJsonPath('items.0.finished_quantity', 3)
+            ->assertJsonPath('items.0.delivered_quantity', 0);
+
+        $this->assertSame(Quote::PRODUCTION_IN_PRODUCTION, $this->quote->fresh()->production_status);
+        $this->deliver([['item_id' => $this->ready->id, 'quantity' => 1]], ['kind' => 'finished'])->assertStatus(422)
+            ->assertJsonPath('message', '"Caneca" já está todo pronto.');
+
+        // Pronto não fecha o pedido, mesmo com tudo pronto
+        $this->deliver([['item_id' => $this->waiting->id, 'quantity' => 1]], ['kind' => 'finished'])->assertCreated()->assertJsonPath('completed', false);
+        $this->as()->getJson('/api/v1/quotes?scope=production')->assertJsonPath('data.0.items.0.finished_quantity', 3);
+    }
+
+    public function test_delivering_counts_as_finished_and_undo_keeps_what_was_delivered_ready(): void
+    {
+        // Entregou 2 sem ter marcado pronto: as 2 contam como prontas
+        $this->deliver([['item_id' => $this->ready->id, 'quantity' => 2]])->assertCreated();
+        $this->assertSame(2, $this->ready->fresh()->finished_quantity);
+
+        // Marca a terceira como pronta e desfaz: as 2 entregues continuam prontas
+        $finished = $this->deliver([['item_id' => $this->ready->id, 'quantity' => 1]], ['kind' => 'finished'])->assertCreated()->json('deliveries.0.id');
+        $this->assertSame(3, $this->ready->fresh()->finished_quantity);
+        $this->as()->deleteJson("/api/v1/quotes/{$this->quote->id}/partial-deliveries/{$finished}")->assertOk();
+        $this->assertSame(2, $this->ready->fresh()->finished_quantity);
+
+        // Desfazer uma entrega devolve a peça para "pronta, não entregue"
+        $delivered = $this->quote->partialDeliveries()->where('kind', 'delivered')->value('id');
+        $this->as()->deleteJson("/api/v1/quotes/{$this->quote->id}/partial-deliveries/{$delivered}")->assertOk();
+        $this->assertSame(0, $this->ready->fresh()->delivered_quantity);
+        $this->assertSame(2, $this->ready->fresh()->finished_quantity);
+    }
+
+    public function test_finished_notice_reports_when_whatsapp_is_not_connected(): void
+    {
+        $this->deliver([['item_id' => $this->ready->id, 'quantity' => 1]], ['kind' => 'finished', 'notify' => true])->assertCreated()
+            ->assertJsonPath('notified', false)->assertJsonPath('notify_reason', 'not_connected');
+        $this->deliver([['item_id' => $this->ready->id, 'quantity' => 1]], ['kind' => 'outra'])->assertStatus(422)->assertJsonValidationErrors('kind');
+    }
 }

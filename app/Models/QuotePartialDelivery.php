@@ -5,10 +5,14 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-/** Uma entrega de parte do pedido (os itens que já estavam prontos). Ver PartialDeliveryController. */
+/** Registro da entrega dividida: itens que ficaram prontos (finished) ou que foram entregues (delivered). */
 class QuotePartialDelivery extends Model
 {
-    protected $fillable = ['company_id', 'quote_id', 'user_id', 'items', 'note', 'customer_notified'];
+    public const KIND_FINISHED = 'finished';
+
+    public const KIND_DELIVERED = 'delivered';
+
+    protected $fillable = ['company_id', 'quote_id', 'user_id', 'kind', 'items', 'note', 'customer_notified'];
 
     protected $casts = [
         'items' => 'array',
