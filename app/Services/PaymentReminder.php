@@ -15,15 +15,19 @@ class PaymentReminder
 {
     public function __construct(private WhatsAppMessenger $messenger) {}
 
-    /** Venda que pode ser cobrada: aprovada, entregue, não é cortesia e tem valor em aberto. */
+    /**
+     * Venda que pode ser cobrada: aprovada, não cancelada, não é cortesia e tem valor em aberto (tudo ou parte), em
+     * qualquer etapa da produção — o lojista pode cobrar o sinal antes de produzir ou o resto quando ficar pronto.
+     */
     public static function isChargeable(Quote $quote): bool
     {
         return $quote->status === Quote::STATUS_APPROVED
-            && $quote->production_status === Quote::PRODUCTION_DELIVERED
+            && ! $quote->cancelled_at
+            && ! $quote->is_courtesy
             && $quote->amount_due > 0;
     }
 
-    /** Todas as vendas entregues e em aberto do mesmo cliente (só a própria, quando não há cliente). */
+    /** Todas as vendas em aberto do mesmo cliente, em qualquer etapa (só a própria, quando não há cliente). */
     public function openCharges(Quote $quote): Collection
     {
         if (! $quote->customer_id) {
@@ -33,7 +37,7 @@ class PaymentReminder
         return Quote::where('company_id', $quote->company_id)
             ->where('customer_id', $quote->customer_id)
             ->where('status', Quote::STATUS_APPROVED)
-            ->where('production_status', Quote::PRODUCTION_DELIVERED)
+            ->whereNull('cancelled_at')
             ->where('is_courtesy', false)
             ->whereColumn('final_price', '>', 'amount_paid')
             ->with('items')

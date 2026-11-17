@@ -7,7 +7,7 @@ use App\Models\Quote;
 use App\Services\PaymentReminder;
 use Illuminate\Http\Request;
 
-/** Botão "Cobrar" das vendas entregues a receber (card da produção, Vendas e perfil do cliente). */
+/** Botão "Cobrar" das vendas com valor a receber, em qualquer etapa (card da produção, Vendas e perfil do cliente). */
 class QuoteChargeController extends Controller
 {
     public function __construct(private PaymentReminder $reminder) {}
@@ -16,7 +16,7 @@ class QuoteChargeController extends Controller
     public function show(Request $request, Quote $quote)
     {
         abort_unless($quote->company_id === $request->user()->company_id, 404);
-        abort_unless(PaymentReminder::isChargeable($quote), 422, 'Só dá pra cobrar venda entregue que ainda tem valor a receber.');
+        abort_unless(PaymentReminder::isChargeable($quote), 422, 'Só dá pra cobrar venda aprovada que ainda tem valor a receber.');
 
         $company = $request->user()->company;
         $quote->loadMissing('customer');
@@ -58,7 +58,7 @@ class QuoteChargeController extends Controller
         $quotes = Quote::where('company_id', $company->id)->whereIn('id', $data['quote_ids'])->with(['customer', 'items'])->orderBy('id')->get();
 
         abort_unless($quotes->count() === count($data['quote_ids']), 404, 'Venda não encontrada.');
-        abort_unless($quotes->every(fn (Quote $q) => PaymentReminder::isChargeable($q)), 422, 'Só dá pra cobrar venda entregue que ainda tem valor a receber.');
+        abort_unless($quotes->every(fn (Quote $q) => PaymentReminder::isChargeable($q)), 422, 'Só dá pra cobrar venda aprovada que ainda tem valor a receber.');
         abort_unless(
             $quotes->pluck('customer_id')->unique()->count() === 1 && ($quotes->first()->customer_id || $quotes->count() === 1),
             422,
