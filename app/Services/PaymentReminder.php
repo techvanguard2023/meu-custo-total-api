@@ -53,12 +53,20 @@ class PaymentReminder
         $firstName = $customer ? explode(' ', trim($customer->name))[0] : null;
         $total = round($quotes->sum(fn (Quote $q) => $q->amount_due), 2);
 
-        $lines = [($firstName ? "Olá, {$firstName}!" : 'Olá!')." Aqui é da {$company->name}."];
+        $lines = [$firstName ? "Olá, {$firstName}!" : 'Olá!', "Aqui é da {$company->name}."];
 
         if ($quotes->count() === 1) {
+            // Um item por linha, com marcador: o cliente confere o pedido de relance
             $quote = $quotes->first();
-            $lines[] = "Passando para lembrar do pagamento do seu pedido *#{$quote->id}* (".self::itemsLabel($quote)."): *{$this->brl($quote->amount_due)}*"
-                .((float) $quote->amount_paid > 0 ? " — valor que falta, já recebemos {$this->brl($quote->amount_paid)}." : '.');
+            $items = self::itemsBullets($quote);
+            $lines[] = "Passando para lembrar do pagamento do seu pedido *#{$quote->id}*".($items !== '' ? ':' : '.');
+            if ($items !== '') {
+                $lines[] = $items;
+            }
+            $lines[] = '';
+            $lines[] = (float) $quote->amount_paid > 0
+                ? "Valor que falta: *{$this->brl($quote->amount_due)}* (já recebemos {$this->brl($quote->amount_paid)})"
+                : "Valor: *{$this->brl($quote->amount_due)}*";
         } else {
             $lines[] = 'Passando para lembrar do pagamento dos seus pedidos:';
             foreach ($quotes as $quote) {
@@ -126,6 +134,15 @@ class PaymentReminder
             ->implode(', ');
 
         return Str::limit($text ?: "Pedido #{$quote->id}", 90);
+    }
+
+    /** Itens do pedido, um por linha com marcador (ex: "• 2x Chaveiro gato"). Vazio quando não há produto. */
+    public static function itemsBullets(Quote $quote, int $max = 15): string
+    {
+        $lines = collect($quote->soldLines())->map(fn (array $line) => "• {$line['quantity']}x {$line['description']}");
+        $extra = $lines->count() - $max;
+
+        return $lines->take($max)->implode("\n").($extra > 0 ? "\n• e mais {$extra} ".($extra === 1 ? 'item' : 'itens') : '');
     }
 
     private function isPixCopyPaste(string $pix): bool

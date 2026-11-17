@@ -39,7 +39,7 @@ class ProductionStageNotifier
     public const PLACEHOLDERS = [
         '{cliente}' => 'Primeiro nome do cliente',
         '{pedido}' => 'Número do pedido (ex: #123)',
-        '{itens}' => 'Itens do pedido (ex: 2x Chaveiro, 1x Vaso)',
+        '{itens}' => 'Itens do pedido: sozinho numa linha vira lista (• 2x Chaveiro); no meio da frase, "2x Chaveiro, 1x Vaso"',
         '{loja}' => 'Nome da sua empresa',
         '{total}' => 'Valor total do pedido',
         '{recebido}' => 'Quanto já foi recebido',
@@ -47,14 +47,41 @@ class ProductionStageNotifier
         '{entrega}' => 'Forma e data de entrega (ex: Retirada · sáb, 15/11 às 15:00) — "a combinar" se não tiver',
     ];
 
+    // Saudação numa linha, o aviso em outra e o agradecimento separado por uma linha em branco (fica mais fácil de ler
+    // no WhatsApp do que um parágrafo só)
     private const DEFAULT_MESSAGES = [
-        Quote::PRODUCTION_IN_PRODUCTION => 'Olá, {cliente}! Seu pedido *{pedido}* ({itens}) começou a ser produzido aqui na {loja}. Entrega: {entrega}. Avisamos por aqui quando ficar pronto.',
-        Quote::PRODUCTION_FINISHED => 'Olá, {cliente}! Seu pedido *{pedido}* ({itens}) está pronto! Vamos combinar a entrega ou retirada.',
-        Quote::PRODUCTION_DELIVERED => 'Olá, {cliente}! Seu pedido *{pedido}* foi entregue. Obrigado por comprar na {loja}! Qualquer dúvida é só chamar.',
-        'payment_partial' => 'Olá, {cliente}! Recebemos {recebido} do seu pedido *{pedido}* (total {total}). Ainda falta {restante}. Obrigado!',
-        'payment_paid' => 'Olá, {cliente}! Recebemos o pagamento do seu pedido *{pedido}* ({total}). Muito obrigado por comprar na {loja}!',
-        'delivery_reminder' => 'Olá, {cliente}! Passando para lembrar: seu pedido *{pedido}* ({itens}) está marcado para amanhã — {entrega}. Qualquer mudança é só avisar por aqui. {loja}',
+        Quote::PRODUCTION_IN_PRODUCTION => "Olá, {cliente}!\nSeu pedido *{pedido}* começou a ser produzido aqui na {loja}:\n{itens}\n\nEntrega: {entrega}.\nAvisamos por aqui quando ficar pronto.",
+        Quote::PRODUCTION_FINISHED => "Olá, {cliente}!\nSeu pedido *{pedido}* está pronto:\n{itens}\n\nVamos combinar a entrega ou retirada.",
+        Quote::PRODUCTION_DELIVERED => "Olá, {cliente}!\nSeu pedido *{pedido}* foi entregue.\n\nObrigado por comprar na {loja}! Qualquer dúvida é só chamar.",
+        'payment_partial' => "Olá, {cliente}!\nRecebemos {recebido} do seu pedido *{pedido}* (total {total}).\nAinda falta {restante}.\n\nObrigado!",
+        'payment_paid' => "Olá, {cliente}!\nRecebemos o pagamento do seu pedido *{pedido}* ({total}).\n\nMuito obrigado por comprar na {loja}!",
+        'delivery_reminder' => "Olá, {cliente}!\nPassando para lembrar: seu pedido *{pedido}* está marcado para amanhã — {entrega}:\n{itens}\n\nQualquer mudança é só avisar por aqui. {loja}",
     ];
+
+    /**
+     * Textos padrão antigos (num parágrafo só). A tela de Integrações salva o texto que mostra, então muita loja tem
+     * uma cópia do padrão antigo gravada: essas cópias não são texto personalizado e passam a usar o padrão novo.
+     */
+    private const LEGACY_DEFAULTS = [
+        Quote::PRODUCTION_IN_PRODUCTION => [
+            'Olá, {cliente}! Seu pedido *{pedido}* ({itens}) começou a ser produzido aqui na {loja}. Entrega: {entrega}. Avisamos por aqui quando ficar pronto.',
+            'Olá, {cliente}! Seu pedido *{pedido}* ({itens}) começou a ser produzido aqui na {loja}. Avisamos por aqui quando ficar pronto.',
+        ],
+        Quote::PRODUCTION_FINISHED => ['Olá, {cliente}! Seu pedido *{pedido}* ({itens}) está pronto! Vamos combinar a entrega ou retirada.'],
+        Quote::PRODUCTION_DELIVERED => ['Olá, {cliente}! Seu pedido *{pedido}* foi entregue. Obrigado por comprar na {loja}! Qualquer dúvida é só chamar.'],
+        'payment_partial' => ['Olá, {cliente}! Recebemos {recebido} do seu pedido *{pedido}* (total {total}). Ainda falta {restante}. Obrigado!'],
+        'payment_paid' => ['Olá, {cliente}! Recebemos o pagamento do seu pedido *{pedido}* ({total}). Muito obrigado por comprar na {loja}!'],
+        'delivery_reminder' => ['Olá, {cliente}! Passando para lembrar: seu pedido *{pedido}* ({itens}) está marcado para amanhã — {entrega}. Qualquer mudança é só avisar por aqui. {loja}'],
+    ];
+
+    /** O texto é o padrão (atual ou antigo), não um texto que o lojista escreveu. */
+    public static function isDefaultMessage(string $event, ?string $message): bool
+    {
+        $flat = fn (?string $s) => preg_replace('/\s+/u', ' ', trim((string) $s));
+        $candidates = array_merge([self::DEFAULT_MESSAGES[$event] ?? ''], self::LEGACY_DEFAULTS[$event] ?? []);
+
+        return in_array($flat($message), array_map($flat, $candidates), true);
+    }
 
     public function __construct(private WahaClient $waha) {}
 
@@ -67,7 +94,9 @@ class ProductionStageNotifier
             'label' => $label,
             'group' => array_key_exists($event, self::PAYMENT_EVENTS) ? 'payment' : (array_key_exists($event, self::REMINDER_EVENTS) ? 'reminder' : 'stage'),
             'enabled' => (bool) ($saved[$event]['enabled'] ?? ! in_array($event, self::OFF_BY_DEFAULT, true)),
-            'message' => trim((string) ($saved[$event]['message'] ?? '')) ?: self::DEFAULT_MESSAGES[$event],
+            'message' => self::isDefaultMessage($event, $saved[$event]['message'] ?? null)
+                ? self::DEFAULT_MESSAGES[$event]
+                : (trim((string) ($saved[$event]['message'] ?? '')) ?: self::DEFAULT_MESSAGES[$event]),
         ])->all();
     }
 
@@ -216,6 +245,9 @@ class ProductionStageNotifier
     private function render(string $template, Quote $quote, Company $company): string
     {
         $items = collect($quote->soldLines())->map(fn ($l) => $l['quantity'].'x '.$l['description'])->implode(', ');
+        // {itens} sozinho numa linha vira a lista com marcador, um item por linha; no meio de uma frase (texto
+        // personalizado do lojista) continua separado por vírgula
+        $template = preg_replace_callback('/^[ \t]*\{itens\}[ \t]*$/mu', fn () => PaymentReminder::itemsBullets($quote), $template);
 
         return strtr($template, [
             '{cliente}' => explode(' ', trim((string) $quote->customer?->name))[0] ?: 'cliente',
