@@ -49,19 +49,33 @@ class QuoteCalculatorService
 
         // Cada material consumido (principal + insumos extras) soma ao custo,
         // multiplicado pela quantidade do pedido (mesma fórmula para todos).
+        //
+        // Material vendido direto ao cliente (tem preço de venda no cadastro): o custo continua no custo do pedido,
+        // mas o cliente paga o preço de venda — sem markup e sem taxa de falha em cima dele.
         $materialLinesOut = [];
         $materialCost = 0.0;
+        $soldMaterialsCost = 0.0;
+        $soldMaterialsTotal = 0.0;
         foreach ($materialLines as $line) {
             $material = $line['material'];
             $weight = (float) $line['weight'];
             $lineCost = $weight * (float) $material->cost_per_g * $quantity;
             $materialCost += $lineCost;
+            $sold = $material->isSoldDirectly();
+            $linePrice = $sold ? round($weight * (float) $material->sale_price_per_unit * $quantity, 2) : null;
+            if ($sold) {
+                $soldMaterialsCost += $lineCost;
+                $soldMaterialsTotal += $linePrice;
+            }
             $materialLinesOut[] = [
                 'material_id' => $material->id,
                 'name' => $material->name,
                 'weight' => $weight,
                 'unit_cost' => (float) $material->cost_per_g,
                 'line_total' => round($lineCost, 2),
+                // Preço de venda por g/un e o total da linha (null = material consumido, entra no custo + markup)
+                'unit_price' => $sold ? (float) $material->sale_price_per_unit : null,
+                'line_price' => $linePrice,
             ];
         }
 
@@ -82,7 +96,8 @@ class QuoteCalculatorService
 
         $subtotalCost = $materialCost + $energyCost + $depreciationCost + $laborCost + $extraCosts;
 
-        $failureCost = $subtotalCost * ((float) $failureRate / 100);
+        // Material vendido como está não leva taxa de falha
+        $failureCost = ($subtotalCost - $soldMaterialsCost) * ((float) $failureRate / 100);
 
         $totalCost = $subtotalCost + $failureCost;
 
@@ -206,7 +221,8 @@ class QuoteCalculatorService
         }
 
         // Desconto aplicado após o markup, sobre o total combinado.
-        $printPrice = $totalCost * (1 + ((float) $markup / 100)) / $priceDivisor;
+        // O material vendido direto sai da base do markup e entra pelo preço de venda dele
+        $printPrice = ($totalCost - $soldMaterialsCost) * (1 + ((float) $markup / 100)) / $priceDivisor + $soldMaterialsTotal;
 
         // Rateio "por pedido": folha (+ imposto fixo) ÷ pedidos por mês, somado ao total do pedido (não ao preço
         // unitário). Fica de fora da ficha técnica do produto (preço de uma unidade) e das vendas de expositor.
@@ -302,6 +318,8 @@ class QuoteCalculatorService
         return [
             'material_cost' => round($materialCost, 2),
             'materials' => $materialLinesOut,
+            'sold_materials_cost' => round($soldMaterialsCost, 2),
+            'sold_materials_total' => round($soldMaterialsTotal, 2),
             'energy_cost' => round($energyCost, 2),
             'depreciation_cost' => round($depreciationCost, 2),
             'labor_cost' => round($laborCost, 2),

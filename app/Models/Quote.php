@@ -269,19 +269,20 @@ class Quote extends Model
     }
 
     /**
-     * O que o cliente efetivamente comprou: os produtos do orçamento (os insumos — filamento,
-     * embalagem — são custo interno e não aparecem pro cliente) e, quando há, a peça impressa sob
-     * medida. Sem produtos (orçamento de peça avulsa), vira uma linha só com o nome e o valor.
+     * O que o cliente efetivamente comprou: os produtos do orçamento, os materiais vendidos direto (com preço de
+     * venda no cadastro — os outros insumos, filamento e embalagem, são custo interno e não aparecem pro cliente) e,
+     * quando há, a peça impressa sob medida. Sem nada disso (orçamento de peça avulsa), vira uma linha só.
      *
      * @return array<int, array{description: string, quantity: int, unit_price: float, amount: float}>
      */
     public function soldLines(): array
     {
         $products = $this->items->where('type', 'product');
+        $soldMaterials = $this->items->where('type', 'material')->filter(fn ($i) => (float) $i->unit_price > 0);
         $name = trim(explode('|__JSON__|', (string) $this->name)[0]) ?: "Venda #{$this->id}";
         $quantity = max(1, (int) $this->quantity);
 
-        if ($products->isEmpty()) {
+        if ($products->isEmpty() && $soldMaterials->isEmpty()) {
             return [[
                 'description' => $name,
                 'quantity' => $quantity,
@@ -297,12 +298,19 @@ class Quote extends Model
             'amount' => (float) $i->amount,
         ])->values()->all();
 
-        // Pedido que mistura produtos prontos E uma peça impressa sob medida: a peça impressa é o que
-        // sobra do total depois dos produtos — sem esta linha ela sumia (o cliente via itens somando
-        // menos que o total, no PDF, no perfil e em "Meus pedidos").
-        if ((int) $this->print_time_minutes > 0) {
-            $printed = round((float) $this->final_price - $products->sum(fn ($i) => (float) $i->amount), 2);
-            if ($printed > 0) {
+        // Unidade do material (g ou un) decide como a linha aparece
+        $soldMaterials->loadMissing('material.category');
+        foreach ($soldMaterials as $i) {
+            $lines[] = self::soldMaterialLine($i);
+        }
+        $itemsTotal = collect($lines)->sum('amount');
+
+        // Peça impressa sob medida (ou, sem produtos, o resto do pedido): o que sobra do total depois dos itens —
+        // sem esta linha ela sumia (o cliente via itens somando menos que o total, no PDF, no perfil e em
+        // "Meus pedidos").
+        if ((int) $this->print_time_minutes > 0 || $products->isEmpty()) {
+            $printed = round((float) $this->final_price - $itemsTotal, 2);
+            if ($printed > 0.009) {
                 $lines[] = [
                     'description' => $name,
                     'quantity' => $quantity,
@@ -313,6 +321,23 @@ class Quote extends Model
         }
 
         return $lines;
+    }
+
+    /** Material vendido direto: por unidade ("3x Switch") ou, se for por peso, numa linha só ("PLA Preto (500 g)"). */
+    private static function soldMaterialLine(QuoteItem $item): array
+    {
+        $units = (float) $item->unit_weight * max(1, (int) $item->quantity);
+        $amount = round($units * (float) $item->unit_price, 2);
+        $byWeight = $item->material?->unitLabel() === 'g';
+        $whole = abs($units - round($units)) < 0.0001;
+
+        if ($byWeight || ! $whole) {
+            $label = rtrim(rtrim(number_format($units, 2, ',', '.'), '0'), ',').($byWeight ? ' g' : ' un');
+
+            return ['description' => "{$item->description} ({$label})", 'quantity' => 1, 'unit_price' => $amount, 'amount' => $amount];
+        }
+
+        return ['description' => $item->description, 'quantity' => (int) round($units), 'unit_price' => (float) $item->unit_price, 'amount' => $amount];
     }
 
     public function reviews(): HasMany

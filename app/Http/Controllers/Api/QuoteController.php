@@ -1319,7 +1319,8 @@ class QuoteController extends Controller
                 'quantity' => $quote->quantity,
                 'unit_weight' => $line['weight'],
                 'unit_cost' => $line['unit_cost'],
-                'unit_price' => 0,
+                // Vendido direto: preço de venda por g/un (0 = insumo consumido, só custo)
+                'unit_price' => $line['unit_price'] ?? 0,
                 'amount' => $line['line_total'],
             ]);
         }

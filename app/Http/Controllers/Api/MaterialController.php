@@ -110,6 +110,8 @@ class MaterialController extends Controller
             'spool_weight_g' => ['required', 'integer', 'min:1'],
             'spool_cost' => ['required', 'numeric', 'min:0'],
             'cost_per_g' => ['required', 'numeric', 'min:0'],
+            // Opcional: preço de venda da embalagem/rolo, para material vendido direto ao cliente
+            'sale_price' => ['nullable', 'numeric', 'min:0'],
             'density' => ['nullable', 'numeric', 'min:0'],
             'stock_quantity' => ['nullable', 'numeric', 'min:0'],
             'purchase_url' => ['nullable', 'url', 'max:2048'],
