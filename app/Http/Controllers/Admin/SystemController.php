@@ -5,7 +5,11 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Listeners\MonitorScheduledTasks;
 use App\Models\Company;
+use App\Services\AdminAudit;
+use App\Services\PlatformWhatsApp;
 use App\Services\WahaClient;
+use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use Cron\CronExpression;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Carbon;
@@ -48,6 +52,24 @@ class SystemController extends Controller
                 'at' => Carbon::parse($r->updated_at)->toIso8601String(),
             ])->all(),
         ]);
+    }
+
+    /**
+     * POST /admin/system/platform-whatsapp/restart — reinicia o número da plataforma (FAILED com a conta ainda lá
+     * costuma voltar assim; se a conta deslogou, a WAHA passa a pedir o QR Code).
+     */
+    public function restartPlatformWhatsapp(Request $request, PlatformWhatsApp $platform, WahaClient $waha)
+    {
+        $session = $platform->session();
+        abort_unless($session, 422, 'O WhatsApp da plataforma não está configurado (PLATFORM_WAHA_SESSION).');
+        try {
+            $waha->restartSession($session);
+        } catch (Throwable $e) {
+            abort(422, 'A WAHA não reiniciou a sessão: '.Str::limit($e->getMessage(), 200));
+        }
+        AdminAudit::log($request, 'whatsapp.platform_restart', null, null, ['session' => $session]);
+
+        return response()->json($platform->health());
     }
 
     /**
@@ -183,10 +205,18 @@ class SystemController extends Controller
         $heartbeat = collect($runs)->pluck('at')->filter()->max();
 
         // WhatsApp: situação de cada sessão das lojas
-        $whatsapp = ['configured' => $waha->isConfigured(), 'error' => null, 'sessions' => []];
+        $whatsapp = ['configured' => $waha->isConfigured(), 'error' => null, 'sessions' => [], 'platform' => null];
         if ($waha->isConfigured()) {
             try {
                 $statuses = $waha->listSessions();
+                // Número da plataforma (mensagens do admin, suporte, avisos do teste grátis): caído, nada disso sai
+                if ($platform = app(PlatformWhatsApp::class)->session()) {
+                    $whatsapp['platform'] = [
+                        'session' => $platform,
+                        'status' => $statuses[$platform]['status'] ?? 'NÃO EXISTE NA WAHA',
+                        'problem' => isset($statuses[$platform]) ? $statuses[$platform]['problem'] : WahaClient::problem(null),
+                    ];
+                }
                 $whatsapp['sessions'] = Company::whereNotNull('whatsapp_session_name')->orderBy('name')->get(['id', 'name', 'whatsapp_session_name'])
                     ->map(fn ($c) => [
                         'company_id' => $c->id,

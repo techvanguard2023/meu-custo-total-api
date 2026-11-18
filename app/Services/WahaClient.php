@@ -193,9 +193,10 @@ class WahaClient
         return '***'.substr($number, -4);
     }
 
-    public function sendText(string $session, string $chatId, string $text, bool $linkPreview = false): void
+    /** $timeout: 8s por padrão (quem chama pode estar esperando na tela); envios em segundo plano podem dar mais. */
+    public function sendText(string $session, string $chatId, string $text, bool $linkPreview = false, int $timeout = 8): void
     {
-        $this->http()->timeout(8)->post('/sendText', array_filter([
+        $this->http()->timeout($timeout)->post('/sendText', array_filter([
             'session' => $session,
             'chatId' => $chatId,
             'text' => $text,

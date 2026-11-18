@@ -212,6 +212,8 @@ Route::prefix('v1')->group(function () {
             Route::get('/system', AdminSystemController::class);
             Route::get('/system/failed-offers', [AdminSystemController::class, 'failedOffers']);
             Route::get('/system/failed-jobs', [AdminSystemController::class, 'failedJobs']);
+            // WhatsApp da plataforma (mensagens do admin e suporte) caído: reiniciar a sessão
+            Route::post('/system/platform-whatsapp/restart', [AdminSystemController::class, 'restartPlatformWhatsapp'])->middleware('throttle:10,1');
             // Recursos que aparecem (ou não) para os lojistas — ex.: Alexa
             Route::get('/features', [AdminFeatureController::class, 'index']);
             Route::patch('/features', [AdminFeatureController::class, 'update']);
