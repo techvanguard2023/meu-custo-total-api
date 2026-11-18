@@ -67,6 +67,8 @@ class TeamAccess
         // Aviso de pedido novo do bot (bolinha em Produção): quem acompanha a Produção vê e marca como visto
         ['GET', 'quotes/new-orders', self::ALL],
         ['POST', 'quotes/new-orders/seen', self::ALL],
+        // Briefing da arte: quem faz a arte (produção também) lê as respostas do cliente
+        ['GET', 'quotes/{quote}/art-brief', self::ALL],
 
         // Produtos e insumos: todos consultam; só o dono cadastra e altera
         ['GET', 'products', self::ALL],
@@ -92,6 +94,9 @@ class TeamAccess
         ['*', 'quotes/{quote}/art-proofs', self::SALES],
         ['*', 'art-proofs/*', self::SALES],
         ['GET', 'art-approval/terms', self::SALES],
+        ['*', 'art-briefs/*', self::SALES],
+        ['GET', 'art-brief/questions', self::SALES],
+        // Modelos de briefing (Configurações) são só do dono
         ['*', 'displays*', self::SALES],
         ['*', 'whatsapp/handoffs*', self::SALES],
     ];

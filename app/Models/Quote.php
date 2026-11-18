@@ -250,6 +250,18 @@ class Quote extends Model
         return $this->hasMany(ArtProof::class)->orderByDesc('version');
     }
 
+    /** Briefings da arte do pedido (o mais novo primeiro; na prática um por pedido). */
+    public function artBriefs(): HasMany
+    {
+        return $this->hasMany(ArtBrief::class)->latest('id');
+    }
+
+    /** O briefing mais recente — a produção mostra "briefing aguardando" / "briefing recebido". */
+    public function latestArtBrief(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(ArtBrief::class)->ofMany('id', 'max');
+    }
+
     /** A prova mais recente — o que a produção e as listas mostram ("arte aguardando aprovação"). */
     public function latestArtProof(): \Illuminate\Database\Eloquent\Relations\HasOne
     {

@@ -111,7 +111,11 @@ class QuoteController extends Controller
     /** Contador do item "Produção" no menu: pedidos que chegaram sozinhos (bot do WhatsApp) e ainda não foram vistos. */
     public function newOrders(Request $request)
     {
-        return ['count' => $request->user()->company->quotes()->where('is_new_order', true)->whereNull('cancelled_at')->count()];
+        $company = $request->user()->company;
+        // Briefings da arte respondidos que a loja ainda não abriu também acendem o aviso (até abrir o pedido)
+        $briefs = \App\Models\ArtBrief::where('company_id', $company->id)->where('status', \App\Models\ArtBrief::SUBMITTED)->whereNull('seen_at')->count();
+
+        return ['count' => $company->quotes()->where('is_new_order', true)->whereNull('cancelled_at')->count() + $briefs, 'briefs' => $briefs];
     }
 
     /**
@@ -231,6 +235,7 @@ class QuoteController extends Controller
 
         // Um a um, pra os arquivos das provas de arte saírem do disco (a exclusão em cascata do banco não dispara isso)
         $quote->artProofs->each->delete();
+        $quote->artBriefs->each->delete();
         $quote->delete();
 
         return response()->json(null, 204);
@@ -472,6 +477,10 @@ class QuoteController extends Controller
                 if ($payment = $pix->botSummary($pix->openBotCharges($existing->pluck('id')))) {
                     $payload[0]['payment'] = $payment;
                 }
+                // ...e o link do briefing que já foi aberto
+                if ($brief = \App\Models\ArtBrief::whereIn('quote_id', $existing->pluck('id'))->with('company')->latest('id')->first()) {
+                    $payload[0]['art_brief_url'] = $brief->publicUrl();
+                }
 
                 return response()->json($payload, 200);
             }
@@ -588,6 +597,16 @@ class QuoteController extends Controller
         $pix->forBotOrder($request->user()->company, collect($quotes)->map->fresh());
         if ($payment = $pix->botSummary($pix->openBotCharges(collect($quotes)->pluck('id')))) {
             $payload[0]['payment'] = $payment;
+        }
+        // Produto que pede briefing da arte: o link vai junto pro bot mandar ao cliente (um briefing por pedido; no
+        // pedido dividido, fica na parte que tem esses produtos)
+        if ($request->user()->company->hasEssential()) {
+            foreach ($quotes as $quote) {
+                if (\App\Services\ArtBriefs::briefProducts($quote)->isNotEmpty()) {
+                    $payload[0]['art_brief_url'] = \App\Services\ArtBriefs::openFor($quote->fresh())->publicUrl();
+                    break;
+                }
+            }
         }
 
         return response()->json($payload, 201);

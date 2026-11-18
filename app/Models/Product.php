@@ -52,7 +52,7 @@ class Product extends Model
         'cost', 'auto_cost', 'auto_price', 'print_time_minutes', 'postprocess_minutes', 'printer_id', 'sale_price', 'stock_quantity', 'made_to_order', 'featured', 'discount_percent', 'price_tiers', 'active', 'show_in_catalog',
         'lead_time_days', 'lead_time_days_type',
         'sale_unit', 'pack_size', 'pack_label', 'min_quantity',
-        'ship_weight_g', 'ship_length_cm', 'ship_width_cm', 'ship_height_cm',
+        'ship_weight_g', 'ship_length_cm', 'ship_width_cm', 'ship_height_cm', 'art_brief_enabled', 'art_brief_template_id',
     ];
 
     protected $casts = [
@@ -75,6 +75,8 @@ class Product extends Model
         'pack_size' => 'integer',
         'min_quantity' => 'integer',
         'ship_weight_g' => 'integer',
+        'art_brief_enabled' => 'boolean',
+        'art_brief_template_id' => 'integer',
         'ship_length_cm' => 'integer',
         'ship_width_cm' => 'integer',
         'ship_height_cm' => 'integer',

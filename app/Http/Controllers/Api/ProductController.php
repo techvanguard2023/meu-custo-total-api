@@ -467,6 +467,10 @@ class ProductController extends Controller
             'ship_length_cm' => ['nullable', 'integer', 'min:1', 'max:105'],
             'ship_width_cm' => ['nullable', 'integer', 'min:1', 'max:105'],
             'ship_height_cm' => ['nullable', 'integer', 'min:1', 'max:105'],
+            // Briefing da arte: o produto pede briefing (o bot manda o link após o pedido), com as perguntas de um
+            // modelo da loja ou, sem modelo, as perguntas padrão
+            'art_brief_enabled' => ['sometimes', 'boolean'],
+            'art_brief_template_id' => ['nullable', 'integer', Rule::exists('art_brief_templates', 'id')->where('company_id', $companyId)],
             'discount_percent' => ['nullable', 'numeric', 'min:0.01', 'max:95'],
             // Preço por quantidade (Pro): "a partir de N un, cada uma sai por R$ X" (ou X% de desconto)
             'price_tiers' => ['sometimes', 'nullable', 'array', 'max:5'],

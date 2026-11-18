@@ -146,7 +146,7 @@ class ArtProofController extends Controller
      * Imagem e PDF: pela extensão E pelo conteúdo (um .exe renomeado pra .png não passa). Modelo 3D (STL, 3MF, OBJ):
      * só pela extensão — não têm um tipo de conteúdo confiável pra conferir.
      */
-    private function allowedFile(): \Closure
+    public static function allowedFile(): \Closure
     {
         $byContent = ['jpg' => ['jpg', 'jpeg'], 'jpeg' => ['jpg', 'jpeg'], 'png' => ['png'], 'webp' => ['webp'], 'gif' => ['gif'], 'pdf' => ['pdf']];
 

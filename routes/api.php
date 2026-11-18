@@ -70,7 +70,9 @@ use App\Http\Controllers\Api\AffiliateOfferController;
 use App\Http\Controllers\Api\AffiliateIntegrationController;
 use App\Http\Controllers\Api\ToursController;
 use App\Http\Controllers\Api\AlexaController;
+use App\Http\Controllers\Api\ArtBriefController;
 use App\Http\Controllers\Api\ArtProofController;
+use App\Http\Controllers\Api\PublicArtBriefController;
 use App\Http\Controllers\Api\PublicArtProofController;
 use App\Http\Controllers\Api\AlexaLinkController;
 use Illuminate\Support\Facades\Route;
@@ -161,6 +163,12 @@ Route::prefix('v1')->group(function () {
     Route::get('/public/art-proof/{token}', [PublicArtProofController::class, 'show'])->middleware('throttle:60,1');
     Route::post('/public/art-proof/{token}/approve', [PublicArtProofController::class, 'approve'])->middleware('throttle:10,1');
     Route::post('/public/art-proof/{token}/changes', [PublicArtProofController::class, 'requestChanges'])->middleware('throttle:10,1');
+
+    // Briefing da arte: o cliente responde as perguntas da loja e anexa referências (sem login)
+    Route::get('/public/art-brief/{token}', [PublicArtBriefController::class, 'show'])->middleware('throttle:60,1');
+    Route::post('/public/art-brief/{token}/files', [PublicArtBriefController::class, 'upload'])->middleware('throttle:30,1');
+    Route::delete('/public/art-brief/{token}/files/{file}', [PublicArtBriefController::class, 'removeFile'])->whereNumber('file')->middleware('throttle:30,1');
+    Route::post('/public/art-brief/{token}', [PublicArtBriefController::class, 'submit'])->middleware('throttle:10,1');
 
     // EnforceTeamAccess: o que cada perfil da equipe acessa e vê (App\Services\TeamAccess)
     Route::middleware([ResolveBotSession::class, 'auth:sanctum', RestrictIntegrationTokens::class, EnforceTeamAccess::class, TrackLastSeen::class, LogImpersonation::class])->group(function () {
@@ -288,6 +296,14 @@ Route::prefix('v1')->group(function () {
             Route::post('/art-proofs/{proof}/send', [ArtProofController::class, 'send'])->middleware('throttle:20,1');
             Route::delete('/art-proofs/{proof}', [ArtProofController::class, 'destroy']);
             Route::get('/art-approval/terms', [ArtProofController::class, 'terms']);
+            Route::get('/art-brief/questions', [ArtBriefController::class, 'questions']);
+            Route::put('/art-brief/questions', [ArtBriefController::class, 'updateQuestions']);
+            Route::post('/art-brief/templates', [ArtBriefController::class, 'storeTemplate']);
+            Route::put('/art-brief/templates/{template}', [ArtBriefController::class, 'updateTemplate']);
+            Route::delete('/art-brief/templates/{template}', [ArtBriefController::class, 'destroyTemplate']);
+            Route::get('/quotes/{quote}/art-brief', [ArtBriefController::class, 'show']);
+            Route::post('/quotes/{quote}/art-brief', [ArtBriefController::class, 'store'])->middleware('throttle:20,1');
+            Route::delete('/art-briefs/{brief}', [ArtBriefController::class, 'destroy']);
             Route::put('/art-approval/terms', [ArtProofController::class, 'updateTerms']);
             Route::get('/product-collections', [ProductCollectionController::class, 'index']);
             Route::post('/product-collections', [ProductCollectionController::class, 'store']);

@@ -85,10 +85,11 @@ class Company extends Model
         'partner_domain', 'partner_domain_verified_at', 'offers_domain', 'offers_domain_verified_at',
         'whatsapp_session_name', 'whatsapp_bot_enabled', 'whatsapp_webhook_url', 'whatsapp_webhook_events',
         'whatsapp_chat_filters', 'whatsapp_status_notifications', 'whatsapp_bot_prompt', 'whatsapp_payment_link', 'whatsapp_pix_key', 'whatsapp_bot_payment',
-        'art_approval_terms',
+        'art_approval_terms', 'art_brief_questions',
     ];
 
     protected $casts = [
+        'art_brief_questions' => 'array',
         'catalog_enabled' => 'boolean',
         'catalog_show_logo' => 'boolean',
         'catalog_show_name' => 'boolean',
@@ -121,7 +122,7 @@ class Company extends Model
      * (webhook, token antigo do catálogo, Stripe). As telas que precisam deles têm rota própria.
      */
     protected $hidden = [
-        'referral_reward', 'referred_by_company_id', 'referral_rewarded_at',
+        'art_brief_questions', 'referral_reward', 'referred_by_company_id', 'referral_rewarded_at',
         'admin_notes', 'comp_note', 'admin_discount', 'pro_trial_notices', 'signup_attribution',
         'whatsapp_webhook_url', 'whatsapp_webhook_events', 'catalog_token',
         'stripe_id', 'pm_type', 'pm_last_four', 'trial_ends_at', 'deletion_paused_subscription',

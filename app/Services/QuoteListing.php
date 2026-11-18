@@ -37,7 +37,7 @@ class QuoteListing
             $query->whereBetween('created_at', [$from, $to]);
         }
 
-        return $query->with([...$relations, 'latestArtProof'])->withCount('reviews')->latest()->latest('id')
+        return $query->with([...$relations, 'latestArtProof', 'latestArtBrief'])->withCount('reviews')->latest()->latest('id')
             ->paginate(self::PER_PAGE, ['*'], 'page', max(1, (int) ($filters['page'] ?? 1)));
     }
 
@@ -72,7 +72,7 @@ class QuoteListing
                 ->orWhere(fn ($q) => $q->whereNull('approved_at')->whereBetween('created_at', [$from, $to])));
         }
 
-        return $query->with([...$relations, 'latestArtProof'])->withCount('reviews')->latest()->latest('id')
+        return $query->with([...$relations, 'latestArtProof', 'latestArtBrief'])->withCount('reviews')->latest()->latest('id')
             ->paginate(self::PER_PAGE, ['*'], 'page', max(1, (int) ($filters['page'] ?? 1)));
     }
 
@@ -111,9 +111,9 @@ class QuoteListing
 
         $active = $approved()
             ->where(fn ($q) => $q->whereNull('production_status')->orWhere('production_status', '!=', Quote::PRODUCTION_DELIVERED))
-            ->with([...$relations, 'latestArtProof'])->withCount('reviews')->orderBy('production_order')->orderBy('id')->get();
+            ->with([...$relations, 'latestArtProof', 'latestArtBrief'])->withCount('reviews')->orderBy('production_order')->orderBy('id')->get();
         $delivered = $approved()->where('production_status', Quote::PRODUCTION_DELIVERED)
-            ->with([...$relations, 'latestArtProof'])->withCount('reviews')->orderByDesc('production_order')->orderByDesc('id')
+            ->with([...$relations, 'latestArtProof', 'latestArtBrief'])->withCount('reviews')->orderByDesc('production_order')->orderByDesc('id')
             ->limit(self::DELIVERED_ON_BOARD)->get()->reverse();
 
         return [
@@ -183,7 +183,7 @@ class QuoteListing
                 'sales' => ['count' => $salesCount, 'profit_amount' => round((float) $row->sales_profit_all, 2)],
                 'quotes' => ['count' => $quotesCount - $salesCount, 'profit_amount' => round((float) $row->quotes_profit_all, 2)],
             ],
-            'recent' => $company->quotes()->with([...$relations, 'latestArtProof'])->withCount('reviews')->latest()->latest('id')->limit(5)->get()
+            'recent' => $company->quotes()->with([...$relations, 'latestArtProof', 'latestArtBrief'])->withCount('reviews')->latest()->latest('id')->limit(5)->get()
                 ->each(fn (Quote $q) => $q->setAttribute('total_cost', $q->totalCost())),
         ];
     }
