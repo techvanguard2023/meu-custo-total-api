@@ -5,6 +5,9 @@ namespace App\Services;
 use App\Models\Company;
 use App\Models\PaymentCharge;
 use App\Models\Quote;
+use App\Services\Payments\GatewayStatus;
+use App\Services\Payments\PaymentGateway;
+use App\Services\Payments\PaymentGateways;
 use BaconQrCode\Renderer\GDLibRenderer;
 use BaconQrCode\Renderer\Image\SvgImageBackEnd;
 use BaconQrCode\Renderer\ImageRenderer;
@@ -17,18 +20,18 @@ use Illuminate\Support\Str;
 use RuntimeException;
 
 /**
- * Cobranças online pelo Mercado Pago (API de Orders), sempre de vendas aprovadas:
+ * Cobranças online pelo gateway da loja (hoje o Mercado Pago — ver Payments\PaymentGateways), sempre de vendas
+ * aprovadas:
  *  - Pix (QR + copia e cola, 24 h) ou link de pagamento (Checkout Pro: cartão parcelado ou Pix, 24 h);
  *  - o valor todo que falta ou uma parte (sinal); pode quitar mais de uma parte do mesmo pedido de uma vez
  *    (pronta entrega + sob encomenda do bot) — `allocations`;
  *  - quem gera: a loja (app), o bot (pedido do WhatsApp) ou o cliente ("Meus pedidos").
- * Quando o Mercado Pago confirma (aviso no webhook ou consulta), cada parte entra no registro de pagamentos da
- * sua venda e o cliente recebe o aviso de pagamento no WhatsApp. Estorno feito aqui ou no Mercado Pago desfaz.
+ * Quando o gateway confirma (aviso no webhook ou consulta), cada parte entra no registro de pagamentos da
+ * sua venda e o cliente recebe o aviso de pagamento no WhatsApp. Estorno feito aqui ou no gateway desfaz.
+ * A conversa com o provedor fica no PaymentGateway; aqui fica a regra do Meu Custo Total.
  */
 class PixCharges
 {
-    public const VALIDITY = 'PT24H';
-
     public const VALIDITY_HOURS = 24;
 
     public const MIN_AMOUNT = 1.0;
@@ -36,21 +39,23 @@ class PixCharges
     /** Pix exige e-mail do pagador; sem o do cliente, vai este (o banco do pagador é quem identifica quem pagou). */
     private const FALLBACK_PAYER_EMAIL = 'pagamentos@meucustototal.com.br';
 
-    /** Consultar o Mercado Pago no máximo a cada N segundos por cobrança (a tela consulta enquanto está aberta). */
+    /** Consultar o gateway no máximo a cada N segundos por cobrança (a tela consulta enquanto está aberta). */
     private const SYNC_EVERY_SECONDS = 8;
 
-    public function __construct(private MercadoPago $api, private MercadoPagoAccounts $accounts) {}
+    public function __construct(private PaymentGateways $gateways) {}
 
     /** Pode cobrar online esta venda? null = pode; senão, o motivo (frase para a tela). */
     public function refusal(Quote $quote): ?string
     {
+        $gateway = $this->gateways->for($quote->company);
+
         return match (true) {
-            ! $quote->company->isPro() => 'O pagamento online (Mercado Pago) é do plano Pro.',
+            ! $quote->company->isPro() => "O pagamento online ({$gateway->label()}) é do plano Pro.",
             $quote->status !== Quote::STATUS_APPROVED || $quote->cancelled_at !== null => 'Só dá para cobrar online venda aprovada.',
             (bool) $quote->is_courtesy => 'Cortesia não tem valor a receber.',
             $quote->sales_channel_id !== null || $quote->display_id !== null => 'Venda de marketplace ou de expositor é recebida por lá.',
             $quote->amount_due < self::MIN_AMOUNT => 'Esta venda não tem valor a receber.',
-            ! $this->accounts->ready($quote->company) => 'Conecte a conta do Mercado Pago em Integrações para cobrar online.',
+            ! $gateway->ready($quote->company) => "Conecte a conta do {$gateway->label()} em Integrações para cobrar online.",
             default => null,
         };
     }
@@ -98,10 +103,11 @@ class PixCharges
             return $open;
         }
 
-        $token = $this->accounts->token($company);
+        $gateway = $this->gateways->for($company);
         $charge = PaymentCharge::create([
             'company_id' => $company->id,
             'quote_id' => $primary->id,
+            'provider' => $gateway->key(),
             'method' => $method,
             'origin' => $origin,
             'amount' => $total,
@@ -113,40 +119,35 @@ class PixCharges
 
         $label = collect(array_keys($parts))->map(fn ($id) => "#{$id}")->implode(' + ');
         try {
-            if ($method === PaymentCharge::METHOD_LINK) {
-                $order = $this->api->createCheckoutOrder($token, $total, "Pedido {$label} — {$company->name}", "mct-{$primary->id}-{$charge->id}", $this->returnUrl($company), "mct-charge-{$charge->id}");
-            } else {
-                $email = $primary->customer?->email && filter_var($primary->customer->email, FILTER_VALIDATE_EMAIL) ? $primary->customer->email : self::FALLBACK_PAYER_EMAIL;
-                $order = $this->api->createPixOrder($token, $total, "mct-{$primary->id}-{$charge->id}", $email, self::VALIDITY, "mct-charge-{$charge->id}");
-            }
+            $created = $method === PaymentCharge::METHOD_LINK
+                ? $gateway->createLink($company, $total, "Pedido {$label} — {$company->name}", "mct-{$primary->id}-{$charge->id}", $this->returnUrl($company), "mct-charge-{$charge->id}")
+                : $gateway->createPix($company, $total, "mct-{$primary->id}-{$charge->id}", $this->payerEmail($primary), self::VALIDITY_HOURS, "mct-charge-{$charge->id}");
         } catch (\Throwable $e) {
             $charge->delete();
-            $this->handleApiError($company, $primary->id, $e);
-            throw new RuntimeException('O Mercado Pago não gerou a cobrança agora. Tente de novo em instantes.');
+            $gateway->handleError($company, $primary->id, $e);
+            throw new RuntimeException("O {$gateway->label()} não gerou a cobrança agora. Tente de novo em instantes.");
         }
 
-        $payment = $order['transactions']['payments'][0] ?? [];
-        $url = $method === PaymentCharge::METHOD_LINK ? ($order['checkout_url'] ?? null) : ($payment['payment_method']['ticket_url'] ?? null);
         $charge->update([
-            'external_id' => $order['id'] ?? null,
-            'external_payment_id' => $payment['id'] ?? null,
-            'provider_status' => trim(($order['status'] ?? '').'/'.($order['status_detail'] ?? ''), '/'),
-            'qr_code' => $payment['payment_method']['qr_code'] ?? null,
-            'ticket_url' => $url ? Str::limit($url, 500, '') : null,
+            'external_id' => $created->externalId,
+            'external_payment_id' => $created->externalPaymentId,
+            'provider_status' => $created->providerStatus,
+            'qr_code' => $created->qrCode,
+            'ticket_url' => $created->url ? Str::limit($created->url, 500, '') : null,
             'synced_at' => now(),
         ]);
         if ($method === PaymentCharge::METHOD_PIX && ! $charge->qr_code || $method === PaymentCharge::METHOD_LINK && ! $charge->ticket_url) {
-            Log::warning("Mercado Pago: cobrança sem QR/link (venda {$primary->id}, pedido {$charge->external_id})");
+            Log::warning("{$gateway->label()}: cobrança sem QR/link (venda {$primary->id}, pedido {$charge->external_id})");
         }
 
         return $charge->fresh();
     }
 
     /**
-     * Cobranças que o bot manda no pedido do WhatsApp, pela regra da loja (Integrações → Mercado Pago): valor total,
-     * ou sinal de X% nas partes sob encomenda (pronta entrega sempre inteira), ou nada. Gera o Pix e o link de
+     * Cobranças que o bot manda no pedido do WhatsApp, pela regra da loja (Integrações → pagamento online): valor
+     * total, ou sinal de X% nas partes sob encomenda (pronta entrega sempre inteira), ou nada. Gera o Pix e o link de
      * cartão (crédito ou débito) do mesmo valor; o que o cliente pagar primeiro cancela o outro (ver apply()).
-     * Vazio = sem cobrança online (regra desligada, loja sem conta conectada ou o Mercado Pago falhou — o pedido
+     * Vazio = sem cobrança online (regra desligada, loja sem conta conectada ou o gateway falhou — o pedido
      * segue normal).
      *
      * @param  Collection<int, Quote>  $quotes
@@ -155,7 +156,7 @@ class PixCharges
     public function forBotOrder(Company $company, Collection $quotes): Collection
     {
         $rules = self::rules($company);
-        if ($rules['bot_pix'] === 'off' || ! $company->isPro() || ! $this->accounts->ready($company)) {
+        if ($rules['bot_pix'] === 'off' || ! $company->isPro() || ! $this->ready($company)) {
             return collect();
         }
         $parts = [];
@@ -246,7 +247,7 @@ class PixCharges
             $messages[] = ['type' => 'text', 'text' => $pix->qr_code];
         }
         if ($link = $charges->get('link')) {
-            $messages[] = ['type' => 'text', 'text' => "💳 Prefere cartão de crédito ou débito? Pague {$fmt($link->amount)} por este link do Mercado Pago:\n{$link->ticket_url}"];
+            $messages[] = ['type' => 'text', 'text' => "💳 Prefere cartão de crédito ou débito? Pague {$fmt($link->amount)} por este link do {$this->gateways->forCharge($link)->label()}:\n{$link->ticket_url}"];
         }
 
         return $messages;
@@ -294,7 +295,13 @@ class PixCharges
         ];
     }
 
-    /** Consulta o Mercado Pago e aplica a situação. $force ignora o intervalo mínimo (aviso do webhook). */
+    /** A loja pode cobrar online agora (plano e gateway conectado)? Usado também por "Meus pedidos". */
+    public function ready(Company $company): bool
+    {
+        return $company->isPro() && $this->gateways->for($company)->ready($company);
+    }
+
+    /** Consulta o gateway e aplica a situação. $force ignora o intervalo mínimo (aviso do webhook). */
     public function sync(PaymentCharge $charge, bool $force = false): PaymentCharge
     {
         if (! $charge->external_id || in_array($charge->status, [PaymentCharge::STATUS_CANCELED, PaymentCharge::STATUS_FAILED, PaymentCharge::STATUS_REFUNDED], true)) {
@@ -304,62 +311,60 @@ class PixCharges
             return $charge;
         }
         $company = Company::find($charge->company_id);
+        $gateway = $this->gateways->forCharge($charge);
         try {
-            $order = $this->api->getOrder($this->accounts->token($company), $charge->external_id);
+            $status = $gateway->fetch($company, $charge->external_id);
         } catch (\Throwable $e) {
             $charge->update(['synced_at' => now()]);
-            $this->handleApiError($company, $charge->quote_id, $e);
+            $gateway->handleError($company, $charge->quote_id, $e);
 
             return $charge;
         }
 
-        return $this->apply($charge, $order);
+        return $this->apply($charge, $status);
     }
 
-    /** Aplica a situação do pedido do Mercado Pago (com trava: aviso e consulta ao mesmo tempo não pagam duas vezes). */
-    public function apply(PaymentCharge $charge, array $order): PaymentCharge
+    /** Aplica a situação vinda do gateway (com trava: aviso e consulta ao mesmo tempo não pagam duas vezes). */
+    public function apply(PaymentCharge $charge, GatewayStatus $status): PaymentCharge
     {
-        $status = (string) ($order['status'] ?? '');
-        $detail = (string) ($order['status_detail'] ?? '');
-
+        $gateway = $this->gateways->forCharge($charge);
         $becamePaid = false;
-        DB::transaction(function () use ($charge, $order, $status, $detail, &$becamePaid) {
+        DB::transaction(function () use ($charge, $status, $gateway, &$becamePaid) {
             $locked = PaymentCharge::lockForUpdate()->find($charge->id);
-            $payment = $order['transactions']['payments'][0] ?? [];
-            $paymentId = (string) ($payment['id'] ?? $locked->external_payment_id ?? $locked->external_id);
-            $changes = ['provider_status' => trim("{$status}/{$detail}", '/'), 'synced_at' => now()];
-            if (! empty($payment['id'])) {
-                $changes['external_payment_id'] = (string) $payment['id'];
+            $paymentId = (string) ($status->paymentId ?? $locked->external_payment_id ?? $locked->external_id);
+            $changes = ['provider_status' => $status->providerStatus, 'synced_at' => now()];
+            if ($status->paymentId) {
+                $changes['external_payment_id'] = $status->paymentId;
             }
 
-            $refunded = $status === 'refunded' || ($status === 'processed' && $detail === 'refunded') || $status === 'charged_back';
-            $paid = ! $refunded && $status === 'processed';
             $parts = $locked->parts();
             $multi = count($parts) > 1;
 
-            if ($paid && $locked->status !== PaymentCharge::STATUS_PAID) {
-                $method = $this->paymentMethod($payment, $locked->method);
-                $label = $locked->method === PaymentCharge::METHOD_LINK ? 'Link do Mercado Pago' : 'Pix pelo Mercado Pago';
+            if ($status->state === GatewayStatus::PAID && $locked->status !== PaymentCharge::STATUS_PAID) {
+                $method = $status->paymentMethod ?? ($locked->method === PaymentCharge::METHOD_LINK ? Quote::PAYMENT_CREDIT : Quote::PAYMENT_PIX);
+                $label = $locked->method === PaymentCharge::METHOD_LINK ? "Link do {$gateway->label()}" : "Pix pelo {$gateway->label()}";
                 foreach ($parts as $quoteId => $amount) {
                     if ($quote = Quote::find($quoteId)) {
-                        app(QuotePayments::class)->addOnline($quote, $amount, $method, $paymentId.($multi ? ":{$quoteId}" : ''), "{$label} (#{$locked->id})");
+                        app(QuotePayments::class)->addOnline($quote, $amount, $method, $paymentId.($multi ? ":{$quoteId}" : ''), "{$label} (#{$locked->id})", $gateway->key());
                     }
                 }
                 $changes += ['status' => PaymentCharge::STATUS_PAID, 'paid_at' => now()];
                 $becamePaid = true;
-            } elseif ($refunded && $locked->status === PaymentCharge::STATUS_PAID) {
+            } elseif ($status->state === GatewayStatus::REFUNDED && $locked->status === PaymentCharge::STATUS_PAID) {
                 foreach ($parts as $quoteId => $amount) {
                     if ($quote = Quote::find($quoteId)) {
-                        app(QuotePayments::class)->removeOnline($quote, $amount, "refund:{$paymentId}".($multi ? ":{$quoteId}" : ''), "Estornado no Mercado Pago (#{$locked->id})");
+                        app(QuotePayments::class)->removeOnline($quote, $amount, "refund:{$paymentId}".($multi ? ":{$quoteId}" : ''), "Estornado no {$gateway->label()} (#{$locked->id})", $gateway->key());
                     }
                 }
                 $changes['status'] = PaymentCharge::STATUS_REFUNDED;
-            } elseif (! $paid && ! $refunded && $locked->status === PaymentCharge::STATUS_PENDING && in_array($status, ['canceled', 'failed', 'expired'], true)) {
+            } elseif ($locked->status === PaymentCharge::STATUS_PENDING && in_array($status->state, [GatewayStatus::CANCELED, GatewayStatus::FAILED, GatewayStatus::EXPIRED], true)) {
                 // Link: tentativa de cartão recusada não encerra o link (o cliente pode tentar de novo); só o cancelamento/validade
-                if (! ($locked->method === PaymentCharge::METHOD_LINK && $status === 'failed')) {
-                    $changes['status'] = $detail === 'expired' || $status === 'expired'
-                        ? PaymentCharge::STATUS_EXPIRED
-                        : ($status === 'failed' ? PaymentCharge::STATUS_FAILED : PaymentCharge::STATUS_CANCELED);
+                if (! ($locked->method === PaymentCharge::METHOD_LINK && $status->state === GatewayStatus::FAILED)) {
+                    $changes['status'] = match ($status->state) {
+                        GatewayStatus::EXPIRED => PaymentCharge::STATUS_EXPIRED,
+                        GatewayStatus::FAILED => PaymentCharge::STATUS_FAILED,
+                        default => PaymentCharge::STATUS_CANCELED,
+                    };
                 }
             }
             $locked->update($changes);
@@ -374,7 +379,7 @@ class PixCharges
 
     /**
      * Pagou por um caminho (ex.: Pix do bot): as outras cobranças abertas das mesmas vendas (ex.: o link do cartão
-     * mandado junto) são canceladas no Mercado Pago, para o cliente não pagar duas vezes.
+     * mandado junto) são canceladas no gateway, para o cliente não pagar duas vezes.
      */
     private function cancelSiblings(PaymentCharge $paid): void
     {
@@ -387,42 +392,37 @@ class PixCharges
         }
         $company = Company::find($paid->company_id);
         foreach ($others as $other) {
+            $gateway = $this->gateways->forCharge($other);
             try {
                 if ($other->external_id) {
-                    $this->api->cancelOrder($this->accounts->token($company), $other->external_id);
+                    $gateway->cancel($company, $other->external_id);
                 }
                 $other->update(['status' => PaymentCharge::STATUS_CANCELED]);
             } catch (\Throwable $e) {
-                Log::warning("Mercado Pago: cobrança #{$other->id} não cancelada depois do pagamento da #{$paid->id}: ".Str::limit($e->getMessage(), 200));
+                Log::warning("{$gateway->label()}: cobrança #{$other->id} não cancelada depois do pagamento da #{$paid->id}: ".Str::limit($e->getMessage(), 200));
             }
         }
     }
 
-    /** Estorno pelo sistema (só cobrança paga): pede ao Mercado Pago e aplica a resposta na hora. */
+    /** Estorno pelo sistema (só cobrança paga): pede ao gateway e aplica a resposta na hora. */
     public function refund(PaymentCharge $charge): PaymentCharge
     {
+        $gateway = $this->gateways->forCharge($charge);
         if ($charge->status !== PaymentCharge::STATUS_PAID || ! $charge->external_id) {
-            throw new RuntimeException('Só dá para estornar um pagamento já recebido pelo Mercado Pago.');
+            throw new RuntimeException("Só dá para estornar um pagamento já recebido pelo {$gateway->label()}.");
         }
         $company = Company::find($charge->company_id);
         try {
-            $this->api->refundOrder($this->accounts->token($company), $charge->external_id);
-            $order = $this->api->getOrder($this->accounts->token($company), $charge->external_id);
+            $status = $gateway->refund($company, $charge->external_id);
         } catch (\Throwable $e) {
-            $this->handleApiError($company, $charge->quote_id, $e);
-            throw new RuntimeException('O Mercado Pago não fez o estorno agora. Tente de novo ou estorne pelo app do Mercado Pago.');
+            $gateway->handleError($company, $charge->quote_id, $e);
+            throw new RuntimeException("O {$gateway->label()} não fez o estorno agora. Tente de novo ou estorne pelo app do {$gateway->label()}.");
         }
 
-        // O Mercado Pago aceitou o estorno; a consulta logo depois pode ainda não mostrar — aplica como estornado
-        if (($order['status'] ?? '') !== 'refunded' && ($order['status_detail'] ?? '') !== 'refunded') {
-            $order['status'] = 'refunded';
-            $order['status_detail'] = 'refunded';
-        }
-
-        return $this->apply($charge, $order);
+        return $this->apply($charge, $status);
     }
 
-    /** O que a tela recebe (sem nada do Mercado Pago além do Pix/link em si). */
+    /** O que a tela recebe (sem nada do gateway além do Pix/link em si). */
     public function present(PaymentCharge $charge): array
     {
         $open = $charge->isOpen();
@@ -460,32 +460,17 @@ class PixCharges
         return (new Writer(new GDLibRenderer(480, 2)))->writeString($code);
     }
 
-    /** Forma do pagamento no registro: cartão (crédito/débito) ou Pix, conforme o que o cliente usou. */
-    private function paymentMethod(array $payment, string $chargeMethod): string
+    /** Pix exige e-mail do pagador em alguns gateways; sem o do cliente, vai o da plataforma. */
+    private function payerEmail(Quote $quote): string
     {
-        $type = (string) ($payment['payment_method']['type'] ?? '');
-        $id = (string) ($payment['payment_method']['id'] ?? '');
+        $email = $quote->customer?->email;
 
-        return match (true) {
-            $type === 'credit_card' => Quote::PAYMENT_CREDIT,
-            in_array($type, ['debit_card', 'prepaid_card'], true) => Quote::PAYMENT_DEBIT,
-            $id === 'pix' || $type === 'bank_transfer' => Quote::PAYMENT_PIX,
-            default => $chargeMethod === PaymentCharge::METHOD_LINK ? Quote::PAYMENT_CREDIT : Quote::PAYMENT_PIX,
-        };
+        return $email && filter_var($email, FILTER_VALIDATE_EMAIL) ? $email : self::FALLBACK_PAYER_EMAIL;
     }
 
     /** Volta do link pago: o "Meus pedidos" da loja (ou o catálogo). */
     private function returnUrl(Company $company): ?string
     {
         return $company->hasCatalogActive() ? rtrim($company->catalogUrl(), '/').'/meus-pedidos?pagamento=1' : null;
-    }
-
-    /** Acesso recusado (401): a loja revogou no Mercado Pago — marca para conectar de novo. */
-    private function handleApiError(?Company $company, int $quoteId, \Throwable $e): void
-    {
-        Log::warning("Mercado Pago (venda {$quoteId}): ".Str::limit($e->getMessage(), 300));
-        if ($company && $e instanceof MercadoPagoException && $e->getCode() === 401 && ($account = $this->accounts->account($company))) {
-            $this->accounts->revokeByProviderUser($account->provider_user_id);
-        }
     }
 }

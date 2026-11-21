@@ -25,6 +25,8 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->bind(\App\Services\Alexa\AlexaRequestVerifier::class, fn () => new \App\Services\Alexa\AlexaRequestVerifier(config('services.alexa.skill_id')));
+        // Registro dos gateways de pagamento (Mercado Pago hoje): um só por requisição
+        $this->app->singleton(\App\Services\Payments\PaymentGateways::class);
     }
 
     /**

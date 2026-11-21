@@ -11,7 +11,6 @@ use App\Models\PaymentCharge;
 use App\Support\Delivery;
 use App\Services\Cashback;
 use App\Services\CustomerPortal;
-use App\Services\MercadoPagoAccounts;
 use App\Services\PixCharges;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -133,7 +132,7 @@ class CustomerPortalController extends Controller
 
     private function onlinePaymentReady(Company $company): bool
     {
-        return $company->isPro() && app(MercadoPagoAccounts::class)->ready($company);
+        return app(PixCharges::class)->ready($company);
     }
 
     private function customerIdsOrFail(Company $company, Request $request): Collection

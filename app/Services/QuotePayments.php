@@ -56,9 +56,9 @@ class QuotePayments
      * Pagamento confirmado pelo provedor (Pix pago): soma ao recebido, sem passar do total da venda. Devolve o
      * valor que entrou de fato (0 se a venda já estava quitada ou é cortesia). Avisa o cliente no WhatsApp.
      */
-    public function addOnline(Quote $quote, float $amount, string $method, string $externalId, ?string $note = null): float
+    public function addOnline(Quote $quote, float $amount, string $method, string $externalId, ?string $note = null, string $source = QuotePayment::SOURCE_MERCADOPAGO): float
     {
-        $applied = DB::transaction(function () use ($quote, $amount, $method, $externalId, $note) {
+        $applied = DB::transaction(function () use ($quote, $amount, $method, $externalId, $note, $source) {
             $quote = Quote::lockForUpdate()->findOrFail($quote->id);
             if ($quote->is_courtesy) {
                 return 0.0;
@@ -71,7 +71,8 @@ class QuotePayments
             $settled = $after >= (float) $quote->final_price;
 
             self::withContext(
-                ['source' => QuotePayment::SOURCE_MERCADOPAGO, 'method' => $method, 'external_id' => $externalId, 'note' => $note, 'user_id' => null],
+                // source = gateway que confirmou (mercadopago, pagbank...)
+                ['source' => $source, 'method' => $method, 'external_id' => $externalId, 'note' => $note, 'user_id' => null],
                 fn () => $quote->update([
                     'amount_paid' => $after,
                     'paid_at' => $settled ? ($quote->paid_at ?? now()) : null,
@@ -92,13 +93,13 @@ class QuotePayments
     }
 
     /** Estorno feito no provedor: tira do recebido o que tinha entrado por aquele pagamento. */
-    public function removeOnline(Quote $quote, float $amount, string $externalId, string $note): void
+    public function removeOnline(Quote $quote, float $amount, string $externalId, string $note, string $source = QuotePayment::SOURCE_MERCADOPAGO): void
     {
-        DB::transaction(function () use ($quote, $amount, $externalId, $note) {
+        DB::transaction(function () use ($quote, $amount, $externalId, $note, $source) {
             $quote = Quote::lockForUpdate()->findOrFail($quote->id);
             $after = round(max(0, (float) $quote->amount_paid - $amount), 2);
             self::withContext(
-                ['source' => QuotePayment::SOURCE_MERCADOPAGO, 'external_id' => $externalId, 'note' => $note, 'user_id' => null],
+                ['source' => $source, 'external_id' => $externalId, 'note' => $note, 'user_id' => null],
                 fn () => $quote->update(['amount_paid' => $after, 'paid_at' => $after >= (float) $quote->final_price ? $quote->paid_at : null]),
             );
         });
