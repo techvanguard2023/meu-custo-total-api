@@ -66,7 +66,7 @@ class PagBankTest extends TestCase
         $this->token = $owner->createToken('api')->plainTextToken;
         PaymentAccount::create([
             'company_id' => $this->company->id, 'provider' => 'pagbank', 'provider_user_id' => 'ACCO_LOJA', 'access_token' => 'tok-loja',
-            'refresh_token' => 'ref-loja', 'expires_at' => now()->addYear(), 'connected_at' => now(),
+            'refresh_token' => 'ref-loja', 'expires_at' => now()->addYear(), 'connected_at' => now(), 'live_mode' => false,
         ]);
         $this->customer = Customer::create(['company_id' => $this->company->id, 'name' => 'Ana Lima', 'phone' => '(21) 99999-0000', 'email' => 'ana@cliente.test', 'tax_id' => '12345678909']);
         $this->quote = Quote::forceCreate([
@@ -357,6 +357,17 @@ class PagBankTest extends TestCase
 
         $post(['HTTP_X_AUTHENTICITY_TOKEN' => strtoupper(hash('sha256', 'tok-loja-'.$raw))])->assertOk();
         $this->assertSame(PaymentCharge::STATUS_PAID, PaymentCharge::find($pixId)->status);
+    }
+
+    public function test_account_from_the_other_environment_does_not_charge(): void
+    {
+        // Conectada no sandbox; o sistema agora fala com a API real
+        config(['services.pagbank.sandbox' => false]);
+
+        $this->withToken($this->token)->getJson('/api/v1/payments/pagbank')->assertOk()
+            ->assertJsonPath('sandbox', false)->assertJsonPath('connected', false)->assertJsonPath('account', null);
+        $this->assertFalse(app(PagBankAccounts::class)->ready($this->company));
+        Http::assertNothingSent();
     }
 
     public function test_customer_document_is_validated_and_stored_as_digits(): void

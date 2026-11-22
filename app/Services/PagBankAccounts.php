@@ -143,7 +143,9 @@ class PagBankAccounts
     /** A conta do PagBank da loja (null se ela não conectou, ou conectou outro gateway). */
     public function account(Company $company): ?PaymentAccount
     {
-        return PaymentAccount::where('company_id', $company->id)->where('provider', self::PROVIDER)->first();
+        // Conta conectada no outro ambiente (sandbox x produção) não vale aqui: a loja conecta de novo
+        return PaymentAccount::where('company_id', $company->id)->where('provider', self::PROVIDER)
+            ->where('live_mode', ! config('services.pagbank.sandbox'))->first();
     }
 
     /** Conectada e pronta para cobrar (ou o token de teste local). */

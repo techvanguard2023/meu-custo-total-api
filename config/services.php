@@ -104,8 +104,9 @@ return [
     // Pagamento online pelo PagBank (alternativa ao Mercado Pago; a loja usa um dos dois). Aplicação da plataforma
     // no PagBank Connect: cada loja autoriza a própria conta e o dinheiro cai direto nela.
     'pagbank' => [
-        // true = sandbox (sandbox.api.pagseguro.com / connect.sandbox.pagbank.com.br)
-        'sandbox' => (bool) env('PAGBANK_SANDBOX', true),
+        // true = sandbox (sandbox.api.pagseguro.com / connect.sandbox.pagbank.com.br). Em produção é sempre a API
+        // real, mesmo com PAGBANK_SANDBOX=true esquecido no .env; fora dela, sandbox por padrão.
+        'sandbox' => env('APP_ENV') === 'production' ? false : (bool) env('PAGBANK_SANDBOX', true),
         // Aplicação Connect (POST /oauth2/application): client_id e client_secret
         'client_id' => env('PAGBANK_CLIENT_ID'),
         'client_secret' => env('PAGBANK_CLIENT_SECRET'),
