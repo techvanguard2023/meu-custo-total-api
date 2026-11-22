@@ -58,7 +58,7 @@ class MercadoPagoAccounts
         }
 
         // A mesma conta do Mercado Pago não pode receber por duas lojas (os avisos chegam pelo usuário dela)
-        $other = PaymentAccount::where('provider_user_id', (string) $token['user_id'])->where('company_id', '!=', $company->id)->whereNull('revoked_at')->exists();
+        $other = PaymentAccount::where('provider', 'mercadopago')->where('provider_user_id', (string) $token['user_id'])->where('company_id', '!=', $company->id)->whereNull('revoked_at')->exists();
         if ($other) {
             throw new RuntimeException('Esta conta do Mercado Pago já está conectada a outra loja do Meu Custo Total.');
         }
@@ -79,9 +79,10 @@ class MercadoPagoAccounts
         return $company;
     }
 
+    /** A conta do Mercado Pago da loja (null se ela não conectou, ou conectou outro gateway). */
     public function account(Company $company): ?PaymentAccount
     {
-        return PaymentAccount::where('company_id', $company->id)->first();
+        return PaymentAccount::where('company_id', $company->id)->where('provider', 'mercadopago')->first();
     }
 
     /** Conectada e pronta para cobrar (ou o token de teste local). */
@@ -130,13 +131,13 @@ class MercadoPagoAccounts
     /** Desconectar: a loja deixa de gerar Pix (os Pix já gerados continuam valendo no Mercado Pago). */
     public function disconnect(Company $company): void
     {
-        PaymentAccount::where('company_id', $company->id)->delete();
+        PaymentAccount::where('company_id', $company->id)->where('provider', 'mercadopago')->delete();
     }
 
     /** Aviso "mp-connect" (o lojista revogou o acesso no Mercado Pago) ou token recusado (401). */
     public function revokeByProviderUser(string $providerUserId): void
     {
-        PaymentAccount::where('provider_user_id', $providerUserId)->whereNull('revoked_at')
+        PaymentAccount::where('provider', 'mercadopago')->where('provider_user_id', $providerUserId)->whereNull('revoked_at')
             ->update(['revoked_at' => now(), 'last_error' => 'Acesso revogado no Mercado Pago']);
     }
 

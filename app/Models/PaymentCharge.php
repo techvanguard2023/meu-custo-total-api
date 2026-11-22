@@ -17,12 +17,14 @@ class PaymentCharge extends Model
 
     protected $fillable = [
         'company_id', 'quote_id', 'provider', 'method', 'origin', 'allocations', 'external_id', 'external_payment_id', 'amount', 'status',
-        'provider_status', 'qr_code', 'ticket_url', 'expires_at', 'paid_at', 'synced_at', 'user_id',
+        'provider_status', 'qr_code', 'ticket_url', 'meta', 'expires_at', 'paid_at', 'synced_at', 'user_id',
     ];
 
     protected $casts = [
         'amount' => 'decimal:2',
         'allocations' => 'array',
+        // Dados do provedor fora dos ids padrão (PagBank: order_id do pedido gerado pelo link pago)
+        'meta' => 'array',
         'expires_at' => 'datetime',
         'paid_at' => 'datetime',
         'synced_at' => 'datetime',

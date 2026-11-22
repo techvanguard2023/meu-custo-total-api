@@ -3,6 +3,7 @@
 namespace App\Services\Payments;
 
 use App\Models\Company;
+use App\Models\PaymentCharge;
 use App\Models\Quote;
 use App\Services\MercadoPago;
 use App\Services\MercadoPagoAccounts;
@@ -35,9 +36,9 @@ class MercadoPagoGateway implements PaymentGateway
         return $this->accounts->ready($company);
     }
 
-    public function createPix(Company $company, float $amount, string $reference, string $payerEmail, int $validityHours, string $idempotencyKey): GatewayCharge
+    public function createPix(Company $company, float $amount, string $reference, Payer $payer, int $validityHours, string $idempotencyKey): GatewayCharge
     {
-        $order = $this->api->createPixOrder($this->accounts->token($company), $amount, $reference, $payerEmail, "PT{$validityHours}H", $idempotencyKey);
+        $order = $this->api->createPixOrder($this->accounts->token($company), $amount, $reference, $payer->email, "PT{$validityHours}H", $idempotencyKey);
         $payment = $order['transactions']['payments'][0] ?? [];
 
         return new GatewayCharge(
@@ -63,20 +64,20 @@ class MercadoPagoGateway implements PaymentGateway
         );
     }
 
-    public function fetch(Company $company, string $externalId): GatewayStatus
+    public function fetch(Company $company, PaymentCharge $charge): GatewayStatus
     {
-        return self::translate($this->api->getOrder($this->accounts->token($company), $externalId));
+        return self::translate($this->api->getOrder($this->accounts->token($company), $charge->external_id));
     }
 
-    public function cancel(Company $company, string $externalId): void
+    public function cancel(Company $company, PaymentCharge $charge): void
     {
-        $this->api->cancelOrder($this->accounts->token($company), $externalId);
+        $this->api->cancelOrder($this->accounts->token($company), $charge->external_id);
     }
 
-    public function refund(Company $company, string $externalId): GatewayStatus
+    public function refund(Company $company, PaymentCharge $charge): GatewayStatus
     {
-        $this->api->refundOrder($this->accounts->token($company), $externalId);
-        $status = $this->fetch($company, $externalId);
+        $this->api->refundOrder($this->accounts->token($company), $charge->external_id);
+        $status = $this->fetch($company, $charge);
 
         // O Mercado Pago aceitou o estorno; a consulta logo depois pode ainda não mostrar — vale como estornado
         return $status->state === GatewayStatus::REFUNDED ? $status : $status->withState(GatewayStatus::REFUNDED);

@@ -31,6 +31,8 @@ class MercadoPagoController extends Controller
             'pro' => $company->isPro(),
             'test_mode' => $test,
             'connected' => (bool) $account?->isActive(),
+            // Outro gateway conectado (conectar o Mercado Pago troca por ele)
+            'other_gateway' => ($current = \App\Models\PaymentAccount::where('company_id', $company->id)->value('provider')) && $current !== 'mercadopago' ? $current : null,
             'rules' => PixCharges::rules($company),
             'account' => $account ? [
                 'connected_at' => $account->connected_at?->toIso8601String(),

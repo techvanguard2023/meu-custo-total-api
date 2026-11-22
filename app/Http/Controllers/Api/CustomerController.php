@@ -346,14 +346,22 @@ class CustomerController extends Controller
 
     private function validated(Request $request): array
     {
+        // CPF/CNPJ chega com máscara ou sem: guarda só os dígitos
+        if ($request->has('tax_id')) {
+            $digits = preg_replace('/\D/', '', (string) $request->input('tax_id'));
+            $request->merge(['tax_id' => $digits === '' ? null : $digits]);
+        }
+
         return $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'phone' => ['nullable', 'string', 'max:255'],
             'email' => ['nullable', 'email', 'max:255'],
+            // Opcional. O Pix pelo PagBank exige o documento do comprador
+            'tax_id' => ['nullable', 'regex:/^(\d{11}|\d{14})$/'],
             'notes' => ['nullable', 'string'],
             // Não recebe cupons automáticos (reativação) pelo WhatsApp
             'promo_opt_out' => ['sometimes', 'boolean'],
-        ]);
+        ], ['tax_id.regex' => 'CPF precisa de 11 dígitos e CNPJ de 14.']);
     }
 
     private function authorizeCompany(Request $request, Customer $customer): void

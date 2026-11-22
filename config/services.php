@@ -101,6 +101,24 @@ return [
         'test_access_token' => env('MERCADOPAGO_TEST_ACCESS_TOKEN'),
     ],
 
+    // Pagamento online pelo PagBank (alternativa ao Mercado Pago; a loja usa um dos dois). Aplicação da plataforma
+    // no PagBank Connect: cada loja autoriza a própria conta e o dinheiro cai direto nela.
+    'pagbank' => [
+        // true = sandbox (sandbox.api.pagseguro.com / connect.sandbox.pagbank.com.br)
+        'sandbox' => (bool) env('PAGBANK_SANDBOX', true),
+        // Aplicação Connect (POST /oauth2/application): client_id e client_secret
+        'client_id' => env('PAGBANK_CLIENT_ID'),
+        'client_secret' => env('PAGBANK_CLIENT_SECRET'),
+        // Token da conta PagBank da plataforma: troca do código pelo acesso da loja e chave pública dos webhooks
+        'platform_token' => env('PAGBANK_PLATFORM_TOKEN'),
+        // Precisa ser igual ao redirect_uri cadastrado na aplicação
+        'redirect_uri' => env('PAGBANK_REDIRECT_URI', rtrim((string) env('APP_URL', 'http://localhost'), '/').'/api/v1/pagbank/callback'),
+        // Endereço que o PagBank chama nos avisos de pagamento (precisa ser público, HTTPS em produção)
+        'webhook_url' => env('PAGBANK_WEBHOOK_URL', rtrim((string) env('APP_URL', 'http://localhost'), '/').'/api/v1/webhooks/pagbank'),
+        // Só para testes locais: token de uma conta sandbox vendedora (dispensa o Connect)
+        'test_access_token' => env('PAGBANK_TEST_ACCESS_TOKEN'),
+    ],
+
     // Frete (Melhor Envio): app da plataforma cadastrado em Integrações → Área Dev; cada loja conecta a própria conta
     // Chave do fluxo do bot no n8n (um fluxo para todas as lojas): com o cabeçalho X-Bot-Session, a chamada vale para
     // a loja dona daquela sessão do WhatsApp. Ver App\Http\Middleware\ResolveBotSession.

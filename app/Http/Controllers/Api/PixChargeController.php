@@ -35,6 +35,8 @@ class PixChargeController extends Controller
             'amount_paid' => (float) $quote->amount_paid,
             'amount_due' => $quote->amount_due,
             'validity_hours' => PixCharges::VALIDITY_HOURS,
+            // Nome do gateway da loja (Mercado Pago, PagBank) para os textos da tela
+            'gateway' => app(\App\Services\Payments\PaymentGateways::class)->for($quote->company)->label(),
             'charges' => $charges->values(),
             'payments' => $quote->payments()->with('user:id,name')->get()->map(fn (QuotePayment $p) => [
                 'id' => $p->id,

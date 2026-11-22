@@ -6,6 +6,8 @@ use App\Models\Company;
 use App\Models\PaymentCharge;
 use App\Models\Quote;
 use App\Services\Payments\GatewayStatus;
+use App\Services\Payments\Payer;
+use App\Services\Payments\PaymentRefused;
 use App\Services\Payments\PaymentGateway;
 use App\Services\Payments\PaymentGateways;
 use BaconQrCode\Renderer\GDLibRenderer;
@@ -35,9 +37,6 @@ class PixCharges
     public const VALIDITY_HOURS = 24;
 
     public const MIN_AMOUNT = 1.0;
-
-    /** Pix exige e-mail do pagador; sem o do cliente, vai este (o banco do pagador é quem identifica quem pagou). */
-    private const FALLBACK_PAYER_EMAIL = 'pagamentos@meucustototal.com.br';
 
     /** Consultar o gateway no máximo a cada N segundos por cobrança (a tela consulta enquanto está aberta). */
     private const SYNC_EVERY_SECONDS = 8;
@@ -121,7 +120,11 @@ class PixCharges
         try {
             $created = $method === PaymentCharge::METHOD_LINK
                 ? $gateway->createLink($company, $total, "Pedido {$label} — {$company->name}", "mct-{$primary->id}-{$charge->id}", $this->returnUrl($company), "mct-charge-{$charge->id}")
-                : $gateway->createPix($company, $total, "mct-{$primary->id}-{$charge->id}", $this->payerEmail($primary), self::VALIDITY_HOURS, "mct-charge-{$charge->id}");
+                : $gateway->createPix($company, $total, "mct-{$primary->id}-{$charge->id}", Payer::fromCustomer($primary->customer), self::VALIDITY_HOURS, "mct-charge-{$charge->id}");
+        } catch (PaymentRefused $e) {
+            // Falta um dado que o gateway exige (ex.: CPF do cliente no PagBank): a frase dele vai para a tela
+            $charge->delete();
+            throw new RuntimeException($e->getMessage());
         } catch (\Throwable $e) {
             $charge->delete();
             $gateway->handleError($company, $primary->id, $e);
@@ -313,7 +316,7 @@ class PixCharges
         $company = Company::find($charge->company_id);
         $gateway = $this->gateways->forCharge($charge);
         try {
-            $status = $gateway->fetch($company, $charge->external_id);
+            $status = $gateway->fetch($company, $charge);
         } catch (\Throwable $e) {
             $charge->update(['synced_at' => now()]);
             $gateway->handleError($company, $charge->quote_id, $e);
@@ -395,7 +398,7 @@ class PixCharges
             $gateway = $this->gateways->forCharge($other);
             try {
                 if ($other->external_id) {
-                    $gateway->cancel($company, $other->external_id);
+                    $gateway->cancel($company, $other);
                 }
                 $other->update(['status' => PaymentCharge::STATUS_CANCELED]);
             } catch (\Throwable $e) {
@@ -413,7 +416,7 @@ class PixCharges
         }
         $company = Company::find($charge->company_id);
         try {
-            $status = $gateway->refund($company, $charge->external_id);
+            $status = $gateway->refund($company, $charge);
         } catch (\Throwable $e) {
             $gateway->handleError($company, $charge->quote_id, $e);
             throw new RuntimeException("O {$gateway->label()} não fez o estorno agora. Tente de novo ou estorne pelo app do {$gateway->label()}.");
@@ -458,14 +461,6 @@ class PixCharges
     public function qrPng(string $code): string
     {
         return (new Writer(new GDLibRenderer(480, 2)))->writeString($code);
-    }
-
-    /** Pix exige e-mail do pagador em alguns gateways; sem o do cliente, vai o da plataforma. */
-    private function payerEmail(Quote $quote): string
-    {
-        $email = $quote->customer?->email;
-
-        return $email && filter_var($email, FILTER_VALIDATE_EMAIL) ? $email : self::FALLBACK_PAYER_EMAIL;
     }
 
     /** Volta do link pago: o "Meus pedidos" da loja (ou o catálogo). */

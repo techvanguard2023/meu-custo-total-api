@@ -114,7 +114,7 @@ class FakePayGateway implements PaymentGateway
         return self::$ready;
     }
 
-    public function createPix(Company $company, float $amount, string $reference, string $payerEmail, int $validityHours, string $idempotencyKey): GatewayCharge
+    public function createPix(Company $company, float $amount, string $reference, \App\Services\Payments\Payer $payer, int $validityHours, string $idempotencyKey): GatewayCharge
     {
         return new GatewayCharge('FK-'.$reference, null, 'waiting', 'FAKE-PIX-'.number_format($amount, 2, '.', ''), null);
     }
@@ -124,16 +124,16 @@ class FakePayGateway implements PaymentGateway
         return new GatewayCharge('FK-'.$reference, null, 'waiting', null, 'https://fake.test/'.$reference);
     }
 
-    public function fetch(Company $company, string $externalId): GatewayStatus
+    public function fetch(Company $company, PaymentCharge $charge): GatewayStatus
     {
-        return new GatewayStatus(self::$state, self::$state, 'FKPAY-'.$externalId, Quote::PAYMENT_PIX);
+        return new GatewayStatus(self::$state, self::$state, 'FKPAY-'.$charge->external_id, Quote::PAYMENT_PIX);
     }
 
-    public function cancel(Company $company, string $externalId): void {}
+    public function cancel(Company $company, PaymentCharge $charge): void {}
 
-    public function refund(Company $company, string $externalId): GatewayStatus
+    public function refund(Company $company, PaymentCharge $charge): GatewayStatus
     {
-        return new GatewayStatus(GatewayStatus::REFUNDED, 'refunded', 'FKPAY-'.$externalId);
+        return new GatewayStatus(GatewayStatus::REFUNDED, 'refunded', 'FKPAY-'.$charge->external_id);
     }
 
     public function handleError(?Company $company, int $quoteId, Throwable $e): void {}

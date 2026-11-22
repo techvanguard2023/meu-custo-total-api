@@ -21,6 +21,7 @@ class PaymentGateways
     /** @var array<string, class-string<PaymentGateway>> */
     private const GATEWAYS = [
         'mercadopago' => MercadoPagoGateway::class,
+        'pagbank' => PagBankGateway::class,
     ];
 
     /** @var array<string, class-string<PaymentGateway>> */

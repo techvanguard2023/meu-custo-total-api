@@ -14,6 +14,8 @@ use App\Http\Controllers\Api\ImportController;
 use App\Http\Controllers\Api\MelhorEnvioController;
 use App\Http\Controllers\Api\MercadoPagoController;
 use App\Http\Controllers\Api\MercadoPagoWebhookController;
+use App\Http\Controllers\Api\PagBankController;
+use App\Http\Controllers\Api\PagBankWebhookController;
 use App\Http\Controllers\Api\PixChargeController;
 use App\Http\Controllers\Api\InvitationController;
 use App\Http\Controllers\Api\CouponAutomationController;
@@ -153,6 +155,9 @@ Route::prefix('v1')->group(function () {
     Route::post('/public/catalog/{token}/shipping-quote', [MelhorEnvioController::class, 'publicQuote'])->middleware('throttle:30,1');
     Route::get('/mercadopago/callback', [MercadoPagoController::class, 'callback'])->middleware('throttle:30,1');
     Route::post('/webhooks/mercadopago', MercadoPagoWebhookController::class)->middleware('throttle:300,1');
+    // PagBank: volta do Connect (navegador do lojista) e avisos de pagamento
+    Route::get('/pagbank/callback', [PagBankController::class, 'callback'])->middleware('throttle:30,1');
+    Route::post('/webhooks/pagbank', PagBankWebhookController::class)->middleware('throttle:300,1');
 
     Route::get('/public/review/{token}', [PublicReviewController::class, 'show'])
         ->middleware('throttle:60,1');
@@ -362,6 +367,11 @@ Route::prefix('v1')->group(function () {
             Route::get('/payments/mercadopago', [MercadoPagoController::class, 'show']);
             Route::post('/payments/mercadopago/connect', [MercadoPagoController::class, 'connect'])->middleware('throttle:10,1');
             Route::delete('/payments/mercadopago', [MercadoPagoController::class, 'disconnect']);
+            // PagBank (Pro): a loja usa um gateway por vez — conectar um troca o outro
+            Route::get('/payments/pagbank', [PagBankController::class, 'show']);
+            Route::post('/payments/pagbank/connect', [PagBankController::class, 'connect'])->middleware('throttle:10,1');
+            Route::post('/payments/pagbank/token', [PagBankController::class, 'connectWithToken'])->middleware('throttle:10,1');
+            Route::delete('/payments/pagbank', [PagBankController::class, 'disconnect']);
             Route::get('/quotes/{quote}/pix', [PixChargeController::class, 'index']);
             Route::post('/quotes/{quote}/pix', [PixChargeController::class, 'store'])->middleware('throttle:20,1');
             Route::get('/quotes/{quote}/pix/{charge}', [PixChargeController::class, 'show'])->middleware('throttle:120,1');
