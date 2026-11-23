@@ -47,7 +47,7 @@ class Quote extends Model
 
     protected $fillable = [
         'company_id', 'customer_id', 'printer_id', 'material_id',
-        'name', 'quantity', 'print_time_minutes', 'material_weight_g',
+        'name', 'is_incomplete', 'quantity', 'print_time_minutes', 'material_weight_g',
         'setup_minutes', 'postprocess_minutes', 'extra_costs',
         'failure_rate_percent', 'markup_percent', 'discount_amount', 'cashback_amount', 'coupon_id', 'coupon_code', 'coupon_amount', 'delivery_days', 'delivery_date', 'delivery_time', 'delivery_method', 'delivery_address',
         'material_cost', 'energy_cost', 'depreciation_cost', 'labor_cost',
@@ -60,6 +60,7 @@ class Quote extends Model
     ];
 
     protected $casts = [
+        'is_incomplete' => 'boolean',
         'material_weight_g' => 'decimal:2',
         'model_urls' => 'array',
         'extra_costs' => 'decimal:2',

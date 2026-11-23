@@ -276,6 +276,7 @@ class QuoteController extends Controller
         $this->authorizeCompany($request, $quote);
 
         abort_unless($quote->status === Quote::STATUS_SENT, 422, 'Apenas orçamentos enviados podem ser aprovados ou rejeitados.');
+        abort_if($quote->is_incomplete, 422, 'Orçamento incompleto: adicione um produto ou um item com tempo de produção antes de aprovar.');
 
         $data = $request->validate([
             'payment_method' => ['sometimes', 'nullable', Rule::in(Quote::PAYMENT_METHODS)],
@@ -1259,6 +1260,8 @@ class QuoteController extends Controller
         // Sem isso, zerar um valor no formulário mantinha o valor antigo na coluna, deixando
         // o orçamento inconsistente com o breakdown recalculado.
         return array_merge(Arr::except($data, ['coupon', 'coupon_rejected']), [
+            // Sem nenhum item: salva, mas não aprova (approve() recusa)
+            'is_incomplete' => empty($breakdown['products']) && empty($breakdown['materials']) && (int) ($data['print_time_minutes'] ?? 0) <= 0,
             'print_time_minutes' => (int) ($data['print_time_minutes'] ?? 0),
             'setup_minutes' => (int) ($data['setup_minutes'] ?? 0),
             'postprocess_minutes' => (int) ($data['postprocess_minutes'] ?? 0),
@@ -1468,7 +1471,7 @@ class QuoteController extends Controller
 
     private function validated(Request $request, ?Quote $quote = null): array
     {
-        $data = self::normalizeDelivery($this->validatedInput($request));
+        $data = self::completeDraft($request, self::normalizeDelivery($this->validatedInput($request)));
 
         if (! $request->user()->seesCosts()) {
             foreach (['markup_percent', 'failure_rate_percent', 'extra_costs'] as $field) {
@@ -1482,15 +1485,36 @@ class QuoteController extends Controller
         return $data;
     }
 
+    /**
+     * Orçamento incompleto: precisa de pelo menos o nome do item, o cliente ou um item para ser salvo. Sem nome,
+     * ganha um ("Orçamento de Ana" ou "Orçamento sem nome") para aparecer nas listas.
+     */
+    private static function completeDraft(Request $request, array $data): array
+    {
+        $data['name'] = trim((string) ($data['name'] ?? ''));
+        $hasItem = ! empty($data['products']) || ! empty($data['materials']) || (int) ($data['print_time_minutes'] ?? 0) > 0;
+        abort_if($data['name'] === '' && empty($data['customer_id']) && ! $hasItem, 422, 'Preencha pelo menos o nome do item ou escolha o cliente para salvar.');
+
+        if ($data['name'] === '') {
+            $customer = ! empty($data['customer_id'])
+                ? \App\Models\Customer::where('company_id', $request->user()->company_id)->whereKey($data['customer_id'])->value('name')
+                : null;
+            $data['name'] = $customer ? 'Orçamento de '.\Illuminate\Support\Str::limit(trim($customer), 200, '') : 'Orçamento sem nome';
+        }
+
+        return $data;
+    }
+
     private function validatedInput(Request $request): array
     {
         return $request->validate([
-            'name' => ['required', 'string', 'max:255'],
+            // Nome opcional: o orçamento pode ser salvo incompleto (ver completeDraft())
+            'name' => ['nullable', 'string', 'max:255'],
             'customer_id' => ['nullable', 'exists:customers,id'],
             'printer_id' => ['nullable', 'exists:printers,id'],
             'sales_channel_id' => ['nullable', 'exists:sales_channels,id'],
             'quantity' => ['sometimes', 'integer', 'min:1'],
-            'print_time_minutes' => ['required_without:products', 'nullable', 'integer', 'min:1'],
+            'print_time_minutes' => ['nullable', 'integer', 'min:0'],
             'setup_minutes' => ['sometimes', 'integer', 'min:0'],
             'postprocess_minutes' => ['sometimes', 'integer', 'min:0'],
             'extra_costs' => ['sometimes', 'numeric', 'min:0'],
