@@ -38,6 +38,8 @@ Schedule::command('tokens:prune')->dailyAt('03:45');
 
 // Área admin: cortesias vencidas voltam pro plano da assinatura
 Schedule::command('admin:expire-comps')->dailyAt('03:15');
+// Domínios próprios de quem está fora do Pro há mais de 30 dias são liberados (antes disso, ficam guardados)
+Schedule::command('domains:release-suspended')->dailyAt('03:20');
 // Teste grátis do Pro: no fim, a loja volta pro plano da assinatura (ou Grátis)
 Schedule::command('trial:expire')->hourly()->withoutOverlapping(10);
 // Mensagens do teste (e-mail; "faltam 3 dias" e "acabou" também no WhatsApp, das 9h às 20h)

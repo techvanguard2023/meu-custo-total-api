@@ -23,24 +23,20 @@ class Company extends Model
 
     protected static function booted(): void
     {
-        // Domínio próprio é do plano Pro: ao sair dele, o domínio é descadastrado da Vercel e o link padrão volta a valer.
-        // Vale pros três: o do catálogo, o da área do parceiro e o das ofertas.
+        // Domínio próprio é do plano Pro. Ao sair dele (assinatura suspensa, cancelada, fim do teste), os domínios
+        // ficam guardados e parados (hasActive...() e PublicCatalogController::byDomain exigem o Pro): voltando ao
+        // Pro, voltam a valer sozinhos. Fora do Pro por mais de 30 dias, domains:release-suspended os libera.
         static::updated(function (Company $company) {
-            if (! $company->wasChanged('plan') || $company->plan === self::PLAN_PRO) {
+            if (! $company->wasChanged('plan')) {
                 return;
             }
-
-            foreach (self::DOMAIN_COLUMNS as $column) {
-                if (! $company->{$column}) {
-                    continue;
-                }
-                try {
-                    app(\App\Services\VercelDomains::class)->remove($company->{$column});
-                } catch (\Throwable $e) {
-                    \Illuminate\Support\Facades\Log::warning("Domínio próprio não removido da Vercel ({$company->{$column}}): ".$e->getMessage());
-                }
-                $company->forceFill([$column => null, "{$column}_verified_at" => null])->saveQuietly();
+            $hasDomain = collect(self::DOMAIN_COLUMNS)->contains(fn ($column) => (bool) $company->{$column});
+            $suspend = $company->plan !== self::PLAN_PRO && $hasDomain;
+            // Já parados (troca entre planos sem Pro) mantém a data de quando saiu do Pro
+            if ($suspend === ($company->domains_suspended_at !== null)) {
+                return;
             }
+            $company->forceFill(['domains_suspended_at' => $suspend ? now() : null])->saveQuietly();
         });
     }
 
@@ -100,6 +96,7 @@ class Company extends Model
         'custom_domain_verified_at' => 'datetime',
         'partner_domain_verified_at' => 'datetime',
         'offers_domain_verified_at' => 'datetime',
+        'domains_suspended_at' => 'datetime',
         'deletion_scheduled_for' => 'datetime',
         'blocked_at' => 'datetime',
         'comp_until' => 'date:Y-m-d',
