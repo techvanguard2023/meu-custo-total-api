@@ -14,6 +14,8 @@ Schedule::command('catalog:prune-visits')->weeklyOn(1, '03:00');
 // Rede de segurança: promove para Pro quem pagou mas ficou preso em "free" por um
 // webhook da Stripe perdido/falho. Nunca rebaixa (--downgrade não é usado aqui).
 Schedule::command('plan:sync')->everyFifteenMinutes();
+// Cobrança da assinatura recusada: suspende só depois de 3 tentativas (ou 21 dias); paga, devolve o plano
+Schedule::command('billing:check-payments')->hourlyAt(10)->withoutOverlapping(30);
 
 // Cashback: o saldo já ignora crédito vencido; isto só registra o vencimento no extrato do cliente
 Schedule::command('cashback:expire')->dailyAt('03:30');

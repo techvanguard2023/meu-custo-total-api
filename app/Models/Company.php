@@ -105,6 +105,8 @@ class Company extends Model
         'pro_trial_ends_at' => 'datetime',
         'pro_trial_ended_at' => 'datetime',
         'pro_trial_notices' => 'array',
+        'payment_failed_at' => 'datetime',
+        'payment_failed_attempts' => 'integer',
         'signup_attribution' => 'array',
         'deletion_paused_subscription' => 'boolean',
         'deletion_by_admin' => 'boolean',
@@ -174,7 +176,7 @@ class Company extends Model
     public function planFromBilling(): string
     {
         $rank = [self::PLAN_FREE => 0, self::PLAN_ESSENTIAL => 1, self::PLAN_PRO => 2];
-        $plan = self::planForSubscription($this->subscription('default'));
+        $plan = self::planForSubscription($this->subscription('default'), allowPastDue: ! $this->paymentRetriesExhausted());
         $comp = $this->activeCompPlan();
         if ($comp && $rank[$comp] > $rank[$plan]) {
             $plan = $comp;
@@ -182,6 +184,38 @@ class Company extends Model
 
         // Teste grátis do Pro valendo: Pro até o fim, mesmo que já tenha assinado o Essencial no meio
         return $this->onProTrial() ? self::PLAN_PRO : $plan;
+    }
+
+    /** Tentativas de cobrança recusadas antes de suspender (como fazem os SaaS: tenta de novo, depois suspende). */
+    public const PAYMENT_MAX_ATTEMPTS = 3;
+
+    /** Limite de segurança: recusada há mais que isso, suspende mesmo sem saber das tentativas. */
+    public const PAYMENT_GRACE_DAYS = 21;
+
+    /** As tentativas de cobrar a assinatura acabaram (3 recusas ou 21 dias desde a primeira): hora de suspender. */
+    public function paymentRetriesExhausted(): bool
+    {
+        return $this->payment_failed_attempts >= self::PAYMENT_MAX_ATTEMPTS
+            || ($this->payment_failed_at !== null && $this->payment_failed_at->lt(now()->subDays(self::PAYMENT_GRACE_DAYS)));
+    }
+
+    /** Cobrança recusada (attempt_count da fatura na Stripe): conta a tentativa e reavalia o plano. */
+    public function recordPaymentFailure(int $attempts): void
+    {
+        $this->forceFill([
+            'payment_failed_at' => $this->payment_failed_at ?? now(),
+            'payment_failed_attempts' => min(255, max((int) $this->payment_failed_attempts, $attempts, 1)),
+        ])->save();
+        $this->update(['plan' => $this->planFromBilling()]);
+    }
+
+    /** Fatura paga (ou assinatura de volta a ativa): zera as recusas e reavalia o plano. */
+    public function clearPaymentFailure(): void
+    {
+        if ($this->payment_failed_at !== null || $this->payment_failed_attempts > 0) {
+            $this->forceFill(['payment_failed_at' => null, 'payment_failed_attempts' => 0])->save();
+        }
+        $this->update(['plan' => $this->planFromBilling()]);
     }
 
     /** Teste grátis do Pro (sem cartão) valendo agora. */
@@ -325,9 +359,14 @@ class Company extends Model
      * comando plan:sync, pra nunca rebaixar quem tem assinatura ativa num preço que
      * a gente não reconhece (ex: criado direto no painel da Stripe).
      */
-    public static function planForSubscription(?\Laravel\Cashier\Subscription $subscription): string
+    /**
+     * Plano de uma assinatura. $allowPastDue: cobrança recusada com a Stripe ainda tentando de novo (past_due)
+     * mantém o plano — quem decide até quando é paymentRetriesExhausted().
+     */
+    public static function planForSubscription(?\Laravel\Cashier\Subscription $subscription, bool $allowPastDue = false): string
     {
-        if (! $subscription || ! $subscription->valid()) {
+        $retrying = $allowPastDue && $subscription?->stripe_status === \Stripe\Subscription::STATUS_PAST_DUE;
+        if (! $subscription || (! $subscription->valid() && ! $retrying)) {
             return self::PLAN_FREE;
         }
 

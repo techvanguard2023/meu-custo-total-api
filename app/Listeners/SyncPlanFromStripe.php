@@ -37,6 +37,20 @@ class SyncPlanFromStripe
             return;
         }
 
+        // Voltou a ativa (cartão trocado, retentativa paga): zera as recusas. Ficou past_due sem o aviso da fatura
+        // ter chegado: conta como a primeira recusa (a Stripe segue tentando; o plano fica até acabarem as tentativas)
+        $status = $payload['data']['object']['status'] ?? null;
+        if ($status === 'active' || $status === 'trialing') {
+            $company->clearPaymentFailure();
+
+            return;
+        }
+        if ($status === 'past_due' && $company->payment_failed_at === null) {
+            $company->recordPaymentFailure(1);
+
+            return;
+        }
+
         // A cortesia dada pela área admin vale por cima da assinatura (o maior dos dois)
         $company->update(['plan' => $company->planFromBilling()]);
     }
