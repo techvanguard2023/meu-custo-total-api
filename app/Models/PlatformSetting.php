@@ -11,9 +11,34 @@ class PlatformSetting extends Model
     /** Mostrar a integração com a Alexa (card em Integrações) para os lojistas. Admins sempre veem. */
     public const ALEXA_VISIBLE = 'alexa_visible';
 
+    /** Mostrar o card de cada gateway de pagamento em Integrações para os lojistas. Admins sempre veem. */
+    public const MERCADOPAGO_VISIBLE = 'mercadopago_visible';
+
+    public const PAGBANK_VISIBLE = 'pagbank_visible';
+
     public const DEFAULTS = [
         self::ALEXA_VISIBLE => false,
+        self::MERCADOPAGO_VISIBLE => true,
+        self::PAGBANK_VISIBLE => true,
     ];
+
+    /**
+     * O gateway aparece para este usuário? Escondido no admin, só os admins da plataforma veem (para testar). A
+     * loja que já conectou continua vendo o card (cobra e pode desconectar); só não dá para conectar de novo.
+     */
+    public static function gatewayVisible(string $provider, ?User $user): bool
+    {
+        if ($user?->isPlatformAdmin()) {
+            return true;
+        }
+        $key = match ($provider) {
+            'mercadopago' => self::MERCADOPAGO_VISIBLE,
+            'pagbank' => self::PAGBANK_VISIBLE,
+            default => null,
+        };
+
+        return $key === null || (bool) self::get($key);
+    }
 
     protected $fillable = ['key', 'value'];
 

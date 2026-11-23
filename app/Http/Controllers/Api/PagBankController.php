@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Http\Controllers\Controller;
+use App\Models\PlatformSetting;
 use App\Models\PaymentAccount;
 use App\Services\PagBank;
 use App\Services\PagBankAccounts;
@@ -39,6 +40,8 @@ class PagBankController extends Controller
             'test_mode' => $test,
             'sandbox' => (bool) config('services.pagbank.sandbox'),
             'connected' => (bool) $account?->isActive(),
+            // Escondido pela plataforma (admin → Sistema): o card só aparece para quem já está conectado
+            'visible' => PlatformSetting::gatewayVisible('pagbank', $request->user()),
             // Outro gateway conectado (conectar o PagBank troca por ele)
             'other_gateway' => $current && $current !== PagBankAccounts::PROVIDER ? $current : null,
             'rules' => PixCharges::rules($company),
@@ -56,6 +59,7 @@ class PagBankController extends Controller
 
     public function connect(Request $request)
     {
+        abort_unless(PlatformSetting::gatewayVisible('pagbank', $request->user()), 403, 'O pagamento pelo PagBank não está disponível no momento.');
         $this->requirePro($request, 'Pagamento online');
         try {
             return response()->json(['url' => $this->accounts->connectUrl($request->user()->company, $request->user()->id)]);
@@ -67,6 +71,7 @@ class PagBankController extends Controller
     /** POST /payments/pagbank/token {token}: conecta pelo token da própria conta do PagBank (sem o Connect). */
     public function connectWithToken(Request $request)
     {
+        abort_unless(PlatformSetting::gatewayVisible('pagbank', $request->user()), 403, 'O pagamento pelo PagBank não está disponível no momento.');
         $this->requirePro($request, 'Pagamento online');
         $data = $request->validate(['token' => ['required', 'string', 'max:500']], ['token.required' => 'Cole o token da sua conta do PagBank.']);
         try {

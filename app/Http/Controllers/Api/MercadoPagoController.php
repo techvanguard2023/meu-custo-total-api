@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Concerns\EnforcesPlanLimits;
 use App\Http\Controllers\Controller;
+use App\Models\PlatformSetting;
 use App\Services\MercadoPago;
 use App\Services\MercadoPagoAccounts;
 use App\Services\PixCharges;
@@ -31,6 +32,8 @@ class MercadoPagoController extends Controller
             'pro' => $company->isPro(),
             'test_mode' => $test,
             'connected' => (bool) $account?->isActive(),
+            // Escondido pela plataforma (admin → Sistema): o card só aparece para quem já está conectado
+            'visible' => PlatformSetting::gatewayVisible('mercadopago', $request->user()),
             // Outro gateway conectado (conectar o Mercado Pago troca por ele)
             'other_gateway' => ($current = \App\Models\PaymentAccount::where('company_id', $company->id)->value('provider')) && $current !== 'mercadopago' ? $current : null,
             'rules' => PixCharges::rules($company),
@@ -45,6 +48,7 @@ class MercadoPagoController extends Controller
 
     public function connect(Request $request)
     {
+        abort_unless(PlatformSetting::gatewayVisible('mercadopago', $request->user()), 403, 'O pagamento pelo Mercado Pago não está disponível no momento.');
         $this->requirePro($request, 'Pagamento online');
         try {
             return response()->json(['url' => $this->accounts->connectUrl($request->user()->company, $request->user()->id)]);

@@ -18,10 +18,18 @@ class FeatureController extends Controller
 
     public function update(Request $request): JsonResponse
     {
-        $data = $request->validate(['alexa_visible' => ['required', 'boolean']]);
+        $data = $request->validate([
+            'alexa_visible' => ['sometimes', 'boolean'],
+            'mercadopago_visible' => ['sometimes', 'boolean'],
+            'pagbank_visible' => ['sometimes', 'boolean'],
+        ]);
+        abort_if($data === [], 422, 'Nada para alterar.');
 
-        PlatformSetting::put(PlatformSetting::ALEXA_VISIBLE, (bool) $data['alexa_visible']);
-        AdminAudit::log($request, 'features.alexa', null, null, ['visible' => (bool) $data['alexa_visible']]);
+        // Uma chave por vez na tela; cada uma vira um registro na auditoria (features.alexa, features.pagbank...)
+        foreach ($data as $key => $visible) {
+            PlatformSetting::put($key, (bool) $visible);
+            AdminAudit::log($request, 'features.'.str_replace('_visible', '', $key), null, null, ['visible' => (bool) $visible]);
+        }
 
         return response()->json($this->payload());
     }
@@ -32,6 +40,8 @@ class FeatureController extends Controller
             'alexa_visible' => (bool) PlatformSetting::get(PlatformSetting::ALEXA_VISIBLE),
             // Sem o Client ID da ligação de conta no .env, o card não aparece nem ligado
             'alexa_configured' => (bool) config('services.alexa.client_id'),
+            'mercadopago_visible' => (bool) PlatformSetting::get(PlatformSetting::MERCADOPAGO_VISIBLE),
+            'pagbank_visible' => (bool) PlatformSetting::get(PlatformSetting::PAGBANK_VISIBLE),
         ];
     }
 }
