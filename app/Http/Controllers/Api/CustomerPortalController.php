@@ -11,6 +11,8 @@ use App\Models\PaymentCharge;
 use App\Support\Delivery;
 use App\Services\Cashback;
 use App\Services\CustomerPortal;
+use App\Services\Payments\GatewayFailed;
+use App\Services\Payments\PaymentRefused;
 use App\Services\PixCharges;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -95,14 +97,17 @@ class CustomerPortalController extends Controller
     }
 
     /**
-     * "Pagar agora" de um pedido (Pro, Mercado Pago conectado): Pix (QR + copia e cola) ou link do cartão pelo que
+     * "Pagar agora" de um pedido (Pro, gateway conectado): Pix (QR + copia e cola) ou link do cartão pelo que
      * falta de todas as partes do pedido. Devolve a cobrança aberta se já existir uma igual.
+     *  - O gateway pede o CPF/CNPJ (Pix do PagBank) e o cadastro não tem: 422 com needs=tax_id, e a tela pede o
+     *    documento ao cliente; ele volta em tax_id e fica guardado no cadastro dele na loja.
+     *  - Erros saem com frases para o cliente (as do gateway são escritas para o lojista).
      */
     public function payOrder(Request $request, string $token, string $key)
     {
         $company = $this->company($token);
         $customerIds = $this->customerIdsOrFail($company, $request);
-        $data = $request->validate(['method' => ['required', 'in:pix,link']]);
+        $data = $request->validate(['method' => ['required', 'in:pix,link'], 'tax_id' => ['nullable', 'string', 'max:20']]);
         abort_unless($this->onlinePaymentReady($company), 422, 'Esta loja não recebe pagamento online. Fale com ela pelo WhatsApp.');
 
         $quotes = $this->orderQuotes($company, $customerIds, $key);
@@ -110,13 +115,57 @@ class CustomerPortalController extends Controller
         $parts = $quotes->mapWithKeys(fn (Quote $q) => [$q->id => $q->amount_due])->filter(fn ($due) => $due > 0)->all();
         abort_if(! $parts, 422, 'Este pedido já está pago.');
 
+        if (! empty($data['tax_id'])) {
+            $taxId = preg_replace('/\D/', '', $data['tax_id']);
+            abort_unless(self::validTaxId($taxId), 422, 'CPF ou CNPJ inválido. Confira os números.');
+            Customer::whereIn('id', $quotes->pluck('customer_id')->filter()->intersect($customerIds))->update(['tax_id' => $taxId]);
+        }
+
         try {
             $charge = app(PixCharges::class)->createFor($company, $parts, $data['method'], 'portal');
+        } catch (PaymentRefused $e) {
+            if ($e->missing === PaymentRefused::TAX_ID) {
+                return response()->json([
+                    'message' => 'Para pagar com Pix, informe seu CPF (ou o CNPJ da empresa). Ele vai só para o banco gerar o Pix.',
+                    'needs' => 'tax_id',
+                ], 422);
+            }
+            abort(422, 'Não foi possível gerar o pagamento. Fale com a loja pelo WhatsApp.');
+        } catch (GatewayFailed) {
+            abort(422, $data['method'] === 'link'
+                ? 'Não conseguimos abrir o pagamento com cartão agora. Tente de novo em instantes, pague com Pix ou fale com a loja pelo WhatsApp.'
+                : 'Não conseguimos gerar o Pix agora. Tente de novo em instantes ou fale com a loja pelo WhatsApp.');
         } catch (\RuntimeException $e) {
             abort(422, $e->getMessage());
         }
 
         return response()->json(app(PixCharges::class)->present($charge), 201);
+    }
+
+    /** CPF (11 dígitos) ou CNPJ (14) com os dígitos verificadores certos. */
+    private static function validTaxId(string $digits): bool
+    {
+        if (! preg_match('/^(\d{11}|\d{14})$/', $digits) || preg_match('/^(\d)\1+$/', $digits)) {
+            return false;
+        }
+        $check = function (string $base, array $weights): int {
+            $sum = 0;
+            foreach ($weights as $i => $w) {
+                $sum += (int) $base[$i] * $w;
+            }
+            $rest = $sum % 11;
+
+            return $rest < 2 ? 0 : 11 - $rest;
+        };
+        if (strlen($digits) === 11) {
+            $d1 = $check($digits, [10, 9, 8, 7, 6, 5, 4, 3, 2]);
+            $d2 = $check($digits, [11, 10, 9, 8, 7, 6, 5, 4, 3, 2]);
+        } else {
+            $d1 = $check($digits, [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+            $d2 = $check($digits, [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+        }
+
+        return (int) $digits[strlen($digits) - 2] === $d1 && (int) $digits[strlen($digits) - 1] === $d2;
     }
 
     /** Situação do pagamento aberto (a tela consulta enquanto o Pix está na tela). */

@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Company;
 use App\Models\PaymentCharge;
 use App\Models\Quote;
+use App\Services\Payments\GatewayFailed;
 use App\Services\Payments\GatewayStatus;
 use App\Services\Payments\Payer;
 use App\Services\Payments\PaymentRefused;
@@ -122,13 +123,14 @@ class PixCharges
                 ? $gateway->createLink($company, $total, "Pedido {$label} — {$company->name}", "mct-{$primary->id}-{$charge->id}", $this->returnUrl($company), "mct-charge-{$charge->id}")
                 : $gateway->createPix($company, $total, "mct-{$primary->id}-{$charge->id}", Payer::fromCustomer($primary->customer), self::VALIDITY_HOURS, "mct-charge-{$charge->id}");
         } catch (PaymentRefused $e) {
-            // Falta um dado que o gateway exige (ex.: CPF do cliente no PagBank): a frase dele vai para a tela
+            // Falta um dado que o gateway exige (ex.: CPF do cliente no PagBank): a frase dele vai para a tela do
+            // lojista; a do cliente usa $e->missing para pedir o dado a ele
             $charge->delete();
-            throw new RuntimeException($e->getMessage());
+            throw $e;
         } catch (\Throwable $e) {
             $charge->delete();
             $gateway->handleError($company, $primary->id, $e);
-            throw new RuntimeException("O {$gateway->label()} não gerou a cobrança agora. Tente de novo em instantes.");
+            throw new GatewayFailed("O {$gateway->label()} não gerou a cobrança agora. Tente de novo em instantes.");
         }
 
         $charge->update([

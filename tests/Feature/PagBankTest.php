@@ -47,6 +47,9 @@ class PagBankTest extends TestCase
     /** Simula o acesso da loja recusado (401) em toda chamada */
     private bool $unauthorized = false;
 
+    /** Simula o link de pagamento (checkout) falhando no PagBank */
+    private bool $checkoutFails = false;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -101,6 +104,9 @@ class PagBankTest extends TestCase
                 return Http::response($this->orders[$id], 201);
             }
             if ($request->method() === 'POST' && str_ends_with($url, '/checkouts')) {
+                if ($this->checkoutFails) {
+                    return Http::response('', 500);
+                }
                 $id = 'CHEC_'.$this->next++;
                 $this->checkouts[$id] = ['id' => $id, 'reference_id' => $request['reference_id'], 'status' => 'ACTIVE', 'links' => [
                     ['rel' => 'PAY', 'href' => "https://pagamento.pagbank.test/pagamento?code={$id}", 'method' => 'GET'],
@@ -368,6 +374,58 @@ class PagBankTest extends TestCase
             ->assertJsonPath('sandbox', false)->assertJsonPath('connected', false)->assertJsonPath('account', null);
         $this->assertFalse(app(PagBankAccounts::class)->ready($this->company));
         Http::assertNothingSent();
+    }
+
+    /** Sessão do "Meus pedidos" do cliente da venda (o portal exige catálogo ligado e WhatsApp conectado) */
+    private function portalSession(): string
+    {
+        $this->company->forceFill(['catalog_enabled' => true, 'catalog_token' => 'tok-catalogo', 'whatsapp_session_name' => 'loja-pagbank'])->save();
+        $token = \Illuminate\Support\Str::random(64);
+        \Illuminate\Support\Facades\DB::table('customer_portal_sessions')->insert([
+            'company_id' => $this->company->id, 'scope' => 'customer', 'phone_key' => Customer::phoneKey($this->customer->phone),
+            'token_hash' => hash('sha256', $token), 'expires_at' => now()->addDay(), 'last_used_at' => now(), 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        return $token;
+    }
+
+    private function portalPay(string $session, array $body)
+    {
+        return $this->postJson("/api/v1/public/catalog/loja-pagbank/account/orders/q{$this->quote->id}/pay", $body, ['X-Customer-Token' => $session]);
+    }
+
+    public function test_portal_asks_the_customer_for_the_document_to_pay_with_pix(): void
+    {
+        $this->customer->update(['tax_id' => null]);
+        $session = $this->portalSession();
+
+        $this->portalPay($session, ['method' => 'pix'])->assertStatus(422)->assertJsonPath('needs', 'tax_id')
+            ->assertJsonPath('message', 'Para pagar com Pix, informe seu CPF (ou o CNPJ da empresa). Ele vai só para o banco gerar o Pix.');
+        $this->portalPay($session, ['method' => 'pix', 'tax_id' => '111.111.111-11'])->assertStatus(422)->assertJsonPath('message', 'CPF ou CNPJ inválido. Confira os números.');
+        $this->portalPay($session, ['method' => 'pix', 'tax_id' => '529.982.247-26'])->assertStatus(422)->assertJsonPath('message', 'CPF ou CNPJ inválido. Confira os números.');
+        $this->assertSame(0, PaymentCharge::count());
+
+        $this->portalPay($session, ['method' => 'pix', 'tax_id' => '529.982.247-25'])->assertCreated()->assertJsonPath('method', 'pix');
+        $this->assertSame('52998224725', $this->customer->fresh()->tax_id);
+        Http::assertSent(fn ($r) => $r->method() === 'POST' && str_ends_with($r->url(), '/orders') && $r['customer']['tax_id'] === '52998224725');
+
+        // CNPJ também vale
+        $this->customer->update(['tax_id' => null]);
+        PaymentCharge::query()->delete();
+        $this->portalPay($session, ['method' => 'pix', 'tax_id' => '11.222.333/0001-81'])->assertCreated();
+        $this->assertSame('11222333000181', $this->customer->fresh()->tax_id);
+    }
+
+    public function test_portal_shows_a_customer_message_when_the_gateway_fails(): void
+    {
+        $session = $this->portalSession();
+        $this->checkoutFails = true;
+
+        $this->portalPay($session, ['method' => 'link'])->assertStatus(422)
+            ->assertJsonPath('message', 'Não conseguimos abrir o pagamento com cartão agora. Tente de novo em instantes, pague com Pix ou fale com a loja pelo WhatsApp.');
+
+        // Na tela da venda, o lojista continua vendo a frase dele
+        $this->charge(150, 'link')->assertStatus(422)->assertJsonPath('message', 'O PagBank não gerou a cobrança agora. Tente de novo em instantes.');
     }
 
     public function test_customer_document_is_validated_and_stored_as_digits(): void

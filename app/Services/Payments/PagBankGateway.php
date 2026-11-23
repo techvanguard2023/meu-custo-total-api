@@ -44,7 +44,7 @@ class PagBankGateway implements PaymentGateway
     public function createPix(Company $company, float $amount, string $reference, Payer $payer, int $validityHours, string $idempotencyKey): GatewayCharge
     {
         if (! $payer->taxId) {
-            throw new PaymentRefused('Para gerar Pix pelo PagBank, cadastre o CPF ou CNPJ do cliente. Ou gere o link de pagamento (cartão ou Pix), que não pede o documento.');
+            throw new PaymentRefused('Para gerar Pix pelo PagBank, cadastre o CPF ou CNPJ do cliente. Ou gere o link de pagamento (cartão ou Pix), que não pede o documento.', PaymentRefused::TAX_ID);
         }
         $cents = PagBank::cents($amount);
         $customer = ['name' => Str::limit($payer->name, 120, ''), 'email' => $payer->email, 'tax_id' => $payer->taxId];
