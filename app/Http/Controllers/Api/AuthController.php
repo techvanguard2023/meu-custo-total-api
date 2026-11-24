@@ -127,6 +127,11 @@ class AuthController extends Controller
     {
         $user = $request->user()->load('company');
 
+        // Atalho "Ver catálogo" do topo do app: o endereço público (domínio próprio ou /catalog/{slug}), só com o catálogo no ar
+        if ($user->company) {
+            $user->company->setAttribute('catalog_url', $user->company->hasCatalogActive() ? $user->company->catalogUrl() : null);
+        }
+
         // "Entrar como" (área admin): o app mostra a faixa "Você está acessando como…" e o botão de sair
         $adminId = \App\Services\AdminAudit::impersonatorId($request->user()->currentAccessToken());
         if ($adminId) {

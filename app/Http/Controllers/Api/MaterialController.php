@@ -7,6 +7,7 @@ use App\Models\Material;
 use App\Models\MaterialMovement;
 use App\Models\Product;
 use App\Services\MaterialStock;
+use App\Services\ProductDuplicator;
 use App\Services\ProductRecipe;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -29,6 +30,14 @@ class MaterialController extends Controller
         }
 
         return response()->json($material->load('category'), 201);
+    }
+
+    /** Botão "Duplicar" da lista: mesma ficha, com "(cópia)" no nome e o estoque zerado. */
+    public function duplicate(Request $request, Material $material, ProductDuplicator $duplicator)
+    {
+        $this->authorizeCompany($request, $material);
+
+        return response()->json($duplicator->duplicateMaterial($material)->load('category'), 201);
     }
 
     public function show(Request $request, Material $material)

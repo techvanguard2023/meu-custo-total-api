@@ -274,6 +274,7 @@ Route::prefix('v1')->group(function () {
             Route::post('/materials/import', [ImportController::class, 'materials'])->middleware('throttle:30,1');
             Route::post('/customers/import', [ImportController::class, 'customers'])->middleware('throttle:30,1');
             Route::get('/materials/{material}/movements', [MaterialController::class, 'movements']);
+            Route::post('/materials/{material}/duplicate', [MaterialController::class, 'duplicate'])->middleware('throttle:30,1');
             Route::apiResource('materials', MaterialController::class);
             Route::apiResource('printers', PrinterController::class);
             Route::get('/customers/duplicates', [CustomerController::class, 'duplicates']);
@@ -339,6 +340,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/displays/{display}/qr-code', [DisplayController::class, 'qrImage']);
             Route::get('/products/generate-sku', [ProductController::class, 'generateSku']);
             Route::post('/products/cost-preview', [ProductController::class, 'costPreview']);
+            Route::post('/products/{product}/duplicate', [ProductController::class, 'duplicate'])->middleware('throttle:30,1');
             Route::post('/products/{product}/production', [ProductController::class, 'registerProduction']);
             Route::post('/products/{product}/images', [ProductController::class, 'uploadImages']);
             Route::delete('/products/{product}/images/{image}', [ProductController::class, 'destroyImage']);

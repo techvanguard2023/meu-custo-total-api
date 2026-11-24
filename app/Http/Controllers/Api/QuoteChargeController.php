@@ -38,6 +38,8 @@ class QuoteChargeController extends Controller
             'payment' => [
                 'pix_key' => $company->whatsapp_pix_key,
                 'payment_link' => $company->whatsapp_payment_link,
+                // Com o catálogo no ar, a mensagem leva para "Meus pedidos" no lugar da chave e do link
+                'portal_url' => PaymentReminder::portalUrl($company),
             ],
         ]);
     }

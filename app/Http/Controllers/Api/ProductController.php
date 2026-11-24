@@ -11,6 +11,7 @@ use App\Models\Product;
 use App\Models\ProductImage;
 use App\Models\ProductOptionGroup;
 use App\Models\ProductVariation;
+use App\Services\ProductDuplicator;
 use App\Services\ProductRecipe;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -93,6 +94,15 @@ class ProductController extends Controller
         });
 
         return response()->json($product->fresh()->load(self::ADMIN_RELATIONS), 201);
+    }
+
+    /** Botão "Duplicar" da lista: cópia com todas as informações (ver ProductDuplicator). */
+    public function duplicate(Request $request, Product $product, ProductDuplicator $duplicator)
+    {
+        $this->authorizeCompany($request, $product);
+        $this->enforceFreeLimit($request, 'products', $request->user()->company->products()->count(), 'produtos');
+
+        return response()->json($duplicator->duplicateProduct($product)->fresh()->load(self::ADMIN_RELATIONS), 201);
     }
 
     public function show(Request $request, Product $product)

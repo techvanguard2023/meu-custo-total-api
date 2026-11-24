@@ -82,8 +82,16 @@ class PaymentReminder
 
         $pix = trim((string) $company->whatsapp_pix_key) ?: null;
         $link = trim((string) $company->whatsapp_payment_link) ?: null;
+        $portal = self::portalUrl($company);
 
-        if ($pix || $link) {
+        if ($portal) {
+            // Com o catálogo no ar, a cobrança leva para "Meus pedidos": lá o cliente vê o pedido e todas as formas
+            // de pagamento da loja (Pix, cartão pelo gateway, chave Pix e link cadastrados).
+            $pix = null;
+            $lines[] = '';
+            $lines[] = "Para ver o pedido e escolher como pagar, acesse \"Meus pedidos\": {$portal}";
+            $lines[] = 'É só entrar com este número de WhatsApp.';
+        } elseif ($pix || $link) {
             $lines[] = '';
             if ($link) {
                 $lines[] = "Para pagar pelo link: {$link}";
@@ -99,6 +107,12 @@ class PaymentReminder
         $lines[] = 'Se já pagou, pode desconsiderar esta mensagem. Obrigado!';
 
         return ['text' => implode("\n", $lines), 'pix' => $pix, 'total' => $total];
+    }
+
+    /** Endereço de "Meus pedidos" quando o catálogo está no ar (sem catálogo não há área do cliente). */
+    public static function portalUrl(Company $company): ?string
+    {
+        return $company->hasCatalogActive() ? $company->ordersPortalUrl() : null;
     }
 
     /** Texto único (wa.me ou cópia): a chave Pix entra no fim, em vez de numa mensagem separada. */

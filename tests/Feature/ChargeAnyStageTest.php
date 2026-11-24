@@ -56,6 +56,25 @@ class ChargeAnyStageTest extends TestCase
         $this->assertNotNull($inProduction->fresh()->charge_requested_at);
     }
 
+    public function test_charge_points_to_the_orders_portal_when_the_catalog_is_live(): void
+    {
+        $order = $this->order(Quote::PRODUCTION_FINISHED);
+
+        // Sem catálogo: vai a chave Pix cadastrada
+        $message = $this->api()->postJson('/api/v1/quotes/charge', ['quote_ids' => [$order->id]])->assertOk()->json('message');
+        $this->assertStringContainsString('pix@loja.com', $message);
+        $this->assertStringNotContainsString('meus-pedidos', $message);
+
+        // Catálogo no ar: leva para "Meus pedidos", onde o cliente vê as formas de pagamento
+        $this->company->update(['catalog_enabled' => true, 'catalog_token' => 'tok-catalogo']);
+        $portal = $this->company->fresh()->ordersPortalUrl();
+
+        $this->api()->getJson("/api/v1/quotes/{$order->id}/charge")->assertOk()->assertJsonPath('payment.portal_url', $portal);
+        $message = $this->api()->postJson('/api/v1/quotes/charge', ['quote_ids' => [$order->id]])->assertOk()->json('message');
+        $this->assertStringContainsString($portal, $message);
+        $this->assertStringNotContainsString('pix@loja.com', $message);
+    }
+
     public function test_paid_cancelled_or_courtesy_orders_are_not_charged(): void
     {
         $paid = $this->order(Quote::PRODUCTION_PENDING, 100);
