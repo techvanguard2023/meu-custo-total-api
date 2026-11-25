@@ -450,6 +450,8 @@ class QuoteController extends Controller
             'notes' => ['sometimes', 'nullable', 'string', 'max:1000'],
             // Código do expositor de onde o cliente veio (QR da placa: "Expositor CODIGO" na mensagem)
             'origin_display_code' => ['sometimes', 'nullable', 'string', 'max:60'],
+            // Código do QR Code de divulgação de onde o cliente veio ("QR: codigo" na mensagem do carrinho ou do WhatsApp)
+            'origin_qr_code' => ['sometimes', 'nullable', 'string', 'max:60'],
             // Agenda: data desejada (AAAA-MM-DD ou DD/MM/AAAA), hora, forma (retirada/entrega/envio) e endereço
             'delivery_date' => ['sometimes', 'nullable', 'string', 'max:20'],
             'delivery_time' => ['sometimes', 'nullable', 'date_format:H:i'],
@@ -509,12 +511,19 @@ class QuoteController extends Controller
             ? app(DisplayQr::class)->resolve($request->user()->company, $data['origin_display_code'])
             : null;
 
+        // Pedido que veio de um QR Code de divulgação. Se o bot mandou o código no campo do expositor e não há
+        // expositor com ele, vale como QR (a IA às vezes troca os campos).
+        $qrCodes = app(\App\Services\QrCodes::class);
+        $originQr = $qrCodes->find($request->user()->company, ltrim((string) ($data['origin_qr_code'] ?? ''), '#'))
+            ?? (! $originDisplay && ! empty($data['origin_display_code']) ? $qrCodes->find($request->user()->company, preg_replace('/^QR[:\s-]*/i', '', $data['origin_display_code'])) : null);
+
         $orderData = [
             'name' => 'Pedido via WhatsApp',
             'customer_id' => $customer->id,
             'external_reference' => $data['external_reference'] ?? null,
             'sales_channel_id' => $data['sales_channel_id'] ?? null,
             'origin_display_id' => $originDisplay?->id,
+            'origin_qr_code_id' => $originQr?->id,
             'notes' => trim((string) ($data['notes'] ?? '')) ?: null,
             'delivery_date' => $data['delivery_date'] ?? null,
             'delivery_time' => $data['delivery_time'] ?? null,

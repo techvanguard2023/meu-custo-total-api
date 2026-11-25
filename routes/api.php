@@ -41,6 +41,7 @@ use App\Http\Controllers\Api\PrinterController;
 use App\Http\Controllers\Api\ProductCategoryController;
 use App\Http\Controllers\Api\ProductCollectionController;
 use App\Http\Controllers\Api\ProductController;
+use App\Http\Controllers\Api\QrCodeController;
 use App\Http\Controllers\Api\PartialDeliveryController;
 use App\Http\Controllers\Api\QuoteChargeController;
 use App\Http\Controllers\Api\QuoteController;
@@ -117,6 +118,10 @@ Route::prefix('v1')->group(function () {
 
     // QR Code da placa do expositor: registra o escaneamento e diz pra onde levar o cliente
     Route::get('/public/qr/{slug}/{code}', [DisplayQrController::class, 'show'])->middleware('throttle:60,1');
+    // Link curto dos QR Codes de divulgação: chamado pela função da Vercel (todos os visitantes chegam pelo IP dela)
+    Route::get('/public/qr-codes/go', [QrCodeController::class, 'go'])->middleware('throttle:600,1');
+    // Carrinho do catálogo aberto por um QR, enviado pelo WhatsApp (vai para as vendas do QR)
+    Route::post('/public/catalog/{token}/qr-cart', [QrCodeController::class, 'cart'])->middleware('throttle:30,1');
     Route::post('/public/qr/{slug}/{code}/click', [DisplayQrController::class, 'click'])->middleware('throttle:60,1');
 
     // Área do parceiro (loja com expositor): mesmo login por código no WhatsApp, escopo próprio
@@ -346,6 +351,11 @@ Route::prefix('v1')->group(function () {
             Route::delete('/products/{product}/images/{image}', [ProductController::class, 'destroyImage']);
             Route::patch('/products/{product}/images/reorder', [ProductController::class, 'reorderImages']);
             Route::apiResource('products', ProductController::class);
+            // Marketing → QR Codes
+            Route::get('/qr-codes/{qrCode}/stats', [QrCodeController::class, 'stats']);
+            Route::get('/qr-codes/{qrCode}/image', [QrCodeController::class, 'image']);
+            Route::get('/qr-codes/{qrCode}/print', [QrCodeController::class, 'printArt']);
+            Route::apiResource('qr-codes', QrCodeController::class)->except(['show']);
 
             Route::post('/quotes/preview', [QuoteController::class, 'preview']);
             Route::post('/quotes/quick-sale', [QuoteController::class, 'quickSale']);
