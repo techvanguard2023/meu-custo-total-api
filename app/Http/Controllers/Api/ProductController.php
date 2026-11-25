@@ -325,6 +325,8 @@ class ProductController extends Controller
             'quantity' => ['required', 'integer', 'min:1', 'max:100000'],
             'product_variation_id' => ['nullable', 'integer'],
             'note' => ['nullable', 'string', 'max:200'],
+            // false: o estoque já foi digitado no cadastro — só tira os insumos das peças que entraram
+            'add_to_stock' => ['sometimes', 'boolean'],
         ]);
 
         $variationId = $data['product_variation_id'] ?? null;
@@ -336,8 +338,10 @@ class ProductController extends Controller
                 : null;
             abort_if($variationId && ! $variation, 422, 'Variação não encontrada.');
 
-            $target = $variation ?? Product::lockForUpdate()->find($product->id);
-            $target->increment('stock_quantity', $data['quantity']);
+            if ($data['add_to_stock'] ?? true) {
+                $target = $variation ?? Product::lockForUpdate()->find($product->id);
+                $target->increment('stock_quantity', $data['quantity']);
+            }
 
             $label = $variation ? "{$product->name} ({$variation->display_name})" : $product->name;
 

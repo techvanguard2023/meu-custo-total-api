@@ -56,12 +56,22 @@ class QuoteCalculatorService
         $materialCost = 0.0;
         $soldMaterialsCost = 0.0;
         $soldMaterialsTotal = 0.0;
+        // Acabamento e embalagem (caixa, sacola, argola, tinta): só vão na peça boa, então ficam fora da taxa de falha
+        $finishingCost = 0.0;
+        $finishingNoFailureCost = 0.0;
         foreach ($materialLines as $line) {
             $material = $line['material'];
             $weight = (float) $line['weight'];
             $lineCost = $weight * (float) $material->cost_per_g * $quantity;
             $materialCost += $lineCost;
             $sold = $material->isSoldDirectly();
+            $finishing = $material->isFinishing();
+            if ($finishing) {
+                $finishingCost += $lineCost;
+                if (! $sold) {
+                    $finishingNoFailureCost += $lineCost;
+                }
+            }
             $linePrice = $sold ? round($weight * (float) $material->sale_price_per_unit * $quantity, 2) : null;
             if ($sold) {
                 $soldMaterialsCost += $lineCost;
@@ -76,6 +86,7 @@ class QuoteCalculatorService
                 // Preço de venda por g/un e o total da linha (null = material consumido, entra no custo + markup)
                 'unit_price' => $sold ? (float) $material->sale_price_per_unit : null,
                 'line_price' => $linePrice,
+                'finishing' => $finishing,
             ];
         }
 
@@ -97,7 +108,8 @@ class QuoteCalculatorService
         $subtotalCost = $materialCost + $energyCost + $depreciationCost + $laborCost + $extraCosts;
 
         // Material vendido como está não leva taxa de falha
-        $failureCost = ($subtotalCost - $soldMaterialsCost) * ((float) $failureRate / 100);
+        // nem acabamento/embalagem
+        $failureCost = ($subtotalCost - $soldMaterialsCost - $finishingNoFailureCost) * ((float) $failureRate / 100);
 
         $totalCost = $subtotalCost + $failureCost;
 
@@ -308,7 +320,25 @@ class QuoteCalculatorService
             $displayCommissionAmount = round($finalPrice * $commissionPercent / 100, 2);
         }
 
-        $grandTotalCost = $totalCost + $productsCost;
+        // Embalagem do pedido (sacola, caixa de envio...): uma vez por pedido, só no custo — o preço que o cliente vê
+        // (catálogo, Caixa, bot) não muda. Fica de fora da ficha do produto e das vendas de expositor.
+        $orderPackaging = [];
+        $orderPackagingCost = 0.0;
+        if ($setting && $display === null && ($data['include_order_packaging'] ?? true) && ($totalCost > 0 || $productLines !== [])) {
+            foreach ($setting->orderPackagingLines() as $line) {
+                $lineCost = round($line['quantity'] * (float) $line['material']->cost_per_g, 2);
+                $orderPackagingCost += $lineCost;
+                $orderPackaging[] = [
+                    'material_id' => $line['material']->id,
+                    'name' => $line['material']->name,
+                    'quantity' => $line['quantity'],
+                    'unit_cost' => (float) $line['material']->cost_per_g,
+                    'line_total' => $lineCost,
+                ];
+            }
+        }
+
+        $grandTotalCost = $totalCost + $productsCost + $orderPackagingCost;
 
         $unitPrice = $finalPrice / $quantity;
         // Lucro é sobre o que fica depois da taxa do canal e da comissão do expositor.
@@ -318,6 +348,9 @@ class QuoteCalculatorService
         return [
             'material_cost' => round($materialCost, 2),
             'materials' => $materialLinesOut,
+            'finishing_cost' => round($finishingCost, 2),
+            'order_packaging' => $orderPackaging,
+            'order_packaging_cost' => round($orderPackagingCost, 2),
             'sold_materials_cost' => round($soldMaterialsCost, 2),
             'sold_materials_total' => round($soldMaterialsTotal, 2),
             'energy_cost' => round($energyCost, 2),

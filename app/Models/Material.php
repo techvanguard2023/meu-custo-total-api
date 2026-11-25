@@ -41,6 +41,16 @@ class Material extends Model
         return $this->sale_price_per_unit !== null && (float) $this->sale_price_per_unit > 0;
     }
 
+    /** Acabamento ou embalagem (pela categoria): fica fora da taxa de falha e aparece separado na ficha. */
+    public function isFinishing(): bool
+    {
+        if ($this->material_category_id === null) {
+            return false;
+        }
+
+        return $this->loadMissing('category')->category?->role === MaterialCategory::ROLE_FINISHING;
+    }
+
     public function company(): BelongsTo
     {
         return $this->belongsTo(Company::class);

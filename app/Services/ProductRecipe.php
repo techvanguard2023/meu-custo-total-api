@@ -91,10 +91,14 @@ class ProductRecipe
             'extra_costs' => 0,
             // Rateio "por pedido" vale pro pedido inteiro, não pra cada unidade (igual ao pedido mínimo)
             'include_order_fixed_costs' => false,
+            // Embalagem do pedido vai uma vez por pedido, não em cada unidade
+            'include_order_packaging' => false,
         ], $lines->map(fn ($l) => ['material' => $l['material'], 'weight' => $l['quantity']])->all(), $printer, $unitSetting);
 
         return [
             'material_cost' => $calc['material_cost'],
+            // Parte dos insumos que é acabamento e embalagem (a tela mostra separado; fica fora da taxa de falha)
+            'finishing_cost' => $calc['finishing_cost'],
             'materials' => $calc['materials'],
             'energy_cost' => $calc['energy_cost'],
             'depreciation_cost' => $calc['depreciation_cost'],

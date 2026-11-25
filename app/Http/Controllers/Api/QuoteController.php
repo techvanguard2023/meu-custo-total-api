@@ -13,6 +13,7 @@ use App\Models\Printer;
 use App\Models\Product;
 use App\Models\ProductVariation;
 use App\Models\Quote;
+use App\Models\QuoteItem;
 use App\Models\SalesChannel;
 use App\Services\AdminAudit;
 use App\Services\Cashback;
@@ -188,6 +189,7 @@ class QuoteController extends Controller
             );
             $this->syncProductItems($quote, $breakdown);
             $this->syncMaterialItems($quote, $breakdown);
+            $this->syncPackagingItems($quote, $breakdown);
 
             return $quote;
         });
@@ -222,6 +224,7 @@ class QuoteController extends Controller
             $quote->update($this->quoteAttributes($data, $breakdown, $quote->status));
             $this->syncProductItems($quote, $breakdown);
             $this->syncMaterialItems($quote, $breakdown);
+            $this->syncPackagingItems($quote, $breakdown);
         });
 
         return response()->json($quote->fresh()->load(self::detailRelations()));
@@ -755,6 +758,7 @@ class QuoteController extends Controller
         ));
         $this->couponNotes[$quote->id] = $breakdown['coupon_note'];
         $this->syncProductItems($quote, $breakdown);
+        $this->syncPackagingItems($quote, $breakdown);
 
         $paymentMethod = ! $isCourtesy && $payFull ? $data['payment_method'] : null;
         $this->applyApproval($quote, $paymentMethod, $productionStatus);
@@ -861,6 +865,8 @@ class QuoteController extends Controller
                 ]);
             }
         }
+
+        $this->movePackaging($quote, -1, MaterialMovement::TYPE_QUOTE, "Embalagem do pedido #{$quote->id}");
 
         // Cashback usado no pedido sai do saldo do cliente agora, na aprovação (não na criação do orçamento)
         app(Cashback::class)->redeem($quote);
@@ -1126,6 +1132,8 @@ class QuoteController extends Controller
                 }
             }
 
+            $this->movePackaging($quote, 1, MaterialMovement::TYPE_QUOTE_RETURN, "Embalagem da venda #{$quote->id} cancelada");
+
             // Insumos da ficha técnica baixados quando o pedido entrou em produção
             app(ProductRecipe::class)->restoreForQuote($quote);
 
@@ -1287,6 +1295,7 @@ class QuoteController extends Controller
             'channel_fee_amount' => $breakdown['channel_fee_amount'],
             'tax_amount' => $breakdown['tax_amount'],
             'fixed_costs_amount' => $breakdown['fixed_costs_amount'],
+            'order_packaging_cost' => $breakdown['order_packaging_cost'] ?? 0,
             'status' => $status,
         ]);
     }
@@ -1310,6 +1319,25 @@ class QuoteController extends Controller
         }
     }
 
+    /** Embalagem do pedido: guardada no pedido (o que saiu do estoque volta igual se ele for cancelado). */
+    private function syncPackagingItems(Quote $quote, array $breakdown): void
+    {
+        $quote->items()->where('type', QuoteItem::TYPE_PACKAGING)->delete();
+
+        foreach ($breakdown['order_packaging'] ?? [] as $line) {
+            $quote->items()->create([
+                'material_id' => $line['material_id'],
+                'description' => $line['name'],
+                'type' => QuoteItem::TYPE_PACKAGING,
+                'quantity' => 1,
+                'unit_weight' => $line['quantity'],
+                'unit_cost' => $line['unit_cost'],
+                'unit_price' => 0,
+                'amount' => $line['line_total'],
+            ]);
+        }
+    }
+
     private function syncMaterialItems(Quote $quote, array $breakdown): void
     {
         $quote->items()->where('type', 'material')->delete();
@@ -1325,6 +1353,30 @@ class QuoteController extends Controller
                 // Vendido direto: preço de venda por g/un (0 = insumo consumido, só custo)
                 'unit_price' => $line['unit_price'] ?? 0,
                 'amount' => $line['line_total'],
+            ]);
+        }
+    }
+
+    /**
+     * Baixa (-1) ou devolve (+1) a embalagem do pedido. Falta de sacola não barra a venda: o saldo pode ficar
+     * negativo, como na ficha técnica.
+     */
+    private function movePackaging(Quote $quote, int $direction, string $type, string $note): void
+    {
+        $items = $quote->items()->where('type', QuoteItem::TYPE_PACKAGING)->whereNotNull('material_id')->get();
+        if ($items->isEmpty()) {
+            return;
+        }
+
+        $materials = Material::whereIn('id', $items->pluck('material_id'))->lockForUpdate()->get()->keyBy('id');
+        foreach ($items as $item) {
+            $material = $materials->get($item->material_id);
+            if (! $material || $material->stock_quantity === null) {
+                continue; // material excluído ou estoque não controlado
+            }
+            MaterialStock::move($material, $direction * (float) $item->unit_weight * (int) $item->quantity, $type, [
+                'quote_id' => $quote->id,
+                'note' => $note,
             ]);
         }
     }
@@ -1360,6 +1412,7 @@ class QuoteController extends Controller
         $companyId = $request->user()->company_id;
         $materials = Material::where('company_id', $companyId)
             ->whereIn('id', collect($lines)->pluck('material_id'))
+            ->with('category') // acabamento/embalagem fica fora da taxa de falha
             ->get()
             ->keyBy('id');
 

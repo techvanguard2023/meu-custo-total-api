@@ -300,6 +300,33 @@ class SettingsController extends Controller
     }
 
     /**
+     * Embalagem do pedido (sacola, caixa de envio, cartão de agradecimento...): vai uma vez em cada pedido, entra no
+     * custo (sai do lucro) e baixa o estoque quando a venda é aprovada. O preço para o cliente não muda.
+     */
+    public function updateOrderPackaging(Request $request)
+    {
+        $companyId = $request->user()->company_id;
+        $data = $request->validate([
+            'lines' => ['present', 'array', 'max:20'],
+            'lines.*.material_id' => ['required', 'integer', 'distinct', \Illuminate\Validation\Rule::exists('materials', 'id')->where('company_id', $companyId)],
+            'lines.*.quantity' => ['required', 'numeric', 'gt:0', 'max:9999'],
+        ], [
+            'lines.*.material_id.exists' => 'Escolha um material cadastrado na loja.',
+            'lines.*.material_id.distinct' => 'O mesmo material aparece duas vezes.',
+            'lines.*.quantity.gt' => 'Informe a quantidade de cada item.',
+        ]);
+
+        $setting = $request->user()->company->setting;
+        $setting->update([
+            'order_packaging' => collect($data['lines'])
+                ->map(fn ($l) => ['material_id' => (int) $l['material_id'], 'quantity' => round((float) $l['quantity'], 2)])
+                ->values()->all() ?: null,
+        ]);
+
+        return $setting->fresh();
+    }
+
+    /**
      * Nome da loja (errou no cadastro, mudou de nome). O endereço do catálogo, o QR das placas e a sessão do
      * WhatsApp usam o slug, que fica como está — nenhum link já divulgado quebra.
      */

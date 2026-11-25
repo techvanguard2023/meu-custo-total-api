@@ -12,7 +12,17 @@ class MaterialCategory extends Model
     public const PRICING_WEIGHT = 'weight';
     public const PRICING_UNIT = 'unit';
 
-    protected $fillable = ['company_id', 'segment', 'name', 'pricing_unit'];
+    /** Vira o produto (filamento, tecido, ingrediente): entra na taxa de falha. */
+    public const ROLE_PRODUCTION = 'production';
+
+    /** Acabamento e embalagem (caixa, sacola, tag, argola, tinta): só vai na peça boa, sem taxa de falha. */
+    public const ROLE_FINISHING = 'finishing';
+
+    public const ROLES = [self::ROLE_PRODUCTION, self::ROLE_FINISHING];
+
+    protected $fillable = ['company_id', 'segment', 'name', 'pricing_unit', 'role'];
+
+    protected $attributes = ['role' => self::ROLE_PRODUCTION];
 
     protected $appends = ['is_default'];
 

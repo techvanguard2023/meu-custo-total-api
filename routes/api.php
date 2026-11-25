@@ -426,6 +426,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/alexa/link', [AlexaLinkController::class, 'status']);
             Route::delete('/alexa/link', [AlexaLinkController::class, 'unlink']);
             Route::put('/settings/delivery', [SettingsController::class, 'updateDelivery']);
+            Route::put('/settings/order-packaging', [SettingsController::class, 'updateOrderPackaging']);
             // Bot do WhatsApp: próximas datas livres (token de integração — está em RestrictIntegrationTokens::ALLOWED)
             Route::get('/whatsapp/delivery-dates', [DeliveryDatesController::class, 'botDates']);
             Route::patch('/quotes/{quote}/pause', [QuoteController::class, 'pause']);

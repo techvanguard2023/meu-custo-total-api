@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\MaterialCategory;
+use App\Services\ProductRecipe;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -30,6 +31,7 @@ class MaterialCategoryController extends Controller
         $data = $request->validate([
             'name' => ['required', 'string', 'max:60', $this->uniqueName($companyId)],
             'pricing_unit' => ['required', Rule::in([MaterialCategory::PRICING_WEIGHT, MaterialCategory::PRICING_UNIT])],
+            'role' => ['sometimes', Rule::in(MaterialCategory::ROLES)],
         ], [
             'name.unique' => 'Já existe uma categoria com esse nome aqui.',
         ]);
@@ -38,6 +40,7 @@ class MaterialCategoryController extends Controller
             'company_id' => $companyId,
             'name' => trim($data['name']),
             'pricing_unit' => $data['pricing_unit'],
+            'role' => $data['role'] ?? MaterialCategory::ROLE_PRODUCTION,
         ]);
 
         return response()->json($category, 201);
@@ -49,11 +52,18 @@ class MaterialCategoryController extends Controller
 
         $data = $request->validate([
             'name' => ['required', 'string', 'max:60', $this->uniqueName($companyId)->ignore($materialCategory->id)],
+            'role' => ['sometimes', Rule::in(MaterialCategory::ROLES)],
         ], [
             'name.unique' => 'Já existe uma categoria com esse nome aqui.',
         ]);
 
-        $materialCategory->update(['name' => trim($data['name'])]);
+        $roleChanged = isset($data['role']) && $data['role'] !== $materialCategory->role;
+        $materialCategory->update(['name' => trim($data['name'])] + (isset($data['role']) ? ['role' => $data['role']] : []));
+
+        // Mudou de "produção" para "acabamento e embalagem" (ou o contrário): a taxa de falha dos produtos muda
+        if ($roleChanged) {
+            app(ProductRecipe::class)->refreshCompany($companyId);
+        }
 
         return response()->json($materialCategory);
     }

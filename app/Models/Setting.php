@@ -20,7 +20,7 @@ class Setting extends Model
         'company_id', 'electricity_rate_kwh', 'labor_hour_rate',
         'default_failure_rate', 'default_markup', 'minimum_order_price', 'order_discount_tiers',
         'cashback_enabled', 'cashback_purchase_percent', 'cashback_review_percent', 'cashback_referral_percent', 'cashback_max_redeem_percent', 'cashback_validity_months',
-        'delivery_rules', 'payment_rules', 'shipping_rules',
+        'delivery_rules', 'payment_rules', 'shipping_rules', 'order_packaging',
         'employees', 'fixed_expenses', 'fixed_costs_mode', 'estimated_monthly_revenue', 'orders_per_month', 'tax_percent', 'tax_fixed_monthly',
     ];
 
@@ -33,6 +33,7 @@ class Setting extends Model
         'delivery_rules' => 'array',
         'payment_rules' => 'array',
         'shipping_rules' => 'array',
+        'order_packaging' => 'array',
         'cashback_purchase_percent' => 'decimal:2',
         'cashback_review_percent' => 'decimal:2',
         'cashback_referral_percent' => 'decimal:2',
@@ -101,6 +102,27 @@ class Setting extends Model
         }
 
         return $this->fixedCostsMonthly() / $revenue * 100;
+    }
+
+    /**
+     * Embalagem do pedido (sacola, caixa de envio, cartão...): vai uma vez em cada pedido. Só os materiais que
+     * ainda existem na loja.
+     *
+     * @return \Illuminate\Support\Collection<int, array{material: Material, quantity: float}>
+     */
+    public function orderPackagingLines(): \Illuminate\Support\Collection
+    {
+        $rows = collect($this->order_packaging ?? [])->filter(fn ($r) => (float) ($r['quantity'] ?? 0) > 0);
+        if ($rows->isEmpty()) {
+            return collect();
+        }
+
+        $materials = Material::with('category')->where('company_id', $this->company_id)
+            ->whereIn('id', $rows->pluck('material_id'))->get()->keyBy('id');
+
+        return $rows->filter(fn ($r) => $materials->has($r['material_id']))
+            ->map(fn ($r) => ['material' => $materials[$r['material_id']], 'quantity' => (float) $r['quantity']])
+            ->values();
     }
 
     /** "Por pedido": valor somado ao total de cada pedido (folha + imposto fixo ÷ pedidos por mês). */

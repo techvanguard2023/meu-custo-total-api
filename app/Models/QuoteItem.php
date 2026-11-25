@@ -7,6 +7,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class QuoteItem extends Model
 {
+    /** Embalagem do pedido (Configurações): só custo e baixa de estoque, nunca aparece como item vendido. */
+    public const TYPE_PACKAGING = 'packaging';
+
     protected $fillable = [
         'quote_id', 'product_id', 'product_variation_id', 'material_id', 'description', 'type',
         'quantity', 'finished_quantity', 'delivered_quantity', 'unit_weight', 'unit_price', 'unit_cost', 'amount',
