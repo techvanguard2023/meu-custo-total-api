@@ -42,6 +42,20 @@ class QrCodes
             : $company->publicOrigin()."/qr/{$company->slug}/{$code}";
     }
 
+    /** O que vai dentro do QR: o "Pix copia e cola" no QR de Pix; nos outros, o link curto. */
+    public function content(QrCode $qr): string
+    {
+        return $qr->isPix() ? ($this->pixCode($qr) ?? '') : $this->linkUrl($qr);
+    }
+
+    /** "Pix copia e cola" do QR de Pix (null se não for de Pix ou faltar a chave). */
+    public function pixCode(QrCode $qr): ?string
+    {
+        $pix = $qr->isPix() ? $qr->pix : null;
+
+        return $pix && ! empty($pix['key']) ? PixBrCode::payload($pix) : null;
+    }
+
     /** Loja do link curto: pelo slug (no app) ou pelo domínio próprio do catálogo. */
     public function resolveCompany(?string $slug, ?string $host): ?Company
     {
@@ -87,6 +101,7 @@ class QrCodes
             QrCode::DEST_WHATSAPP => $this->whatsappUrl($company, trim(trim((string) $qr->whatsapp_message)."\n\n(QR: {$qr->code})")),
             QrCode::DEST_INSTAGRAM => trim((string) $company->catalog_instagram_url) ?: null,
             QrCode::DEST_URL => trim((string) $qr->destination_url) ?: null,
+            // Pix não passa pelo link curto (o banco lê o código direto do QR)
             default => null,
         };
 

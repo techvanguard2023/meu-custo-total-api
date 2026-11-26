@@ -11,6 +11,7 @@ use App\Models\ProductCategory;
 use App\Models\ProductCollection;
 use App\Models\QrCode;
 use App\Services\DisplayQrImage;
+use App\Services\PixBrCode;
 use App\Services\QrCodes;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
@@ -39,6 +40,12 @@ class QrCodeController extends Controller
             'items' => $items,
             'limit' => $company->isPro() ? null : QrCode::ESSENTIAL_LIMIT,
             'has_logo' => (bool) $company->logo_path,
+            // QR de Pix: sugere a chave do bot (Configurações → Pagamento), o nome da loja e a cidade do último QR de Pix
+            'pix_defaults' => [
+                'key' => trim((string) $company->whatsapp_pix_key) ?: null,
+                'name' => PixBrCode::plainText($company->name, PixBrCode::NAME_MAX) ?: null,
+                'city' => $items->firstWhere('destination_type', QrCode::DEST_PIX)['pix']['city'] ?? null,
+            ],
         ]);
     }
 
@@ -93,7 +100,9 @@ class QrCodeController extends Controller
         $this->authorizeOwn($request, $qrCode);
         $qrCode->loadMissing('company');
         $format = $request->query('format') === 'svg' ? 'svg' : 'png';
-        $url = $this->qrCodes->linkUrl($qrCode);
+        // O que vai no QR: o "Pix copia e cola" no QR de Pix; nos outros, o link curto
+        $url = $this->qrCodes->content($qrCode);
+        abort_if($url === '', 422, 'Este QR Code de Pix está sem chave.');
         $logo = $this->logoBytes($qrCode);
         $filename = 'qrcode-'.Str::slug($qrCode->name ?: $qrCode->code).".{$format}";
 
@@ -124,9 +133,12 @@ class QrCodeController extends Controller
         $size = $request->query('size') === 'a5' ? 'a5' : 'a6';
         $company = $qrCode->company;
         $link = $this->qrCodes->linkUrl($qrCode);
+        $content = $this->qrCodes->content($qrCode);
+        abort_if($content === '', 422, 'Este QR Code de Pix está sem chave.');
         $logo = $this->logoBytes($qrCode, force: true);
+        $pix = $qrCode->isPix() ? $qrCode->pix : null;
 
-        $png = $image->render($link, $qrCode->color, $qrCode->with_logo ? $logo : null);
+        $png = $image->render($content, $qrCode->color, $qrCode->with_logo ? $logo : null);
         abort_unless($png, 503, 'O servidor não conseguiu gerar o QR Code.');
 
         $pdf = Pdf::loadView('pdf.qr-print', [
@@ -134,7 +146,10 @@ class QrCodeController extends Controller
             'logo' => $logo ? $this->dataUri($logo) : null,
             'headline' => trim((string) $qrCode->headline) ?: $this->defaultHeadline($qrCode),
             'qr' => 'data:image/png;base64,'.base64_encode($png),
-            'link' => preg_replace('#^https?://#', '', $link),
+            // QR de Pix: no lugar do link, a chave e o valor (quem não consegue ler o QR digita a chave no banco)
+            'link' => $pix ? null : preg_replace('#^https?://#', '', $link),
+            'pixKey' => $pix ? $this->pixKeyLabel($pix) : null,
+            'pixAmount' => $pix && (float) ($pix['amount'] ?? 0) > 0 ? 'R$ '.number_format((float) $pix['amount'], 2, ',', '.') : null,
             'coupon' => $this->qrCodes->usableCoupon($qrCode)?->code,
             'accent' => DisplayQrImage::readableColor($qrCode->color) ? $qrCode->color : '#111827',
             'size' => $size,
@@ -166,8 +181,10 @@ class QrCodeController extends Controller
         $ip = $this->visitorIp($request);
         $userAgent = $request->header('X-Visitor-Agent') ?: $request->userAgent();
 
-        $url = $qr && $qr->active ? $this->qrCodes->destinationUrl($qr) : null;
-        if ($qr && $qr->active && ! QrCodes::isBot($userAgent)) {
+        // QR de Pix não passa pelo link curto: se alguém digitar o endereço dele, vai para a loja sem contar
+        $usable = $qr && $qr->active && ! $qr->isPix();
+        $url = $usable ? $this->qrCodes->destinationUrl($qr) : null;
+        if ($usable && ! QrCodes::isBot($userAgent)) {
             $this->qrCodes->record($qr, $data['via'] ?? QrCode::KIND_SCAN, $ip, $userAgent);
         }
 
@@ -227,6 +244,7 @@ class QrCodeController extends Controller
             QrCode::DEST_INSTAGRAM => 'Aponte a câmera e siga a gente no Instagram',
             QrCode::DEST_PRODUCT => 'Aponte a câmera e veja este produto',
             QrCode::DEST_URL => 'Aponte a câmera do celular',
+            QrCode::DEST_PIX => 'Pague com Pix: abra o app do banco e leia o QR Code',
             default => 'Aponte a câmera e veja nosso catálogo',
         };
     }
@@ -251,7 +269,20 @@ class QrCodeController extends Controller
             'color' => ['nullable', 'regex:/^#[0-9a-f]{6}$/i'],
             'with_logo' => ['sometimes', 'boolean'],
             'headline' => ['nullable', 'string', 'max:80'],
+            'pix' => ['nullable', 'required_if:destination_type,pix', 'array'],
+            'pix.key_type' => ['required_if:destination_type,pix', Rule::in(PixBrCode::KEY_TYPES)],
+            'pix.key' => ['required_if:destination_type,pix', 'nullable', 'string', 'max:100'],
+            'pix.name' => ['required_if:destination_type,pix', 'nullable', 'string', 'max:60'],
+            'pix.city' => ['required_if:destination_type,pix', 'nullable', 'string', 'max:40'],
+            'pix.amount' => ['nullable', 'numeric', 'min:0.01', 'max:999999.99'],
+            'pix.description' => ['nullable', 'string', 'max:40'],
+            'pix.txid' => ['nullable', 'string', 'max:25', 'regex:/^[a-z0-9]*$/i'],
         ], [
+            'pix.key.required_if' => 'Informe a chave Pix.',
+            'pix.name.required_if' => 'Informe o nome de quem recebe o Pix.',
+            'pix.city.required_if' => 'Informe a cidade de quem recebe o Pix.',
+            'pix.amount.min' => 'O valor do Pix tem que ser maior que zero (ou deixe em branco).',
+            'pix.txid.regex' => 'O identificador aceita só letras e números, sem espaço.',
             'code.unique' => 'Esse final de link já está em uso em outro QR Code da loja.',
             'code.regex' => 'Use só letras, números e hífen no final do link.',
             'destination_url.required_if' => 'Informe o link de destino.',
@@ -280,6 +311,7 @@ class QrCodeController extends Controller
         if ($type !== QrCode::DEST_WHATSAPP) {
             $data['whatsapp_message'] = null;
         }
+        $data['pix'] = $type === QrCode::DEST_PIX ? $this->validatedPix($data['pix'] ?? []) : null;
 
         // Cupom: só no catálogo (é onde o carrinho aplica) e só no Pro (cupons são do Pro)
         $catalogType = in_array($type, [QrCode::DEST_CATALOG, QrCode::DEST_PRODUCT, QrCode::DEST_CATEGORY, QrCode::DEST_COLLECTION], true);
@@ -306,6 +338,55 @@ class QrCodeController extends Controller
         $data['code'] = $code;
 
         return $data;
+    }
+
+    /** Chave conferida e normalizada para o tipo; nome e cidade como o padrão do Pix pede (sem acento, curtos). */
+    private function validatedPix(array $pix): array
+    {
+        $type = $pix['key_type'];
+        $key = PixBrCode::normalizeKey($type, $pix['key'] ?? null);
+        abort_unless($key, 422, match ($type) {
+            'cpf' => 'CPF inválido: confira os números da chave.',
+            'cnpj' => 'CNPJ inválido: confira os números da chave.',
+            'email' => 'E-mail inválido para chave Pix.',
+            'phone' => 'Celular inválido: use DDD + número (ex: 21 98888-7777).',
+            default => 'Chave aleatória inválida: cole a chave completa (36 caracteres, com os hífens).',
+        });
+
+        $name = PixBrCode::plainText($pix['name'] ?? '', PixBrCode::NAME_MAX);
+        $city = PixBrCode::plainText($pix['city'] ?? '', PixBrCode::CITY_MAX);
+        abort_if($name === '' || $city === '', 422, 'Informe o nome e a cidade de quem recebe o Pix (sem símbolos).');
+        $amount = isset($pix['amount']) && $pix['amount'] !== '' ? round((float) $pix['amount'], 2) : null;
+        $txid = PixBrCode::txid($pix['txid'] ?? null);
+
+        $data = [
+            'key_type' => $type,
+            'key' => $key,
+            'name' => $name,
+            'city' => $city,
+            'amount' => $amount,
+            'description' => PixBrCode::plainText($pix['description'] ?? '', 40) ?: null,
+            'txid' => $txid === '***' ? null : $txid,
+        ];
+        // Confere o código montado antes de salvar (não pode sair um QR que o banco recusa)
+        abort_unless(PixBrCode::isValid(PixBrCode::payload($data)), 422, 'Não foi possível montar o Pix com esses dados.');
+
+        return $data;
+    }
+
+    /** Chave para mostrar na arte (com pontuação), com o tipo na frente. */
+    private function pixKeyLabel(array $pix): string
+    {
+        $key = (string) $pix['key'];
+        $shown = match ($pix['key_type']) {
+            'cpf' => preg_replace('/(\d{3})(\d{3})(\d{3})(\d{2})/', '$1.$2.$3-$4', $key),
+            'cnpj' => preg_replace('/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/', '$1.$2.$3/$4-$5', $key),
+            'phone' => preg_replace('/^\+55(\d{2})(\d{4,5})(\d{4})$/', '($1) $2-$3', $key),
+            default => $key,
+        };
+        $label = ['cpf' => 'CPF', 'cnpj' => 'CNPJ', 'email' => 'E-mail', 'phone' => 'Celular', 'random' => 'Chave aleatória'][$pix['key_type']] ?? 'Chave';
+
+        return "{$label}: {$shown}";
     }
 
     private function uniqueCode(int $companyId, string $name): string
@@ -336,6 +417,9 @@ class QrCodeController extends Controller
             'color' => $qr->color,
             'with_logo' => $qr->with_logo,
             'headline' => $qr->headline,
+            'pix' => $qr->pix,
+            // "Pix copia e cola" (só no QR de Pix): o mesmo código que vai no QR, para copiar e mandar
+            'pix_code' => $this->qrCodes->pixCode($qr),
             'active' => $qr->active,
             'link' => $this->qrCodes->linkUrl($qr),
             'resolved_url' => $this->qrCodes->destinationUrl($qr),

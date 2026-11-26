@@ -18,6 +18,8 @@
     .qr { width: {{ $big ? '310px' : '230px' }}; height: {{ $big ? '310px' : '230px' }}; }
     .coupon { display: inline-block; margin-top: {{ $big ? '22px' : '14px' }}; padding: {{ $big ? '10px 20px' : '6px 14px' }}; border: 2px dashed {{ $accent }}; border-radius: 8px; font-size: {{ $big ? '15px' : '11px' }}; }
     .coupon strong { letter-spacing: 1px; }
+    .pix-amount { margin: {{ $big ? '16px' : '10px' }} 0 0; font-size: {{ $big ? '24px' : '17px' }}; font-weight: bold; color: {{ $accent }}; }
+    .pix-key { margin: {{ $big ? '10px' : '6px' }} 0 0; font-size: {{ $big ? '15px' : '11px' }}; color: #374151; word-wrap: break-word; }
     .link { margin-top: {{ $big ? '20px' : '12px' }}; font-size: {{ $big ? '14px' : '10px' }}; color: #6b7280; }
 </style>
 </head>
@@ -33,7 +35,15 @@
         @if ($coupon)
             <div class="coupon">Cupom já aplicado: <strong>{{ $coupon }}</strong></div>
         @endif
-        <p class="link">{{ $link }}</p>
+        @if (! empty($pixAmount))
+            <p class="pix-amount">{{ $pixAmount }}</p>
+        @endif
+        @if (! empty($pixKey))
+            <p class="pix-key">{{ $pixKey }}</p>
+        @endif
+        @if ($link)
+            <p class="link">{{ $link }}</p>
+        @endif
     </div>
 </body>
 </html>

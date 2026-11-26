@@ -19,9 +19,12 @@ class QrCode extends Model
     public const DEST_INSTAGRAM = 'instagram';
     public const DEST_URL = 'url';
 
+    /** Pix da loja: o QR leva o "Pix copia e cola" (fixo, sem link curto nem contagem). Ver App\Services\PixBrCode. */
+    public const DEST_PIX = 'pix';
+
     public const DESTINATIONS = [
         self::DEST_CATALOG, self::DEST_PRODUCT, self::DEST_CATEGORY, self::DEST_COLLECTION,
-        self::DEST_WHATSAPP, self::DEST_INSTAGRAM, self::DEST_URL,
+        self::DEST_WHATSAPP, self::DEST_INSTAGRAM, self::DEST_URL, self::DEST_PIX,
     ];
 
     /** Essencial: até 5 QR Codes; Pro: sem limite. */
@@ -35,15 +38,21 @@ class QrCode extends Model
 
     protected $fillable = [
         'company_id', 'name', 'code', 'channel', 'destination_type', 'destination_id', 'destination_url', 'whatsapp_message', 'active',
-        'coupon_id', 'color', 'with_logo', 'headline',
+        'coupon_id', 'color', 'with_logo', 'headline', 'pix',
     ];
 
     protected $casts = [
+        'pix' => 'array',
         'active' => 'boolean',
         'destination_id' => 'integer',
         'coupon_id' => 'integer',
         'with_logo' => 'boolean',
     ];
+
+    public function isPix(): bool
+    {
+        return $this->destination_type === self::DEST_PIX;
+    }
 
     public function company(): BelongsTo
     {
