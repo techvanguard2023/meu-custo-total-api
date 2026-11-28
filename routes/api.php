@@ -60,6 +60,7 @@ use App\Http\Middleware\RestrictIntegrationTokens;
 use App\Http\Controllers\Admin\AnnouncementController as AdminAnnouncementController;
 use App\Http\Controllers\Admin\TourController as AdminTourController;
 use App\Http\Controllers\Admin\SystemController as AdminSystemController;
+use App\Http\Controllers\Admin\PlatformWhatsAppController as AdminPlatformWhatsAppController;
 use App\Http\Controllers\Admin\FeatureController as AdminFeatureController;
 use App\Http\Controllers\Admin\CompanyController as AdminCompanyController;
 use App\Http\Controllers\Admin\FinanceController as AdminFinanceController;
@@ -224,6 +225,11 @@ Route::prefix('v1')->group(function () {
             Route::get('/system/failed-jobs', [AdminSystemController::class, 'failedJobs']);
             // WhatsApp da plataforma (mensagens do admin e suporte) caído: reiniciar a sessão
             Route::post('/system/platform-whatsapp/restart', [AdminSystemController::class, 'restartPlatformWhatsapp'])->middleware('throttle:10,1');
+            // Conectar (QR Code), desconectar e apagar a sessão da WAHA do número da plataforma pelo painel
+            Route::get('/system/platform-whatsapp', [AdminPlatformWhatsAppController::class, 'show']);
+            Route::post('/system/platform-whatsapp/connect', [AdminPlatformWhatsAppController::class, 'connect'])->middleware('throttle:10,1');
+            Route::post('/system/platform-whatsapp/disconnect', [AdminPlatformWhatsAppController::class, 'disconnect'])->middleware('throttle:10,1');
+            Route::delete('/system/platform-whatsapp', [AdminPlatformWhatsAppController::class, 'destroy'])->middleware('throttle:10,1');
             // Recursos que aparecem (ou não) para os lojistas — ex.: Alexa
             Route::get('/features', [AdminFeatureController::class, 'index']);
             Route::patch('/features', [AdminFeatureController::class, 'update']);

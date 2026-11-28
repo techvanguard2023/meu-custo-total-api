@@ -341,4 +341,13 @@ class WahaClient
         $this->http()->post("/sessions/{$name}/logout");
         $this->http()->post("/sessions/{$name}/stop");
     }
+
+    /** Apaga a sessão da WAHA (desloga o aparelho e some da lista). Já não existir não é erro. */
+    public function deleteSession(string $name): void
+    {
+        $response = $this->http()->delete("/sessions/{$name}");
+        if ($response->status() !== 404) {
+            $response->throw();
+        }
+    }
 }

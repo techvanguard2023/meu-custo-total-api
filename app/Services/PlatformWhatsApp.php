@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Company;
+use App\Models\PlatformSetting;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -24,9 +25,27 @@ class PlatformWhatsApp
     /** Sessão do número da plataforma e a situação dela (null = não configurada). Usada também em Admin → Sistema. */
     public function session(): ?string
     {
-        $session = (string) config('services.platform.support_waha_session');
+        $session = self::sessionName();
 
-        return $session !== '' && $this->waha->isConfigured() ? $session : null;
+        return $session !== null && $this->waha->isConfigured() ? $session : null;
+    }
+
+    /** Nome da sessão: a criada pelo painel (Admin → Sistema) ou, sem ela, PLATFORM_WAHA_SESSION do .env. */
+    public static function sessionName(): ?string
+    {
+        $session = trim((string) (PlatformSetting::get(PlatformSetting::PLATFORM_WAHA_SESSION) ?: config('services.platform.support_waha_session')));
+
+        return $session !== '' ? $session : null;
+    }
+
+    /** De onde vem o nome: "panel" (criada no painel), "env" (.env) ou null (nenhuma). */
+    public static function sessionSource(): ?string
+    {
+        if (trim((string) PlatformSetting::get(PlatformSetting::PLATFORM_WAHA_SESSION)) !== '') {
+            return 'panel';
+        }
+
+        return trim((string) config('services.platform.support_waha_session')) !== '' ? 'env' : null;
     }
 
     /** @return array{status: string, problem: string|null}|null  null = não configurada */

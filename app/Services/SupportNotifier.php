@@ -80,7 +80,8 @@ class SupportNotifier
 
     private function whatsappToPlatform(SupportTicket $ticket, SupportMessage $message, bool $isNew): void
     {
-        $session = (string) config('services.platform.support_waha_session');
+        // A do painel (Admin → Sistema) ou a do .env
+        $session = (string) PlatformWhatsApp::sessionName();
         $numbers = config('services.platform.support_whatsapp', []);
         if ($session === '' || ! $numbers || ! $this->waha->isConfigured()) {
             return;

@@ -16,6 +16,12 @@ class PlatformSetting extends Model
 
     public const PAGBANK_VISIBLE = 'pagbank_visible';
 
+    /**
+     * Nome da sessão da WAHA do WhatsApp da plataforma (suporte, mensagens do admin), criada em Admin → Sistema.
+     * Vazio = usa PLATFORM_WAHA_SESSION do .env (como era antes de dar para conectar pelo painel).
+     */
+    public const PLATFORM_WAHA_SESSION = 'platform_waha_session';
+
     public const DEFAULTS = [
         self::ALEXA_VISIBLE => false,
         self::MERCADOPAGO_VISIBLE => true,
